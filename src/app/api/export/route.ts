@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data || !data.length) break;
 
-    for (const row of data as Record<string, unknown>[]) {
+    for (const row of data as unknown as Record<string, unknown>[]) {
       lines.push(EXPORT_COLUMNS.map((c) => csvEscape(row[c])).join(","));
     }
     if (data.length < pageSize) break;
