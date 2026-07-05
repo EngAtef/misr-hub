@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUser } from "@/lib/supabase/api-auth";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
 
@@ -18,10 +17,10 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const admin = createAdminClient();
+  const db = user.supabase;
 
   if (body.action === "start") {
-    const { data, error } = await admin
+    const { data, error } = await db
       .from("uploads")
       .insert({
         file_name: String(body.fileName ?? "unknown.xlsx"),
@@ -43,19 +42,19 @@ export async function POST(request: NextRequest) {
     const orderRows = orders.map((o) => o.order);
     const orderNumbers = orderRows.map((o) => String(o.order_number));
 
-    const { error: orderError } = await admin
+    const { error: orderError } = await db
       .from("orders")
       .upsert(orderRows, { onConflict: "order_number" });
     if (orderError) return NextResponse.json({ error: orderError.message }, { status: 500 });
 
     // Replace items/events for re-imported orders
-    const { error: delItemsError } = await admin
+    const { error: delItemsError } = await db
       .from("order_items")
       .delete()
       .in("order_number", orderNumbers);
     if (delItemsError) return NextResponse.json({ error: delItemsError.message }, { status: 500 });
 
-    const { error: delEventsError } = await admin
+    const { error: delEventsError } = await db
       .from("order_events")
       .delete()
       .in("order_number", orderNumbers);
@@ -65,7 +64,7 @@ export async function POST(request: NextRequest) {
       o.items.map((it) => ({ ...it, order_number: String(o.order.order_number) }))
     );
     if (itemRows.length) {
-      const { error } = await admin.from("order_items").insert(itemRows);
+      const { error } = await db.from("order_items").insert(itemRows);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -73,7 +72,7 @@ export async function POST(request: NextRequest) {
       o.events.map((ev) => ({ ...ev, order_number: String(o.order.order_number) }))
     );
     if (eventRows.length) {
-      const { error } = await admin.from("order_events").insert(eventRows);
+      const { error } = await db.from("order_events").insert(eventRows);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -82,7 +81,7 @@ export async function POST(request: NextRequest) {
 
   if (body.action === "finish") {
     const status = body.failedRows > 0 && body.processedRows === 0 ? "failed" : "completed";
-    await admin
+    await db
       .from("uploads")
       .update({
         processed_rows: Number(body.processedRows ?? 0),
@@ -93,7 +92,7 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", body.uploadId);
 
-    await admin.from("audit_log").insert({
+    await db.from("audit_log").insert({
       user_id: user.id,
       user_email: user.email,
       action: "import_orders",

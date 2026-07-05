@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUser } from "@/lib/supabase/api-auth";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);
@@ -8,35 +7,30 @@ export async function POST(request: NextRequest) {
   if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await request.json();
-  const admin = createAdminClient();
+  const db = user.supabase;
 
   if (body.action === "create") {
     const { email, password, fullName, role } = body;
     if (!email || !password || !["admin", "manager", "viewer"].includes(role)) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: fullName ?? "", role },
+
+    const { data, error } = await db.rpc("admin_create_user", {
+      p_email: email,
+      p_password: password,
+      p_full_name: fullName ?? "",
+      p_role: role,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    // The trigger may have assigned a bootstrap role; enforce the requested one.
-    await admin
-      .from("profiles")
-      .update({ role, full_name: fullName ?? null })
-      .eq("id", data.user.id);
-
-    await admin.from("audit_log").insert({
+    await db.from("audit_log").insert({
       user_id: user.id,
       user_email: user.email,
       action: "create_user",
       details: { email, role },
     });
 
-    return NextResponse.json({ ok: true, userId: data.user.id });
+    return NextResponse.json({ ok: true, userId: data });
   }
 
   if (body.action === "update") {
@@ -50,10 +44,10 @@ export async function POST(request: NextRequest) {
     if (role && ["admin", "manager", "viewer"].includes(role)) updates.role = role;
     if (typeof isActive === "boolean") updates.is_active = isActive;
 
-    const { error } = await admin.from("profiles").update(updates).eq("id", userId);
+    const { error } = await db.from("profiles").update(updates).eq("id", userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    await admin.from("audit_log").insert({
+    await db.from("audit_log").insert({
       user_id: user.id,
       user_email: user.email,
       action: "update_user",

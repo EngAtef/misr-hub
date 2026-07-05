@@ -47,7 +47,8 @@ Total time: ~15 minutes. You need free accounts on [supabase.com](https://supaba
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` |
-   | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` |
+
+   (Already committed in `.env.production` for the current Supabase project, so this step is optional unless you point the app at a different database. `SUPABASE_SERVICE_ROLE_KEY` is only needed if you enable the weekly email reports.)
 
 5. Click **Deploy**. After ~2 minutes you get your URL:
    `https://misr-hub.vercel.app` (you can rename it in Vercel → Settings → Domains, or attach your own domain like `hub.aladwaa.org`).

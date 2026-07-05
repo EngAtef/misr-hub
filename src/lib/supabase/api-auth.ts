@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type Role = "admin" | "manager" | "viewer";
 
@@ -7,10 +8,11 @@ export interface ApiUser {
   id: string;
   email: string;
   role: Role;
+  supabase: SupabaseClient;
 }
 
 // Authenticates an API request from cookies and returns the caller's
-// profile role, or null if not signed in / inactive.
+// profile role plus a session-scoped client (RLS applies), or null.
 export async function getApiUser(request: NextRequest): Promise<ApiUser | null> {
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,5 +40,10 @@ export async function getApiUser(request: NextRequest): Promise<ApiUser | null> 
 
   if (!profile || !profile.is_active) return null;
 
-  return { id: user.id, email: profile.email ?? user.email ?? "", role: profile.role as Role };
+  return {
+    id: user.id,
+    email: profile.email ?? user.email ?? "",
+    role: profile.role as Role,
+    supabase,
+  };
 }

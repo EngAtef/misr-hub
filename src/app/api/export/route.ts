@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUser } from "@/lib/supabase/api-auth";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
 
@@ -44,7 +43,7 @@ export async function GET(request: NextRequest) {
   const from = params.get("from");
   const to = params.get("to");
 
-  const admin = createAdminClient();
+  const admin = user.supabase;
   const pageSize = 1000;
   let offset = 0;
   const lines: string[] = [EXPORT_COLUMNS.join(",")];
