@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { Search, Download, X } from "lucide-react";
+import { Search, Download, X, MessageCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { PageHeader, StatusBadge, Spinner } from "@/components/ui";
 import { formatMoney, formatDateTime, formatNumber } from "@/lib/utils";
+import { whatsappLink } from "@/lib/whatsapp";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -238,9 +239,28 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.order_status} />
             {order.delivery_status && <StatusBadge status={order.delivery_status} />}
+            {(() => {
+              const wa = whatsappLink(
+                order.customer_phone,
+                "general",
+                { customerName: order.customer_name, orderNumber: order.order_number },
+                lang
+              );
+              return wa ? (
+                <a
+                  href={wa}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ms-auto inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                >
+                  <MessageCircle size={14} />
+                  {t("whatsappFollowUp")}
+                </a>
+              ) : null;
+            })()}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

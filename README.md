@@ -13,6 +13,9 @@ Arabic-first (RTL) with a full English toggle.
 | **Analytics** | 7 dashboards: Sales, Delivery, Payments, Geography, Products, Returns & Cancellations, Team activity |
 | **Smart Insights** | Automatic marketing / revenue / stock / social-ads / operations recommendations computed from your live data, plus an "orders needing attention" follow-up queue |
 | **Campaigns** | Campaign manager (Facebook, Instagram, TikTok, SMS, WhatsApp…) with budget vs attributed revenue and ROAS, matched to orders via promo code or Campaign Id |
+| **Customers (RFM)** | Automatic segmentation into Champions / Loyal / New / Promising / At-Risk / Hibernating with per-segment marketing playbook, contact-list CSV export, and one-click WhatsApp |
+| **WhatsApp follow-up** | Prefilled Arabic/English WhatsApp messages (wa.me) per situation: stuck shipment, pending return, unshipped order, failed delivery — no API account needed |
+| **Email reports** | Weekly performance email (Vercel Cron + Resend): KPIs with week-over-week trends, top cities & products |
 | **Reports** | 10 ready reports with date range filters, every one exportable to CSV (Excel-compatible), plus full orders export |
 | **Data Center** | Drag-and-drop OrderExport .xlsx import — parses 143 columns incl. products (split into items) and up to 29 status transitions per order. Re-imports update existing orders and never delete history. Upload log included |
 | **Users** | Role-based access: **Admin** (everything + users + audit), **Manager** (upload + all reports), **Viewer** (read-only) |

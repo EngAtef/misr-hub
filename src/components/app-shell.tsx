@@ -18,6 +18,7 @@ import {
   X,
   Lightbulb,
   Megaphone,
+  HeartHandshake,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"] },
   { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"] },
   { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"] },
+  { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
   { href: "/campaigns", labelKey: "campaigns", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
   { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
   { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"] },

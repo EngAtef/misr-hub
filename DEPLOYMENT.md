@@ -14,7 +14,7 @@ Total time: ~15 minutes. You need free accounts on [supabase.com](https://supaba
 
 4. In the left sidebar open **SQL Editor** → **New query**.
 5. Copy the entire contents of [`supabase/migrations/001_init.sql`](./supabase/migrations/001_init.sql), paste, and click **Run**.
-6. Do the same with [`supabase/migrations/002_campaigns.sql`](./supabase/migrations/002_campaigns.sql).
+6. Do the same with [`supabase/migrations/002_campaigns.sql`](./supabase/migrations/002_campaigns.sql), then [`supabase/migrations/003_rfm.sql`](./supabase/migrations/003_rfm.sql).
 
 ### Create your first user (becomes admin automatically)
 
@@ -65,6 +65,25 @@ Total time: ~15 minutes. You need free accounts on [supabase.com](https://supaba
    - **Viewer** — dashboards & reports only.
 
 ---
+
+## Optional: weekly email reports (5 min)
+
+The app can email a weekly performance summary (orders, revenue, trends vs previous week, top cities & products) every Monday 8am Cairo time.
+
+1. Create a free account at <https://resend.com> → **API Keys** → create a key.
+2. (Recommended) Verify your domain in Resend so emails come from e.g. `reports@aladwaa.org`. Without it, use the test sender.
+3. In Vercel → your project → **Settings → Environment Variables**, add:
+
+   | Name | Value |
+   |---|---|
+   | `RESEND_API_KEY` | `re_...` from Resend |
+   | `REPORT_RECIPIENTS` | `you@aladwaa.org, manager@aladwaa.org` |
+   | `REPORT_FROM` | `Misr Hub <reports@yourdomain.org>` (optional) |
+   | `CRON_SECRET` | any long random string (protects the endpoint) |
+
+4. Redeploy. The schedule lives in `vercel.json` (`0 6 * * 1` = Mondays 06:00 UTC). To test immediately, open `/api/cron/report` while it's unprotected, or use Vercel's cron "Run" button.
+
+Note: migration `003_rfm.sql` must also be run in the Supabase SQL Editor (same as the other two) — it powers the Customers segmentation page.
 
 ## Updating the app later
 
