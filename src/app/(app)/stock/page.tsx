@@ -19,16 +19,18 @@ interface ReorderRow {
   lead_time_days: number;
   days_of_cover: number | null;
   suggested_reorder: number;
-  priority: "urgent" | "high" | "rising" | "normal";
+  priority: "stockout" | "urgent" | "high" | "rising" | "normal";
 }
 
 const PRIORITY_STYLE: Record<string, string> = {
+  stockout: "bg-fuchsia-100 text-fuchsia-800",
   urgent: "bg-red-100 text-red-700",
   high: "bg-amber-100 text-amber-800",
   rising: "bg-blue-100 text-blue-800",
   normal: "bg-slate-100 text-slate-600",
 };
 const PRIORITY_KEY: Record<string, DictKey> = {
+  stockout: "prioStockout",
   urgent: "prioUrgent",
   high: "prioHigh",
   rising: "prioRising",
@@ -39,7 +41,8 @@ export default function StockPage() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [periodDays, setPeriodDays] = useState(30);
-  const [coverDays, setCoverDays] = useState(30);
+  const [coverDays, setCoverDays] = useState(45);
+  const [maxOrder, setMaxOrder] = useState(150);
   const [rows, setRows] = useState<ReorderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -51,10 +54,11 @@ export default function StockPage() {
       p_period_days: periodDays,
       p_cover_days: coverDays,
       p_min_units: 3,
+      p_max_order: maxOrder,
     });
     setRows((data as ReorderRow[]) ?? []);
     setLoading(false);
-  }, [supabase, periodDays, coverDays]);
+  }, [supabase, periodDays, coverDays, maxOrder]);
 
   useEffect(() => {
     load();
@@ -79,6 +83,15 @@ export default function StockPage() {
     downloadCsv(`reorder-suggestions-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
   }
 
+  // Exactly the format sent to the warehouse team: Sku | product name | restock
+  function exportForTeam() {
+    const list = rows
+      .filter((r) => r.suggested_reorder > 0 && r.sku !== "(no sku)")
+      .map((r) => ({ Sku: r.sku, "product name": r.product_name, restock: r.suggested_reorder }));
+    if (!list.length) return;
+    downloadCsv(`restock-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(list));
+  }
+
   return (
     <div>
       <PageHeader
@@ -86,10 +99,16 @@ export default function StockPage() {
         subtitle={t("stockSubtitle")}
         actions={
           rows.length > 0 ? (
-            <button className="btn-secondary" onClick={exportCsv}>
-              <Download size={16} />
-              {t("exportCsv")}
-            </button>
+            <div className="flex gap-2">
+              <button className="btn-primary" onClick={exportForTeam}>
+                <Download size={16} />
+                {t("exportForTeam")}
+              </button>
+              <button className="btn-secondary" onClick={exportCsv}>
+                <Download size={16} />
+                {t("exportCsv")}
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -107,6 +126,14 @@ export default function StockPage() {
           <label className="block text-xs font-semibold mb-1 text-slate-500">{t("coverDays")}</label>
           <select className="input !w-auto" value={coverDays} onChange={(e) => setCoverDays(Number(e.target.value))}>
             {[15, 30, 45, 60, 90].map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1 text-slate-500">{t("maxOrder")}</label>
+          <select className="input !w-auto" value={maxOrder} onChange={(e) => setMaxOrder(Number(e.target.value))}>
+            {[50, 100, 150, 200, 300].map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
