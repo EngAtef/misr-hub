@@ -4,6 +4,7 @@ import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState } from "@/components/ui";
+import { AlertsBar } from "@/components/alerts-bar";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
@@ -26,6 +27,8 @@ export default function OverviewPage() {
   return (
     <div>
       <PageHeader title={t("overview")} actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />} />
+
+      <AlertsBar />
 
       {kpis.loading ? (
         <Spinner />

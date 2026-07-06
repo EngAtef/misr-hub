@@ -23,6 +23,8 @@ export type FollowUpReason =
   | "return_pending"
   | "not_shipped"
   | "delivery_failed"
+  | "birthday"
+  | "winback"
   | "general";
 
 interface TemplateInput {
@@ -46,6 +48,14 @@ const TEMPLATES: Record<FollowUpReason, (i: TemplateInput) => { ar: string; en: 
   delivery_failed: ({ customerName, orderNumber }) => ({
     ar: `مرحباً ${customerName ?? "عميلنا العزيز"} 🌹\nحاول المندوب توصيل طلبك رقم #${orderNumber} ولم يتمكن من الوصول إليك. ما هو الوقت المناسب لإعادة محاولة التوصيل؟`,
     en: `Hello ${customerName ?? "dear customer"} 🌹\nOur courier attempted to deliver your order #${orderNumber} but couldn't reach you. What time suits you for another delivery attempt?`,
+  }),
+  birthday: ({ customerName }) => ({
+    ar: `كل سنة وأنت طيب ${customerName ?? ""} 🎂🎈\nمكتبة نهضة مصر بتحتفل معاك بعيد ميلادك! 🎁 استخدم كود BDAY وخد خصم خاص على طلبك الجاي من موقعنا. عقبال 100 كتاب! 📚`,
+    en: `Happy birthday ${customerName ?? ""} 🎂🎈\nNahdet Misr Bookstore is celebrating with you! 🎁 Use code BDAY for a special discount on your next order. Here's to 100 more books! 📚`,
+  }),
+  winback: ({ customerName }) => ({
+    ar: `مرحباً ${customerName ?? "عميلنا العزيز"} 🌹\nوحشتنا في مكتبة نهضة مصر! 📚 سجلت عندنا ولسه ما جربتش أول طلب — استخدم كود WELCOME وخد خصم خاص على أول طلبية، مع توصيل لباب البيت.`,
+    en: `Hello ${customerName ?? "dear customer"} 🌹\nWe miss you at Nahdet Misr Bookstore! 📚 You registered but haven't tried your first order yet — use code WELCOME for a special first-order discount, delivered to your door.`,
   }),
   general: ({ customerName, orderNumber }) => ({
     ar: `مرحباً ${customerName ?? "عميلنا العزيز"} 🌹\nنتواصل معك بخصوص طلبك رقم #${orderNumber}.`,

@@ -1,12 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, MessageCircle } from "lucide-react";
+import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, MessageCircle, Cake, UserX } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { whatsappLink } from "@/lib/whatsapp";
+
+interface WinbackRow {
+  customer_id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  language: string | null;
+  joined_at: string | null;
+}
+
+interface BirthdayRow {
+  customer_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  birthdate: string | null;
+  birth_day: number;
+  orders: number;
+  total_spent: number;
+  last_order: string | null;
+}
 
 interface SegmentSummary {
   segment: string;
@@ -219,8 +242,134 @@ export default function CustomersPage() {
               </div>
             </div>
           )}
+
+          <MarketingAudiences neverPurchased={registered !== null} />
         </>
       )}
+    </div>
+  );
+}
+
+function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [birthdays, setBirthdays] = useState<BirthdayRow[]>([]);
+  const [loadingB, setLoadingB] = useState(true);
+  const [exportingWinback, setExportingWinback] = useState(false);
+
+  useEffect(() => {
+    supabase.rpc("fn_birthdays", { p_limit: 2000 }).then(({ data }) => {
+      setBirthdays((data as BirthdayRow[]) ?? []);
+      setLoadingB(false);
+    });
+  }, [supabase]);
+
+  async function exportWinback() {
+    setExportingWinback(true);
+    const { data } = await supabase.rpc("fn_never_purchased", { p_limit: 25000 });
+    const rows = (data as WinbackRow[]) ?? [];
+    if (rows.length) {
+      downloadCsv(`never-purchased-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
+    }
+    setExportingWinback(false);
+  }
+
+  function exportBirthdays() {
+    if (!birthdays.length) return;
+    downloadCsv(`birthdays-${new Date().toISOString().slice(0, 7)}.csv`, toCsv(birthdays as unknown as Record<string, unknown>[]));
+  }
+
+  return (
+    <div className="mt-8 space-y-6">
+      {neverPurchased && (
+        <div className="card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-red-50 p-2 text-red-600">
+                <UserX size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold">{t("winbackTitle")}</h3>
+                <p className="mt-0.5 text-xs text-slate-500">{t("winbackHint")}</p>
+              </div>
+            </div>
+            <button className="btn-primary" onClick={exportWinback} disabled={exportingWinback}>
+              <Download size={16} />
+              {t("exportList")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="card p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-pink-50 p-2 text-pink-600">
+              <Cake size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold">
+                {t("birthdaysTitle")} ({formatNumber(birthdays.length)})
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">{t("birthdaysHint")}</p>
+            </div>
+          </div>
+          <button className="btn-secondary" onClick={exportBirthdays} disabled={!birthdays.length}>
+            <Download size={16} />
+            {t("exportList")}
+          </button>
+        </div>
+
+        {loadingB ? (
+          <Spinner />
+        ) : birthdays.length === 0 ? (
+          <div className="py-6 text-center text-sm text-slate-500">{t("noResults")}</div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>{t("birthDay")}</th>
+                  <th>{t("customer")}</th>
+                  <th>{t("phone")}</th>
+                  <th>{t("city")}</th>
+                  <th>{t("orders")}</th>
+                  <th>{t("totalSpent")}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {birthdays.map((b) => {
+                  const wa = whatsappLink(b.phone, "birthday", { customerName: b.name, orderNumber: "" }, lang);
+                  return (
+                    <tr key={b.customer_id}>
+                      <td className="font-bold text-pink-600">{b.birth_day}</td>
+                      <td className="font-medium">{b.name ?? b.customer_id}</td>
+                      <td dir="ltr" className="text-slate-600">{b.phone ?? "—"}</td>
+                      <td>{b.city ?? "—"}</td>
+                      <td>{formatNumber(b.orders)}</td>
+                      <td>{formatMoney(b.total_spent, lang)}</td>
+                      <td>
+                        {wa && (
+                          <a
+                            href={wa}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                          >
+                            <MessageCircle size={14} />
+                            🎂
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
