@@ -19,6 +19,12 @@ import {
   Lightbulb,
   Megaphone,
   HeartHandshake,
+  Package,
+  Target,
+  Boxes,
+  Sparkles,
+  Contact,
+  Settings,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -34,14 +40,21 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/", labelKey: "overview", icon: LayoutDashboard, roles: ["admin", "manager", "viewer"] },
+  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
   { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"] },
+  { href: "/products", labelKey: "productsPage", icon: Package, roles: ["admin", "manager", "viewer"] },
   { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"] },
   { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"] },
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
-  { href: "/campaigns", labelKey: "campaigns", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
+  { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
+  { href: "/campaigns", labelKey: "campaigns", icon: Target, roles: ["admin", "manager", "viewer"] },
+  { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"] },
+  { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"] },
   { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
+  { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"] },
   { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"] },
   { href: "/users", labelKey: "users", icon: Users, roles: ["admin"] },
+  { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"] },
   { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"] },
 ];
 
