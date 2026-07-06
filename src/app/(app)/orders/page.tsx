@@ -86,6 +86,21 @@ export default function OrdersPage() {
     setPage(0);
   }, [range.from, range.to]);
 
+  // ?q= deep link from the sidebar quick search
+  useEffect(() => {
+    const onNav = () => {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q !== null && q !== "") {
+        setSearchInput(q);
+        setSearch(q.trim());
+        setPage(0);
+      }
+    };
+    onNav();
+    window.addEventListener("popstate", onNav);
+    return () => window.removeEventListener("popstate", onNav);
+  }, []);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function exportCsv() {

@@ -566,6 +566,8 @@ const dict = {
   integGuide: { ar: "دليل الربط خطوة بخطوة", en: "Step-by-step Setup Guide" },
   showGuide: { ar: "عرض خطوات الربط", en: "Show setup steps" },
   hideGuide: { ar: "إخفاء", en: "Hide" },
+  quickSearch: { ar: "بحث سريع: رقم طلب أو هاتف...", en: "Quick search: order # or phone..." },
+  printPage: { ar: "طباعة", en: "Print" },
   // Misc
   refresh: { ar: "تحديث", en: "Refresh" },
   ordersLabel: { ar: "طلب", en: "orders" },

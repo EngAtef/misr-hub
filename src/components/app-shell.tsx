@@ -78,6 +78,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [quickQ, setQuickQ] = useState("");
   const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
   const [userOverrides, setUserOverrides] = useState<Record<string, boolean> | null>(null);
 
@@ -134,6 +135,23 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
       <div className="px-5 py-5 border-b border-brand-800">
         <Logo onDark />
         <div className="mt-1.5 text-[11px] text-brand-300">{t("appTagline")}</div>
+        <form
+          className="mt-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = quickQ.trim();
+            if (!q) return;
+            setMobileOpen(false);
+            router.push(`/orders?q=${encodeURIComponent(q)}`);
+          }}
+        >
+          <input
+            className="w-full rounded-lg border border-brand-800 bg-brand-900 px-3 py-1.5 text-xs text-white placeholder-brand-400 outline-none focus:border-brand-500"
+            placeholder={t("quickSearch")}
+            value={quickQ}
+            onChange={(e) => setQuickQ(e.target.value)}
+          />
+        </form>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {items.map((item) => {

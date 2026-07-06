@@ -41,6 +41,29 @@
   }
 }
 
+/* Print-friendly reports: hide navigation and controls, keep the data */
+@media print {
+  aside,
+  button,
+  input,
+  select,
+  form,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .card {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  body {
+    background: white !important;
+  }
+}
+
 @layer components {
   .card {
     @apply bg-white rounded-xl border border-slate-200 shadow-sm;
