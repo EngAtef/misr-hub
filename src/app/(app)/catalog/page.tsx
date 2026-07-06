@@ -35,7 +35,161 @@ const FIELD_LABEL: Record<CatalogField, DictKey> = {
   author: "fldAuthor",
   link: "fldLink",
   release_date: "fldReleaseDate",
+  description: "fldDescription",
+  image: "fldImage",
+  barcode: "fldBarcode",
 };
+
+interface Snapshot {
+  date: string;
+  fileName: string;
+  total: number;
+  score: number;
+  fields: string[];
+  books: Record<string, number>; // sku -> bitmask of MISSING field indexes
+}
+
+function missMask(b: CatalogBook): number {
+  let mask = 0;
+  CATALOG_FIELDS.forEach((f, i) => {
+    if (!b[f]) mask |= 1 << i;
+  });
+  return mask;
+}
+
+function bitCount(n: number): number {
+  let c = 0;
+  while (n) {
+    n &= n - 1;
+    c++;
+  }
+  return c;
+}
+
+// Runs once per upload: pushes e-com stock into the stock engine and
+// saves/compares the catalog snapshot for version tracking.
+function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileName: string; score: number }) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [stockMsg, setStockMsg] = useState<string | null>(null);
+  const [compare, setCompare] = useState<{ prev: Snapshot; added: number; removed: number; fixed: number; regressed: number } | null>(null);
+  const [snapMsg, setSnapMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // 1) e-commerce stock sync from the products file
+      const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
+      if (withStock.length) {
+        setStockMsg(t("stockSyncing"));
+        let ok = 0;
+        let failed = false;
+        for (let i = 0; i < withStock.length; i += 2000) {
+          const chunk = withStock.slice(i, i + 2000).map((b) => ({
+            sku: b.sku,
+            product_name: b.name ?? b.english_name ?? "",
+            ecom_stock: String(b.stock_qty),
+            sap_stock: "",
+            category: b.section ?? "",
+          }));
+          const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
+          if (error) {
+            failed = true;
+            break;
+          }
+          ok += chunk.length;
+        }
+        if (cancelled) return;
+        setStockMsg(failed ? t("stockSyncFailed") : `✅ ${t("stockSynced")} ${ok.toLocaleString("en-EG")} ${t("itemsWord")}`);
+      }
+
+      // 2) snapshot compare + save
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "catalog_snapshot").maybeSingle();
+      const prev = (data?.value ?? null) as Snapshot | null;
+      const current: Record<string, number> = {};
+      for (const b of books) current[b.sku] = missMask(b);
+
+      if (prev && prev.books) {
+        let added = 0;
+        let removed = 0;
+        let fixed = 0;
+        let regressed = 0;
+        for (const sku of Object.keys(current)) {
+          if (!(sku in prev.books)) added++;
+          else {
+            const was = prev.books[sku];
+            const now = current[sku];
+            fixed += bitCount(was & ~now);
+            regressed += bitCount(now & ~was);
+          }
+        }
+        for (const sku of Object.keys(prev.books)) if (!(sku in current)) removed++;
+        if (!cancelled) setCompare({ prev, added, removed, fixed, regressed });
+      }
+
+      const snapshot: Snapshot = {
+        date: new Date().toISOString(),
+        fileName,
+        total: books.length,
+        score,
+        fields: [...CATALOG_FIELDS],
+        books: current,
+      };
+      const { error: saveErr } = await supabase
+        .from("app_settings")
+        .upsert({ key: "catalog_snapshot", value: snapshot, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (cancelled) return;
+      setSnapMsg(saveErr ? t("snapshotSaveFailed") : prev ? t("snapshotSaved") : t("firstSnapshot"));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books]);
+
+  if (!stockMsg && !compare && !snapMsg) return null;
+
+  return (
+    <div className="mb-6 space-y-3">
+      {stockMsg && (
+        <div className={cn("rounded-lg border px-4 py-2.5 text-sm", stockMsg.startsWith("✅") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>
+          {stockMsg}
+        </div>
+      )}
+      {compare && (
+        <div className="card p-5">
+          <h3 className="mb-1 text-sm font-bold text-slate-700">{t("versionCompare")}</h3>
+          <p className="mb-3 text-xs text-slate-400" dir="ltr">
+            {t("prevVersionOf")}: {compare.prev.fileName} — {new Date(compare.prev.date).toLocaleDateString("en-GB")} ({compare.prev.total.toLocaleString("en-EG")})
+          </p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 text-center">
+            <MiniStat label={t("newBooks")} value={compare.added} tone={compare.added > 0 ? "good" : "flat"} />
+            <MiniStat label={t("removedBooks")} value={compare.removed} tone={compare.removed > 0 ? "bad" : "flat"} />
+            <MiniStat label={t("fixedFields")} value={compare.fixed} tone={compare.fixed > 0 ? "good" : "flat"} />
+            <MiniStat label={t("regressedFields")} value={compare.regressed} tone={compare.regressed > 0 ? "bad" : "flat"} />
+            <MiniStat
+              label={t("scoreDelta")}
+              value={`${(score - compare.prev.score) >= 0 ? "+" : ""}${(score - compare.prev.score).toFixed(1)}%`}
+              tone={score >= compare.prev.score ? "good" : "bad"}
+            />
+          </div>
+        </div>
+      )}
+      {snapMsg && <div className="text-xs font-semibold text-slate-500">{snapMsg}</div>}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: number | string; tone: "good" | "bad" | "flat" }) {
+  return (
+    <div className={cn("rounded-xl p-3", tone === "good" ? "bg-emerald-50" : tone === "bad" ? "bg-red-50" : "bg-slate-50")}>
+      <div className={cn("text-xl font-bold", tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-red-700" : "text-slate-700")}>
+        {typeof value === "number" ? value.toLocaleString("en-EG") : value}
+      </div>
+      <div className="text-[11px] text-slate-500">{label}</div>
+    </div>
+  );
+}
 
 function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) {
   const { t } = useLang();
@@ -250,6 +404,8 @@ export default function CatalogPage() {
         </div>
         {error && <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
       </div>
+
+      {books && <UploadEffects books={books} fileName={fileName} score={stats?.score ?? 0} />}
 
       <SapVsWebsite catalogBooks={books} />
 

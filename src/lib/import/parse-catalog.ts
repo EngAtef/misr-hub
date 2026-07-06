@@ -15,6 +15,11 @@ export interface CatalogBook {
   author: string | null;
   link: string | null;
   release_date: string | null;
+  description: string | null;
+  image: string | null;
+  barcode: string | null;
+  // numeric available stock (stock - reserved) when the file provides it
+  stock_qty?: number | null;
 }
 
 export const CATALOG_FIELDS = [
@@ -31,9 +36,39 @@ export const CATALOG_FIELDS = [
   "author",
   "link",
   "release_date",
+  "description",
+  "image",
+  "barcode",
 ] as const;
 
 export type CatalogField = (typeof CATALOG_FIELDS)[number];
+
+// Attribute names used in the FullProductExport attribute_name_N columns
+const ATTR_MAP: Record<string, CatalogField> = {
+  // English names used by the platform's FullProductExport
+  "author name": "author",
+  author: "author",
+  publisher: "publisher",
+  "book language": "language",
+  language: "language",
+  "age group": "age",
+  age: "age",
+  "series name": "series",
+  series: "series",
+  "release date": "release_date",
+  "ean/upc/isbn": "barcode",
+  // Arabic variants
+  "المؤلف": "author",
+  "الكاتب": "author",
+  "الناشر": "publisher",
+  "دار النشر": "publisher",
+  "اللغة": "language",
+  "العمر": "age",
+  "الفئة العمرية": "age",
+  "السلسلة": "series",
+  "تاريخ الإصدار": "release_date",
+  "تاريخ الاصدار": "release_date",
+};
 
 const HEADER_MAP: Record<CatalogField, string[]> = {
   name: ["اسم الكتاب", "الاسم", "name", "arabic name", "البند"],
@@ -49,6 +84,9 @@ const HEADER_MAP: Record<CatalogField, string[]> = {
   author: ["المؤلف", "author"],
   link: ["الرابط", "link", "url"],
   release_date: ["release date", "تاريخ الإصدار", "تاريخ الاصدار"],
+  description: ["description", "الوصف"],
+  image: ["main_image", "image", "الصورة"],
+  barcode: ["barcode", "الباركود"],
 };
 
 function isEmpty(v: unknown): boolean {
@@ -93,12 +131,73 @@ function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
   return out;
 }
 
+// Dedicated mapper for the platform FullProductExport (163 columns):
+// variant_sku, name/name_ar, category (export only), subcategory, price,
+// stock/reserved_stock, main_image, slug, and attribute_name/value_1..18.
+function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
+  const clean = (v: unknown): string | null => (isEmpty(v) ? null : String(v).trim());
+  const seen = new Set<string>();
+  const out: CatalogBook[] = [];
+
+  for (const row of rows) {
+    const sku = clean(row["variant_sku"]) ?? clean(row["main_sku"])?.replace(/^main_/, "") ?? null;
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+
+    const nameAr = clean(row["name_ar"]);
+    const nameEn = clean(row["name"]);
+    const stockRaw = clean(row["stock"]);
+    const reserved = parseFloat(String(row["reserved_stock"] ?? "")) || 0;
+    const stockNum = stockRaw !== null ? parseFloat(stockRaw.replace(/,/g, "")) : NaN;
+
+    const book: CatalogBook = {
+      sku,
+      name: nameAr ?? nameEn,
+      english_name: nameEn && nameEn !== nameAr ? nameEn : null,
+      price: clean(row["price"]),
+      stock: stockRaw,
+      section: clean(row["category (export only)"]) ?? clean(row["category"]),
+      category: clean(row["subcategory (export only)"]) ?? clean(row["group (export only)"]),
+      language: null,
+      age: null,
+      series: null,
+      publisher: null,
+      author: null,
+      link: clean(row["slug_ar"]) ?? clean(row["slug"]),
+      release_date: null,
+      description: clean(row["description_ar"]) ?? clean(row["description"]),
+      image: clean(row["main_image"]),
+      barcode: clean(row["barcode"]),
+      stock_qty: isNaN(stockNum) ? null : Math.max(Math.round(stockNum - reserved), 0),
+    };
+
+    // book metadata lives in the attribute_name/value_N pairs
+    for (let n = 1; n <= 18; n++) {
+      const attrName = clean(row[`attribute_name_${n}`]);
+      if (!attrName) continue;
+      const field = ATTR_MAP[attrName.toLowerCase()] ?? ATTR_MAP[attrName];
+      if (!field || book[field]) continue;
+      const value = clean(row[`attribute_value_ar_${n}`]) ?? clean(row[`attribute_value_${n}`]);
+      if (value) book[field] = value;
+    }
+
+    out.push(book);
+  }
+  return out;
+}
+
 // Flexible products/catalog file parser: matches columns by Arabic or
-// English header names; SKU column required.
+// English header names; SKU column required. Detects the platform's
+// FullProductExport automatically.
 export function parseCatalogFile(data: ArrayBuffer): CatalogBook[] {
   const wb = XLSX.read(data, { type: "array", raw: false });
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { raw: false, defval: null });
+    if (!rows.length) continue;
+    if ("variant_sku" in rows[0] || "main_sku" in rows[0]) {
+      const out = buildFromFullExport(rows);
+      if (out.length) return out;
+    }
     const out = buildBooks(rows);
     if (out.length) return out;
   }
