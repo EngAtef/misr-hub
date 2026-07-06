@@ -522,6 +522,13 @@ const dict = {
   sapMatched: { ar: "متطابقة مع الموقع", en: "Matched on Site" },
   sapMissing: { ar: "غير موجودة على الموقع", en: "Missing on Site" },
   sapNoData: { ar: "ارفع ملف SAP من مركز البيانات أولاً", en: "Upload the SAP file from the Data Center first" },
+  // All customers browser
+  viewAllCustomers: { ar: "عرض كل العملاء", en: "View All Customers" },
+  allCustomers: { ar: "كل العملاء المسجلين", en: "All Registered Customers" },
+  searchCustomersPh: { ar: "بحث بالاسم أو الهاتف أو البريد...", en: "Search by name, phone, or email..." },
+  birthDate: { ar: "تاريخ الميلاد", en: "Birthdate" },
+  registeredAt: { ar: "تاريخ التسجيل", en: "Registered" },
+  lastActionNote: { ar: "آخر نشاط متاح في الملفات = آخر طلب. تسجيل الدخول غير موجود في ملف العملاء المُصدَّر", en: "Last available activity in the exports = last order. Login timestamps are not in the customers export" },
   // Misc
   refresh: { ar: "تحديث", en: "Refresh" },
   ordersLabel: { ar: "طلب", en: "orders" },

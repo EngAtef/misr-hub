@@ -7,12 +7,12 @@ import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState } from "@/component
 import { AlertsBar } from "@/components/alerts-bar";
 import { TrendChart, DonutChart } from "@/components/charts";
 
-// Clear ranked list for cities: name, count, share bar — easier to read than a squeezed chart
+// Clear ranked list for ALL cities: name, count, share bar — scrolls inside the card
 function CityRankList({ rows, total }: { rows: BreakdownRow[]; total: number }) {
-  const top = rows.slice(0, 8);
+  const top = rows;
   const max = Math.max(...top.map((r) => Number(r.orders)), 1);
   return (
-    <div className="space-y-2.5 pt-1">
+    <div className="space-y-2.5 pt-1 max-h-72 overflow-y-auto pe-1">
       {top.map((r, i) => (
         <div key={r.label} className="flex items-center gap-3">
           <span className="w-5 text-xs font-bold text-slate-400">{i + 1}</span>

@@ -228,8 +228,127 @@ export default function CustomersPage() {
           )}
 
           <MarketingAudiences neverPurchased={registered !== null} />
+
+          <AllCustomersBrowser />
         </>
       )}
+    </div>
+  );
+}
+
+function AllCustomersBrowser() {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [page, setPage] = useState(0);
+  const [rows, setRows] = useState<
+    { customer_id: string; name: string | null; phone: string | null; email: string | null; city: string | null; birthdate: string | null; joined_at: string | null; total_orders: number | null }[]
+  >([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const PAGE = 25;
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      let q = supabase
+        .from("customers")
+        .select("customer_id, name, phone, email, city, birthdate, joined_at, total_orders", { count: "exact" });
+      if (search) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+      const { data, count } = await q.order("joined_at", { ascending: false, nullsFirst: false }).range(page * PAGE, page * PAGE + PAGE - 1);
+      if (cancelled) return;
+      setRows((data as typeof rows) ?? []);
+      setTotal(count ?? 0);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, search, page, supabase]);
+
+  if (!open) {
+    return (
+      <div className="mt-8">
+        <button className="btn-primary" onClick={() => setOpen(true)}>
+          {t("viewAllCustomers")}
+        </button>
+      </div>
+    );
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE));
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold">
+          {t("allCustomers")} ({formatNumber(total)})
+        </h2>
+        <span className="text-[11px] text-slate-400">{t("lastActionNote")}</span>
+      </div>
+      <form
+        className="mb-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setPage(0);
+          setSearch(searchInput.trim());
+        }}
+      >
+        <input className="input max-w-md" placeholder={t("searchCustomersPh")} value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+      </form>
+      <div className="card overflow-x-auto">
+        {loading ? (
+          <Spinner />
+        ) : (
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>{t("customer")}</th>
+                <th>{t("phone")}</th>
+                <th>{t("email")}</th>
+                <th>{t("city")}</th>
+                <th>{t("birthDate")}</th>
+                <th>{t("registeredAt")}</th>
+                <th>{t("orders")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.customer_id}>
+                  <td className="font-medium">{c.name ?? c.customer_id}</td>
+                  <td dir="ltr" className="text-slate-600">{c.phone ?? "—"}</td>
+                  <td dir="ltr" className="text-xs text-slate-500">{c.email ?? "—"}</td>
+                  <td>{c.city ?? "—"}</td>
+                  <td dir="ltr" className="text-xs">{formatDate(c.birthdate)}</td>
+                  <td dir="ltr" className="text-xs text-slate-500">{formatDate(c.joined_at)}</td>
+                  <td className="font-semibold">{c.total_orders ?? 0}</td>
+                  <td>
+                    <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+        <span>
+          {t("page")} {page + 1} {t("of")} {formatNumber(totalPages)}
+        </span>
+        <div className="flex gap-2">
+          <button className="btn-secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            {t("previous")}
+          </button>
+          <button className="btn-secondary" disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>
+            {t("next")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -314,11 +433,13 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
               <thead>
                 <tr>
                   <th>{t("birthDay")}</th>
+                  <th>{t("birthDate")}</th>
                   <th>{t("customer")}</th>
                   <th>{t("phone")}</th>
                   <th>{t("city")}</th>
                   <th>{t("orders")}</th>
                   <th>{t("totalSpent")}</th>
+                  <th>{t("lastOrder")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -326,11 +447,13 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
                 {birthdays.map((b) => (
                   <tr key={b.customer_id}>
                     <td className="font-bold text-pink-600">{b.birth_day}</td>
+                    <td className="text-xs text-slate-600" dir="ltr">{formatDate(b.birthdate)}</td>
                     <td className="font-medium">{b.name ?? b.customer_id}</td>
                     <td dir="ltr" className="text-slate-600">{b.phone ?? "—"}</td>
                     <td>{b.city ?? "—"}</td>
                     <td>{formatNumber(b.orders)}</td>
                     <td>{formatMoney(b.total_spent, lang)}</td>
+                    <td className="text-xs text-slate-500">{formatDate(b.last_order)}</td>
                     <td>
                       <ContactActions phone={b.phone} email={b.email} name={b.name} waReason="birthday" />
                     </td>

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
-import { parseCatalogFile, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
+import { parseCatalogFile, parseCatalogHtml, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
 
 // Arabic-aware title normalization for SAP <-> website matching
 function normTitle(s: string): string {
@@ -171,7 +171,9 @@ export default function CatalogPage() {
     setError("");
     setFilterField(null);
     try {
-      const parsed = parseCatalogFile(await file.arrayBuffer());
+      const parsed = file.name.toLowerCase().endsWith(".html")
+        ? parseCatalogHtml(await file.text())
+        : parseCatalogFile(await file.arrayBuffer());
       if (!parsed.length) {
         setError(t("invalidFile"));
         setBooks(null);
@@ -238,7 +240,7 @@ export default function CatalogPage() {
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.html"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

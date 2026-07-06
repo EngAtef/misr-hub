@@ -57,45 +57,78 @@ function isEmpty(v: unknown): boolean {
   return s === "" || s === "-" || s === "n/a" || s === "na" || s === "0000-00-00" || s === "null" || s === "لا يوجد";
 }
 
+function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
+  if (rows.length < 2) return [];
+  const keys = Object.keys(rows[0]);
+  const lower = keys.map((k) => k.toLowerCase().trim());
+
+  const skuIdx = lower.findIndex((k) => k.includes("sku") || k === "id" || k.includes("الكود") || k.includes("كود"));
+  if (skuIdx === -1) return [];
+  const skuKey = keys[skuIdx];
+
+  const fieldKeys: Partial<Record<CatalogField, string>> = {};
+  for (const field of CATALOG_FIELDS) {
+    for (const candidate of HEADER_MAP[field]) {
+      const i = lower.findIndex((k) => k.includes(candidate.toLowerCase()));
+      if (i !== -1 && !Object.values(fieldKeys).includes(keys[i])) {
+        fieldKeys[field] = keys[i];
+        break;
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  const out: CatalogBook[] = [];
+  for (const row of rows) {
+    const sku = row[skuKey] ? String(row[skuKey]).trim() : "";
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+    const book = { sku } as CatalogBook;
+    for (const field of CATALOG_FIELDS) {
+      const key = fieldKeys[field];
+      book[field] = key && !isEmpty(row[key]) ? String(row[key]).trim() : null;
+    }
+    out.push(book);
+  }
+  return out;
+}
+
 // Flexible products/catalog file parser: matches columns by Arabic or
 // English header names; SKU column required.
 export function parseCatalogFile(data: ArrayBuffer): CatalogBook[] {
   const wb = XLSX.read(data, { type: "array", raw: false });
-
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { raw: false, defval: null });
-    if (rows.length < 2) continue;
-    const keys = Object.keys(rows[0]);
-    const lower = keys.map((k) => k.toLowerCase().trim());
-
-    const skuKey = keys[lower.findIndex((k) => k.includes("sku") || k === "id" || k.includes("الكود") || k.includes("كود"))];
-    if (!skuKey) continue;
-
-    const fieldKeys: Partial<Record<CatalogField, string>> = {};
-    for (const field of CATALOG_FIELDS) {
-      for (const candidate of HEADER_MAP[field]) {
-        const i = lower.findIndex((k) => k.includes(candidate.toLowerCase()));
-        if (i !== -1 && !Object.values(fieldKeys).includes(keys[i])) {
-          fieldKeys[field] = keys[i];
-          break;
-        }
-      }
-    }
-
-    const seen = new Set<string>();
-    const out: CatalogBook[] = [];
-    for (const row of rows) {
-      const sku = row[skuKey] ? String(row[skuKey]).trim() : "";
-      if (!sku || seen.has(sku)) continue;
-      seen.add(sku);
-      const book = { sku } as CatalogBook;
-      for (const field of CATALOG_FIELDS) {
-        const key = fieldKeys[field];
-        book[field] = key && !isEmpty(row[key]) ? String(row[key]).trim() : null;
-      }
-      out.push(book);
-    }
+    const out = buildBooks(rows);
     if (out.length) return out;
   }
   return [];
+}
+
+// Parses the inventory-report HTML: scans every <table>, picks those whose
+// header contains a SKU column, and maps them like a spreadsheet.
+export function parseCatalogHtml(html: string): CatalogBook[] {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const tables = Array.from(doc.querySelectorAll("table"));
+  let best: CatalogBook[] = [];
+  for (const table of tables) {
+    const headerCells = Array.from(table.querySelectorAll("thead th, tr:first-child th"));
+    if (!headerCells.length) continue;
+    const headers = headerCells.map((th) => (th.textContent ?? "").trim());
+    if (!headers.some((h) => h.toLowerCase().includes("sku") || h.includes("الكود"))) continue;
+
+    const rows: Record<string, unknown>[] = [];
+    for (const tr of Array.from(table.querySelectorAll("tbody tr"))) {
+      const cells = Array.from(tr.querySelectorAll("td"));
+      if (!cells.length) continue;
+      const row: Record<string, unknown> = {};
+      headers.forEach((h, i) => {
+        row[h || `col${i}`] = cells[i] ? (cells[i].textContent ?? "").trim() : null;
+      });
+      rows.push(row);
+    }
+    const books = buildBooks(rows);
+    if (books.length > best.length) best = books;
+  }
+  return best;
 }
