@@ -105,9 +105,10 @@ export default function DataCenterPage() {
         const text = await file.text();
         const parsed = parseGa4Any(text);
         if (!parsed) throw new Error(t("invalidFile"));
-        // strict per-card validation: right report type, single-month span
+        // strict per-card validation: right report type. Multi-month (all-time)
+        // files are allowed: transactions merge by id; pages/items are stored
+        // under their start month as an "all period" bucket.
         if (parsed.kind !== GA4_EXPECTED[activeType]) throw new Error(t("wrongFileForCard"));
-        if (parsed.spanDays > 35) throw new Error(t("ga4SpanTooLong"));
         const count =
           parsed.kind === "pages" ? parsed.rows.length : parsed.kind === "transactions" ? parsed.transactions.length : parsed.items.length;
         if (!count) throw new Error(t("invalidFile"));

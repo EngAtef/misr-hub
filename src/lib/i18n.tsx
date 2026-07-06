@@ -514,6 +514,14 @@ const dict = {
   adsOverlapNote: { ar: "ملاحظة: الإيراد الفعلي يُحسب لكل إعلان على حدة بالكلمة المفتاحية — الإعلانات المتشابهة قد تتقاسم نفس الطلبات فلا تجمع أرقامها معاً", en: "Note: actual revenue is matched per-ad by keyword — similar ads may share the same orders, so don't sum their rows together" },
   // Customers label fix
   avgCustomerSpend: { ar: "متوسط إنفاق العميل", en: "Avg Customer Spend" },
+  // SAP vs website
+  sapMissingTitle: { ar: "كتب موجودة في SAP وغير موجودة على الموقع", en: "Books in SAP but missing on the website" },
+  sapMissingHint: { ar: "المطابقة بالاسم (بعد توحيد الهمزات والتشكيل) مع كل الكتب التي بيعت على الموقع — ولو رفعت ملف المنتجات أعلاه تصبح المطابقة أدق", en: "Matched by normalized title against every book ever sold on the site — upload the products file above for more accurate matching" },
+  sapQty: { ar: "كمية SAP", en: "SAP Qty" },
+  sapTotal: { ar: "أصناف SAP", en: "SAP Materials" },
+  sapMatched: { ar: "متطابقة مع الموقع", en: "Matched on Site" },
+  sapMissing: { ar: "غير موجودة على الموقع", en: "Missing on Site" },
+  sapNoData: { ar: "ارفع ملف SAP من مركز البيانات أولاً", en: "Upload the SAP file from the Data Center first" },
   // Misc
   refresh: { ar: "تحديث", en: "Refresh" },
   ordersLabel: { ar: "طلب", en: "orders" },

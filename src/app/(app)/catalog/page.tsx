@@ -1,11 +1,25 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { UploadCloud, Download, BookOpen, CheckCircle2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { UploadCloud, Download, BookOpen, CheckCircle2, Warehouse } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { parseCatalogFile, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
+
+// Arabic-aware title normalization for SAP <-> website matching
+function normTitle(s: string): string {
+  return s
+    .replace(/[ً-ْـ]/g, "") // diacritics + tatweel
+    .replace(/[أإآا]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/[ىي]/g, "ي")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
 
 const FIELD_LABEL: Record<CatalogField, DictKey> = {
   name: "fldName",
@@ -22,6 +36,126 @@ const FIELD_LABEL: Record<CatalogField, DictKey> = {
   link: "fldLink",
   release_date: "fldReleaseDate",
 };
+
+function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [sapRows, setSapRows] = useState<{ sku: string; product_name: string | null; sap_stock: number | null }[] | null>(null);
+  const [siteNames, setSiteNames] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      // all SAP materials stored via the Data Center SAP upload
+      const all: { sku: string; product_name: string | null; sap_stock: number | null }[] = [];
+      for (let offset = 0; offset < 60000; offset += 1000) {
+        const { data } = await supabase
+          .from("stock_items")
+          .select("sku, product_name, sap_stock")
+          .not("sap_stock", "is", null)
+          .range(offset, offset + 999);
+        const chunk = (data as typeof all) ?? [];
+        all.push(...chunk);
+        if (chunk.length < 1000) break;
+      }
+      setSapRows(all);
+      // every title ever sold on the website
+      const { data: sold } = await supabase.rpc("fn_top_products", { p_from: null, p_to: null, p_limit: 20000 });
+      const names = new Set<string>();
+      for (const p of (sold as { product_name: string }[]) ?? []) names.add(normTitle(p.product_name));
+      setSiteNames(names);
+    })();
+  }, [supabase]);
+
+  const result = useMemo(() => {
+    if (!sapRows || !siteNames) return null;
+    const known = new Set(siteNames);
+    if (catalogBooks) {
+      for (const b of catalogBooks) {
+        if (b.name) known.add(normTitle(b.name));
+        if (b.english_name) known.add(normTitle(b.english_name));
+      }
+    }
+    const missing = sapRows.filter((r) => {
+      if (!r.product_name) return true;
+      return !known.has(normTitle(r.product_name));
+    });
+    return { total: sapRows.length, missing, matched: sapRows.length - missing.length };
+  }, [sapRows, siteNames, catalogBooks]);
+
+  if (sapRows !== null && sapRows.length === 0) {
+    return (
+      <div className="card p-5 mb-6 flex items-center gap-3 text-sm text-slate-500">
+        <Warehouse size={18} className="text-slate-400" />
+        {t("sapNoData")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-5 mb-6">
+      <div className="mb-1 flex items-center gap-2">
+        <Warehouse size={18} className="text-brand-600" />
+        <h3 className="text-sm font-bold text-slate-700">{t("sapMissingTitle")}</h3>
+      </div>
+      <p className="mb-4 text-xs text-slate-500">{t("sapMissingHint")}</p>
+      {!result ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-xl bg-slate-50 p-3 text-center">
+              <div className="text-xl font-bold">{formatNumber(result.total)}</div>
+              <div className="text-[11px] text-slate-500">{t("sapTotal")}</div>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-3 text-center">
+              <div className="text-xl font-bold text-emerald-700">{formatNumber(result.matched)}</div>
+              <div className="text-[11px] text-slate-500">{t("sapMatched")}</div>
+            </div>
+            <div className="rounded-xl bg-red-50 p-3 text-center">
+              <div className="text-xl font-bold text-red-700">{formatNumber(result.missing.length)}</div>
+              <div className="text-[11px] text-slate-500">{t("sapMissing")}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">{formatNumber(Math.min(result.missing.length, 200))} / {formatNumber(result.missing.length)}</span>
+            <button
+              className="btn-secondary !py-1.5 text-xs"
+              onClick={() =>
+                downloadCsv(
+                  `sap-missing-on-website-${new Date().toISOString().slice(0, 10)}.csv`,
+                  toCsv(result.missing.map((r) => ({ SKU: r.sku, Title: r.product_name ?? "", "SAP Qty": r.sap_stock ?? 0 })))
+                )
+              }
+            >
+              <Download size={14} />
+              {t("exportCsv")}
+            </button>
+          </div>
+          <div className="max-h-80 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>{t("sku")}</th>
+                  <th>{t("fldName")}</th>
+                  <th>{t("sapQty")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.missing.slice(0, 200).map((r) => (
+                  <tr key={r.sku}>
+                    <td dir="ltr" className="font-mono text-xs">{r.sku}</td>
+                    <td className="!whitespace-normal max-w-md font-medium">{r.product_name ?? "—"}</td>
+                    <td>{formatNumber(r.sap_stock ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CatalogPage() {
   const { t } = useLang();
@@ -114,6 +248,8 @@ export default function CatalogPage() {
         </div>
         {error && <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
       </div>
+
+      <SapVsWebsite catalogBooks={books} />
 
       {parsing ? (
         <Spinner />
