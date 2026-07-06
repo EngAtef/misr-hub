@@ -166,6 +166,9 @@ export default function AdsPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-800">
+            {t("adsOverlapNote")}
+          </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <KpiCard label={t("totalSpend")} value={formatMoney(totals.spend, lang)} accent="red" />
             <KpiCard label={t("actualRevenue")} value={formatMoney(totals.actualRev, lang)} accent="green" />

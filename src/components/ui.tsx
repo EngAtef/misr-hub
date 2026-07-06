@@ -1,6 +1,7 @@
 "use client";
 
-import { cn, STATUS_COLORS } from "@/lib/utils";
+import { cn, STATUS_COLORS, STATUS_AR } from "@/lib/utils";
+import { useLang } from "@/lib/i18n";
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   return (
@@ -42,11 +43,13 @@ export function KpiCard({
 }
 
 export function StatusBadge({ status }: { status: string | null }) {
+  const { lang } = useLang();
   if (!status) return <span className="text-slate-400">—</span>;
   const color = STATUS_COLORS[status] ?? "bg-slate-100 text-slate-700";
+  const label = lang === "ar" ? (STATUS_AR[status] ?? status) : status;
   return (
     <span className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap", color)}>
-      {status}
+      {label}
     </span>
   );
 }

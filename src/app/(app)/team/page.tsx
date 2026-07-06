@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { Plus, Mail, MessageCircle, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Mail, MessageCircle, Pencil, Trash2, X, Phone } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
@@ -89,7 +89,13 @@ export default function TeamPage() {
                   {c.notes && <div className="text-xs text-slate-400">{c.notes}</div>}
                 </div>
 
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {wa && (
+                    <a href={`tel:+${wa}`} className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100">
+                      <Phone size={14} />
+                      {t("callAction")}
+                    </a>
+                  )}
                   <a
                     href={c.email ? `mailto:${c.email}` : undefined}
                     className={c.email ? "btn-secondary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs opacity-40 pointer-events-none"}

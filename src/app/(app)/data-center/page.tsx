@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users } from "lucide-react";
+import Link from "next/link";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
@@ -25,7 +26,13 @@ interface UploadRecord {
   created_at: string;
 }
 
-type UploadType = "orders" | "customers" | "stock" | "ga4" | "ads";
+type UploadType = "orders" | "customers" | "stock" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
+
+const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
+  ga4_pages: "pages",
+  ga4_tx: "transactions",
+  ga4_items: "items",
+};
 type Phase = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
 
 interface Pending {
@@ -68,8 +75,10 @@ export default function DataCenterPage() {
   const TYPES: { key: UploadType; icon: React.ElementType; title: string; hint: string; accept: string }[] = [
     { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
     { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
-    { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadStockHint"), accept: ".xlsx,.xls,.csv" },
-    { key: "ga4", icon: LineChart, title: t("uploadGa4"), hint: t("uploadGa4Hint"), accept: ".csv" },
+    { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
+    { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
+    { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
     { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
   ];
 
@@ -92,15 +101,18 @@ export default function DataCenterPage() {
         const rows = parseStockFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
-      } else if (activeType === "ga4") {
+      } else if (activeType.startsWith("ga4")) {
         const text = await file.text();
         const parsed = parseGa4Any(text);
         if (!parsed) throw new Error(t("invalidFile"));
+        // strict per-card validation: right report type, single-month span
+        if (parsed.kind !== GA4_EXPECTED[activeType]) throw new Error(t("wrongFileForCard"));
+        if (parsed.spanDays > 35) throw new Error(t("ga4SpanTooLong"));
         const count =
           parsed.kind === "pages" ? parsed.rows.length : parsed.kind === "transactions" ? parsed.transactions.length : parsed.items.length;
         if (!count) throw new Error(t("invalidFile"));
         setPending({
-          type: "ga4",
+          type: activeType,
           fileName: file.name,
           ga4: parsed,
           count,
@@ -188,7 +200,7 @@ export default function DataCenterPage() {
         setProcessed(Number(data ?? pending.stock.length));
         setProgress(100);
         await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
-      } else if (pending.type === "ga4" && pending.ga4) {
+      } else if (pending.type.startsWith("ga4") && pending.ga4) {
         const g = pending.ga4;
         let ok = 0;
         if (g.kind === "pages") {
@@ -280,6 +292,11 @@ export default function DataCenterPage() {
             </button>
           );
         })}
+        <Link href="/catalog" className="card p-4 text-start transition hover:shadow-md border-dashed">
+          <BookOpen size={20} className="text-slate-400" />
+          <div className="mt-2 font-bold text-sm">{t("catalog")}</div>
+          <div className="mt-0.5 text-xs text-slate-500 leading-relaxed">{t("goToCatalog")}</div>
+        </Link>
       </div>
 
       <div className="mb-5 flex items-start gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-sm text-brand-800">

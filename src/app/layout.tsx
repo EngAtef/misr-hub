@@ -9,8 +9,8 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
-  title: "Misr Hub | مصر هب",
-  description: "Operations & reporting platform - منصة إدارة العمليات والتقارير",
+  title: "NM Smart App",
+  description: "Nahdet Misr Bookstore operations & reporting - إدارة المكتبة الإلكترونية",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

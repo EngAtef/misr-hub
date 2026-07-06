@@ -5,8 +5,40 @@ import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
-import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
-import { formatMoney, formatNumber, formatPercent } from "@/lib/utils";
+import { TrendChart, DonutChart } from "@/components/charts";
+
+// Clear ranked list for cities: name, count, share bar — easier to read than a squeezed chart
+function CityRankList({ rows, total }: { rows: BreakdownRow[]; total: number }) {
+  const top = rows.slice(0, 8);
+  const max = Math.max(...top.map((r) => Number(r.orders)), 1);
+  return (
+    <div className="space-y-2.5 pt-1">
+      {top.map((r, i) => (
+        <div key={r.label} className="flex items-center gap-3">
+          <span className="w-5 text-xs font-bold text-slate-400">{i + 1}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-sm font-semibold text-slate-700">{r.label}</span>
+              <span className="shrink-0 text-sm font-bold text-slate-900" dir="ltr">
+                {new Intl.NumberFormat("en-EG").format(Number(r.orders))}
+                <span className="ms-1 text-[11px] font-semibold text-slate-400">
+                  {total ? ((Number(r.orders) / total) * 100).toFixed(0) : 0}%
+                </span>
+              </span>
+            </div>
+            <div className="mt-1 h-2 rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-brand-500"
+                style={{ width: `${(Number(r.orders) / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+import { formatMoney, formatNumber, formatPercent, STATUS_AR } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 export default function OverviewPage() {
@@ -74,18 +106,27 @@ export default function OverviewPage() {
 
           <div className="grid gap-6 lg:grid-cols-3">
             <ChartCard title={t("ordersByStatus")}>
-              <DonutChart data={(byStatus.data ?? []) as unknown as Record<string, unknown>[]} nameKey="label" valueKey="orders" />
+              <DonutChart
+                data={(byStatus.data ?? []).map((r) => ({
+                  ...r,
+                  label: lang === "ar" ? (STATUS_AR[r.label] ?? r.label) : r.label,
+                })) as unknown as Record<string, unknown>[]}
+                nameKey="label"
+                valueKey="orders"
+              />
             </ChartCard>
             <ChartCard title={t("ordersByPayment")}>
-              <DonutChart data={(byPayment.data ?? []) as unknown as Record<string, unknown>[]} nameKey="label" valueKey="orders" />
+              <DonutChart
+                data={(byPayment.data ?? []).map((r) => ({
+                  ...r,
+                  label: lang === "ar" ? (STATUS_AR[r.label] ?? r.label) : r.label,
+                })) as unknown as Record<string, unknown>[]}
+                nameKey="label"
+                valueKey="orders"
+              />
             </ChartCard>
             <ChartCard title={t("ordersByCity")}>
-              <BarsChart
-                data={(byCity.data ?? []) as unknown as Record<string, unknown>[]}
-                xKey="label"
-                layout="vertical"
-                series={[{ key: "orders", name: t("totalOrders") }]}
-              />
+              <CityRankList rows={byCity.data ?? []} total={k.total_orders} />
             </ChartCard>
           </div>
 

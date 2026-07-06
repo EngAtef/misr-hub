@@ -20,11 +20,13 @@ export function formatPercent(part: number, total: number): string {
   return `${((part / total) * 100).toFixed(1)}%`;
 }
 
+// Order timestamps are stored as the Egypt-local wall-clock time in UTC form
+// (the exports carry no timezone), so display them in UTC to avoid a +2/+3h shift.
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 export function formatDateTime(value: string | null | undefined): string {
@@ -37,8 +39,29 @@ export function formatDateTime(value: string | null | undefined): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "UTC",
   });
 }
+
+// Fixed platform status values -> Arabic labels (fallback: raw value)
+export const STATUS_AR: Record<string, string> = {
+  Delivered: "تم التوصيل",
+  Cancelled: "ملغي",
+  Returned: "مرتجع",
+  "Return Sent To Erp": "مرتجع (تم للـERP)",
+  "Return Request": "طلب إرجاع",
+  Confirmed: "مؤكد",
+  Placed: "جديد",
+  Shipped: "تم الشحن",
+  "Out For Delivery": "خرج للتوصيل",
+  "Picked by courier": "استلمه المندوب",
+  "Delivery Failed": "فشل التوصيل",
+  "Send To Erp": "أُرسل للـERP",
+  "Cash On Delivery": "الدفع عند الاستلام",
+  "Debit or Credit Card": "بطاقة بنكية",
+  "Credit card and installment": "بطاقة + تقسيط",
+  "Installment with Valu": "تقسيط Valu",
+};
 
 export function toCsv(rows: Record<string, unknown>[], columns?: string[]): string {
   if (!rows.length) return "";

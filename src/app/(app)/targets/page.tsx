@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
+import { parseTargetsFile } from "@/lib/import/parse-targets";
 
 interface TargetRow {
   period_month: string;
@@ -60,10 +61,13 @@ export default function TargetsPage() {
   if (loading) return <div><PageHeader title={t("targets")} /><Spinner /></div>;
 
   const addButton = (
-    <button className="btn-primary" onClick={() => setEditing("new")}>
-      <Plus size={16} />
-      {t("addTarget")}
-    </button>
+    <div className="flex gap-2">
+      <button className="btn-primary" onClick={() => setEditing("new")}>
+        <Plus size={16} />
+        {t("addTarget")}
+      </button>
+      <UploadTargetsButton onDone={load} />
+    </div>
   );
 
   if (!rows.length)
@@ -226,13 +230,68 @@ function TargetModal({ target, onClose, onSaved }: { target: TargetRow | null; o
         </div>
         <div>
           <label className="block text-sm font-semibold mb-1">{t("noteLabel")}</label>
-          <input className="input" placeholder="White Friday / Back to School..." value={form.label} onChange={(e) => set("label", e.target.value)} />
+          <input className="input" placeholder={t("targetsUploadHint").split("—")[0]} value={form.label} onChange={(e) => set("label", e.target.value)} />
         </div>
         {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
         <button type="submit" className="btn-primary w-full" disabled={saving}>
           {t("save")}
         </button>
       </form>
+    </div>
+  );
+}
+
+function UploadTargetsButton({ onDone }: { onDone: () => void }) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function handleFile(file: File) {
+    setBusy(true);
+    setMsg("");
+    try {
+      const rows = parseTargetsFile(await file.arrayBuffer());
+      if (!rows.length) {
+        setMsg(t("invalidFile"));
+        setBusy(false);
+        return;
+      }
+      const { error } = await supabase.from("targets").upsert(
+        rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
+        { onConflict: "period_month" }
+      );
+      if (error) {
+        setMsg(error.message);
+      } else {
+        setMsg(`✅ ${rows.length} ${t("targetsImported")}`);
+        onDone();
+      }
+    } catch {
+      setMsg(t("invalidFile"));
+    }
+    setBusy(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button className="btn-secondary" disabled={busy} onClick={() => fileRef.current?.click()} title={t("targetsUploadHint")}>
+        <UploadCloud size={16} />
+        {t("uploadTargets")}
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleFile(f);
+        }}
+      />
+      {msg && <span className="text-xs font-semibold text-slate-600">{msg}</span>}
     </div>
   );
 }

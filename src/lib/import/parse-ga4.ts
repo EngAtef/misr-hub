@@ -65,22 +65,36 @@ export interface Ga4Item {
 }
 
 export type Ga4AnyParsed =
-  | { kind: "pages"; month: string; rows: Ga4Row[] }
-  | { kind: "transactions"; month: string; transactions: Ga4Transaction[] }
-  | { kind: "items"; month: string; items: Ga4Item[] };
+  | { kind: "pages"; month: string; spanDays: number; rows: Ga4Row[] }
+  | { kind: "transactions"; month: string; spanDays: number; transactions: Ga4Transaction[] }
+  | { kind: "items"; month: string; spanDays: number; items: Ga4Item[] };
+
+// GA4 sometimes exports transaction ids as "NM000024492" while the store
+// uses plain "24492" — normalize both sides to bare digits for matching.
+export function normalizeTxId(id: string): string {
+  const digits = id.replace(/\D/g, "").replace(/^0+/, "");
+  return digits || id;
+}
 
 // Detects and parses any of the three GA4 exports we support:
 // Pages & screens, Transactions, Ecommerce purchases (Item name).
 export function parseGa4Any(text: string): Ga4AnyParsed | null {
   const lines = text.split(/\r?\n/);
   let month: string | null = null;
+  let endDate: Date | null = null;
+  let startDate: Date | null = null;
   let headerIdx = -1;
   let kind: "pages" | "transactions" | "items" | null = null;
 
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
     const line = lines[i];
     const m = line.match(/#\s*Start date:\s*(\d{4})(\d{2})(\d{2})/i);
-    if (m) month = `${m[1]}-${m[2]}-01`;
+    if (m) {
+      month = `${m[1]}-${m[2]}-01`;
+      startDate = new Date(`${m[1]}-${m[2]}-${m[3]}`);
+    }
+    const e = line.match(/#\s*End date:\s*(\d{4})(\d{2})(\d{2})/i);
+    if (e) endDate = new Date(`${e[1]}-${e[2]}-${e[3]}`);
     if (!line.startsWith("#")) {
       const lower = line.toLowerCase();
       if (lower.includes("page path")) { kind = "pages"; headerIdx = i; break; }
@@ -89,10 +103,12 @@ export function parseGa4Any(text: string): Ga4AnyParsed | null {
     }
   }
   if (!month || headerIdx === -1 || !kind) return null;
+  const spanDays =
+    startDate && endDate ? Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1 : 31;
 
   if (kind === "pages") {
     const parsed = parseGa4File(text);
-    return parsed ? { kind: "pages", month: parsed.month, rows: parsed.rows } : null;
+    return parsed ? { kind: "pages", month: parsed.month, spanDays, rows: parsed.rows } : null;
   }
 
   if (kind === "transactions") {
@@ -101,12 +117,14 @@ export function parseGa4Any(text: string): Ga4AnyParsed | null {
     for (let i = headerIdx + 1; i < lines.length; i++) {
       if (!lines[i].trim() || lines[i].startsWith("#")) continue;
       const c = splitCsv(lines[i]);
-      const id = c[0]?.trim();
+      const raw = c[0]?.trim();
+      if (!raw || raw === "0") continue;
+      const id = normalizeTxId(raw);
       if (!id || id === "0" || seen.has(id)) continue;
       seen.add(id);
       transactions.push({ transaction_id: id, period_month: month, purchases: num(c[1]), revenue: num(c[2]) });
     }
-    return { kind: "transactions", month, transactions };
+    return { kind: "transactions", month, spanDays, transactions };
   }
 
   const seen = new Set<string>();
@@ -126,7 +144,7 @@ export function parseGa4Any(text: string): Ga4AnyParsed | null {
       item_revenue: num(c[4]),
     });
   }
-  return { kind: "items", month, items };
+  return { kind: "items", month, spanDays, items };
 }
 
 // Parses a GA4 "Pages and screens" CSV export. The month is auto-detected

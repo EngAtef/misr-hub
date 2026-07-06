@@ -42,6 +42,11 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const from = params.get("from");
   const to = params.get("to");
+  const status = params.get("status");
+  const payment = params.get("payment");
+  const city = params.get("city");
+  const source = params.get("source");
+  const q = params.get("q");
 
   const admin = user.supabase;
   const pageSize = 1000;
@@ -56,6 +61,15 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + pageSize - 1);
     if (from) query = query.gte("order_date", from);
     if (to) query = query.lt("order_date", to);
+    if (status) query = query.eq("order_status", status);
+    if (payment) query = query.eq("payment_method", payment);
+    if (city) query = query.eq("city", city);
+    if (source) query = query.eq("source", source);
+    if (q) {
+      query = query.or(
+        `order_number.ilike.%${q}%,customer_name.ilike.%${q}%,customer_phone.ilike.%${q}%,awb_number.ilike.%${q}%`
+      );
+    }
 
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

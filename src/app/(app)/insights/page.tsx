@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { Megaphone, TrendingUp, Package, Share2, Truck, AlertTriangle, MessageCircle } from "lucide-react";
+import { Megaphone, TrendingUp, Package, Share2, Truck, AlertTriangle } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, Spinner, StatusBadge, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatPercent, cn } from "@/lib/utils";
-import { whatsappLink, type FollowUpReason } from "@/lib/whatsapp";
+import { type FollowUpReason } from "@/lib/whatsapp";
+import { ContactActions } from "@/components/contact-actions";
 import type { Kpis, BreakdownRow } from "@/lib/types";
 
 interface Insight {
@@ -337,29 +338,16 @@ export default function InsightsPage() {
                                   : o.reason}
                         </td>
                         <td>
-                          {(() => {
-                            const wa = whatsappLink(
-                              o.customer_phone,
+                          <ContactActions
+                            phone={o.customer_phone}
+                            name={o.customer_name}
+                            orderNumber={o.order_number}
+                            waReason={
                               (["stuck_in_delivery", "return_pending", "not_shipped", "delivery_failed"].includes(o.reason)
                                 ? o.reason
-                                : "general") as FollowUpReason,
-                              { customerName: o.customer_name, orderNumber: o.order_number },
-                              lang
-                            );
-                            return wa ? (
-                              <a
-                                href={wa}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                              >
-                                <MessageCircle size={14} />
-                                WhatsApp
-                              </a>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            );
-                          })()}
+                                : "general") as FollowUpReason
+                            }
+                          />
                         </td>
                       </tr>
                     ))}

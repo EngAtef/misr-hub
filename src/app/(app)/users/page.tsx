@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { UserPlus, X, Pencil, Trash2, Crown, ShieldCheck } from "lucide-react";
+import { UserPlus, X, Pencil, Trash2, Crown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
@@ -18,12 +18,6 @@ interface ProfileRow {
   created_at: string;
 }
 
-interface PagePerm {
-  page_key: string;
-  allow_manager: boolean;
-  allow_viewer: boolean;
-}
-
 const PAGE_LABELS: Record<string, DictKey> = {
   overview: "overview",
   orders: "orders",
@@ -34,7 +28,9 @@ const PAGE_LABELS: Record<string, DictKey> = {
   customers: "customers",
   ads: "ads",
   campaigns: "campaigns",
+  delivery: "deliveryReports",
   stock: "stock",
+  catalog: "catalog",
   targets: "targets",
   reports: "reports",
   team: "teamContacts",
@@ -46,19 +42,14 @@ export default function UsersPage() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [users, setUsers] = useState<ProfileRow[]>([]);
-  const [perms, setPerms] = useState<PagePerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<ProfileRow | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const [u, p] = await Promise.all([
-      supabase.from("profiles").select("*").order("created_at"),
-      supabase.from("page_permissions").select("*").order("page_key"),
-    ]);
-    setUsers((u.data as ProfileRow[]) ?? []);
-    setPerms((p.data as PagePerm[]) ?? []);
+    const { data } = await supabase.from("profiles").select("*").order("created_at");
+    setUsers((data as ProfileRow[]) ?? []);
     setLoading(false);
   }, [supabase]);
 
@@ -72,11 +63,6 @@ export default function UsersPage() {
     const { error: err } = await supabase.rpc("admin_delete_user", { p_user_id: u.id });
     if (err) setError(err.message);
     await load();
-  }
-
-  async function togglePerm(pageKey: string, field: "allow_manager" | "allow_viewer", value: boolean) {
-    setPerms((prev) => prev.map((p) => (p.page_key === pageKey ? { ...p, [field]: value } : p)));
-    await supabase.from("page_permissions").update({ [field]: value, updated_at: new Date().toISOString() }).eq("page_key", pageKey);
   }
 
   return (
@@ -158,46 +144,6 @@ export default function UsersPage() {
         )}
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
-        <ShieldCheck size={18} className="text-brand-600" />
-        <h2 className="text-lg font-bold">{t("accessControl")}</h2>
-      </div>
-      <p className="mb-3 text-sm text-slate-500">{t("accessControlHint")}</p>
-      <div className="card overflow-x-auto">
-        <table className="table-base">
-          <thead>
-            <tr>
-              <th>{t("pageName")}</th>
-              <th className="text-center">{t("manager")}</th>
-              <th className="text-center">{t("viewer")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {perms.map((p) => (
-              <tr key={p.page_key}>
-                <td className="font-medium">{PAGE_LABELS[p.page_key] ? t(PAGE_LABELS[p.page_key]) : p.page_key}</td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-brand-600"
-                    checked={p.allow_manager}
-                    onChange={(e) => togglePerm(p.page_key, "allow_manager", e.target.checked)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-brand-600"
-                    checked={p.allow_viewer}
-                    onChange={(e) => togglePerm(p.page_key, "allow_viewer", e.target.checked)}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={load} />}
       {editing && (
         <EditUserModal
@@ -215,12 +161,16 @@ export default function UsersPage() {
 
 function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pageAccess, setPageAccess] = useState<Record<string, boolean>>(
+    Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, true]))
+  );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -236,6 +186,21 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
       setError(data.error ?? "Failed");
       setSaving(false);
       return;
+    }
+
+    // Save the manually-selected page checklist for this new account
+    if (role !== "admin" && data.userId) {
+      const rows = Object.entries(pageAccess).map(([page_key, allowed]) => ({
+        user_id: data.userId,
+        page_key,
+        allowed,
+      }));
+      const { error: permErr } = await supabase.from("user_page_access").insert(rows);
+      if (permErr) {
+        setError(permErr.message);
+        setSaving(false);
+        return;
+      }
     }
     onCreated();
     onClose();
@@ -260,6 +225,27 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <option value="admin">{t("admin")} — {t("roleAdminDesc")}</option>
           </select>
         </Field>
+
+        {role !== "admin" && (
+          <div className="rounded-xl border border-slate-200 p-4">
+            <div className="text-sm font-bold mb-1">{t("userAccessList")}</div>
+            <p className="text-[11px] text-slate-400 mb-3">{t("accessControlHint")}</p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {Object.entries(PAGE_LABELS).map(([key, labelKey]) => (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-brand-600"
+                    checked={pageAccess[key] ?? true}
+                    onChange={(e) => setPageAccess((p) => ({ ...p, [key]: e.target.checked }))}
+                  />
+                  {t(labelKey)}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
         <button type="submit" className="btn-primary w-full" disabled={saving}>
           {saving ? t("creating") : t("create")}

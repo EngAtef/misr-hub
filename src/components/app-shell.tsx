@@ -26,6 +26,8 @@ import {
   Settings,
   MousePointerClick,
   Flag,
+  Truck,
+  BookOpen,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -50,7 +52,9 @@ const NAV: NavItem[] = [
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
   { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
   { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"] },
+  { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"] },
   { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"] },
+  { href: "/catalog", labelKey: "catalog", icon: BookOpen, roles: ["admin", "manager", "viewer"] },
   { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"] },
   { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
   { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"] },

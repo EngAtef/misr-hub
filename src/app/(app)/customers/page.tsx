@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, MessageCircle, Cake, UserX } from "lucide-react";
+import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
-import { whatsappLink } from "@/lib/whatsapp";
+import { ContactActions } from "@/components/contact-actions";
 
 interface WinbackRow {
   customer_id: string;
@@ -161,7 +161,7 @@ export default function CustomersPage() {
                   <p className="mt-1 text-xs leading-relaxed text-slate-500">{t(meta.descKey)}</p>
                   <div className="mt-3 flex justify-between border-t border-slate-100 pt-2 text-xs text-slate-600">
                     <span>{t("revenue")}: <b>{formatMoney(s.total_revenue, lang)}</b></span>
-                    <span>{t("avgOrderValue")}: <b>{formatMoney(s.avg_spend, lang)}</b></span>
+                    <span>{t("avgCustomerSpend")}: <b>{formatMoney(s.avg_spend, lang)}</b></span>
                   </div>
                   <button
                     className="btn-secondary w-full mt-3 !py-1.5 text-xs"
@@ -206,36 +206,20 @@ export default function CustomersPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {customers.map((c) => {
-                        const wa = whatsappLink(c.customer_phone, "general", {
-                          customerName: c.customer_name,
-                          orderNumber: "",
-                        }, lang);
-                        return (
-                          <tr key={c.customer_id}>
-                            <td className="font-medium">{c.customer_name ?? c.customer_id}</td>
-                            <td dir="ltr" className="text-slate-600">{c.customer_phone ?? "—"}</td>
-                            <td>{c.city ?? "—"}</td>
-                            <td className="font-semibold">{formatNumber(c.orders)}</td>
-                            <td>{formatMoney(c.total_spent, lang)}</td>
-                            <td className="text-xs text-slate-500">{formatDate(c.last_order_date)}</td>
-                            <td>{formatNumber(c.recency_days)}</td>
-                            <td>
-                              {wa && (
-                                <a
-                                  href={wa}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                                >
-                                  <MessageCircle size={14} />
-                                  WhatsApp
-                                </a>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {customers.map((c) => (
+                        <tr key={c.customer_id}>
+                          <td className="font-medium">{c.customer_name ?? c.customer_id}</td>
+                          <td dir="ltr" className="text-slate-600">{c.customer_phone ?? "—"}</td>
+                          <td>{c.city ?? "—"}</td>
+                          <td className="font-semibold">{formatNumber(c.orders)}</td>
+                          <td>{formatMoney(c.total_spent, lang)}</td>
+                          <td className="text-xs text-slate-500">{formatDate(c.last_order_date)}</td>
+                          <td>{formatNumber(c.recency_days)}</td>
+                          <td>
+                            <ContactActions phone={c.customer_phone} name={c.customer_name} waReason="general" />
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 )}
@@ -339,32 +323,19 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
                 </tr>
               </thead>
               <tbody>
-                {birthdays.map((b) => {
-                  const wa = whatsappLink(b.phone, "birthday", { customerName: b.name, orderNumber: "" }, lang);
-                  return (
-                    <tr key={b.customer_id}>
-                      <td className="font-bold text-pink-600">{b.birth_day}</td>
-                      <td className="font-medium">{b.name ?? b.customer_id}</td>
-                      <td dir="ltr" className="text-slate-600">{b.phone ?? "—"}</td>
-                      <td>{b.city ?? "—"}</td>
-                      <td>{formatNumber(b.orders)}</td>
-                      <td>{formatMoney(b.total_spent, lang)}</td>
-                      <td>
-                        {wa && (
-                          <a
-                            href={wa}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                          >
-                            <MessageCircle size={14} />
-                            🎂
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {birthdays.map((b) => (
+                  <tr key={b.customer_id}>
+                    <td className="font-bold text-pink-600">{b.birth_day}</td>
+                    <td className="font-medium">{b.name ?? b.customer_id}</td>
+                    <td dir="ltr" className="text-slate-600">{b.phone ?? "—"}</td>
+                    <td>{b.city ?? "—"}</td>
+                    <td>{formatNumber(b.orders)}</td>
+                    <td>{formatMoney(b.total_spent, lang)}</td>
+                    <td>
+                      <ContactActions phone={b.phone} email={b.email} name={b.name} waReason="birthday" />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

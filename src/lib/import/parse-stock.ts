@@ -27,9 +27,40 @@ function num(v: unknown): number | null {
 }
 
 // Accepts flexible column names: Sku, product name, ecom / e-com stock /
-// current stock, sap / sap stock / warehouse, category
+// current stock, sap / sap stock / warehouse, category.
+// Also auto-detects raw SAP exports (Material / Unrestricted per storage
+// location) and aggregates quantities per material.
 export function parseStockFile(data: ArrayBuffer): StockRow[] {
   const wb = XLSX.read(data, { type: "array", raw: false });
+
+  // SAP export detection: look across sheets for Material + Unrestricted
+  for (const sheetName of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { raw: false, defval: null });
+    if (!rows.length) continue;
+    const keys = Object.keys(rows[0]).map((k) => k.toLowerCase());
+    if (keys.some((k) => k === "material") && keys.some((k) => k.includes("unrestricted"))) {
+      const matKey = Object.keys(rows[0]).find((k) => k.toLowerCase() === "material")!;
+      const descKey = Object.keys(rows[0]).find((k) => k.toLowerCase().includes("description"));
+      const qtyKey = Object.keys(rows[0]).find((k) => k.toLowerCase().includes("unrestricted"))!;
+      const agg = new Map<string, { name: string | null; qty: number }>();
+      for (const row of rows) {
+        const sku = row[matKey] ? String(row[matKey]).trim() : "";
+        if (!sku) continue;
+        const qty = num(row[qtyKey]) ?? 0;
+        const prev = agg.get(sku);
+        if (prev) prev.qty += qty;
+        else agg.set(sku, { name: descKey && row[descKey] ? String(row[descKey]).trim() : null, qty });
+      }
+      return Array.from(agg.entries()).map(([sku, v]) => ({
+        sku,
+        product_name: v.name,
+        ecom_stock: null,
+        sap_stock: v.qty,
+        category: null,
+      }));
+    }
+  }
+
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: false, defval: null });
   if (!rows.length) return [];
@@ -43,9 +74,11 @@ export function parseStockFile(data: ArrayBuffer): StockRow[] {
   const catKey = findKey(keys, ["category", "الفئة", "التصنيف"]);
 
   const out: StockRow[] = [];
+  const seen = new Set<string>();
   for (const row of rows) {
     const sku = row[skuKey] ? String(row[skuKey]).trim() : "";
-    if (!sku) continue;
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
     out.push({
       sku,
       product_name: nameKey && row[nameKey] ? String(row[nameKey]).trim() : null,
