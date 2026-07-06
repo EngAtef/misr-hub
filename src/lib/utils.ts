@@ -15,6 +15,12 @@ export function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-EG", { maximumFractionDigits: 1 }).format(value);
 }
 
+// Strips characters that have meaning inside a PostgREST or()/ilike filter
+// so a crafted search string can't break out and query other columns.
+export function sanitizeSearch(input: string): string {
+  return input.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
+}
+
 export function formatPercent(part: number, total: number): string {
   if (!total) return "0%";
   return `${((part / total) * 100).toFixed(1)}%`;
@@ -68,7 +74,10 @@ export function toCsv(rows: Record<string, unknown>[], columns?: string[]): stri
   const cols = columns ?? Object.keys(rows[0]);
   const escape = (v: unknown) => {
     if (v === null || v === undefined) return "";
-    const s = String(v);
+    let s = String(v);
+    // CSV-injection guard: a cell starting with = + - @ (or tab/CR) can run
+    // as a formula in Excel/Sheets. Prefix with ' to neutralize it.
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [cols.join(",")];

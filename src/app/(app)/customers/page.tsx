@@ -5,7 +5,7 @@ import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, Us
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 
 interface WinbackRow {
@@ -258,7 +258,10 @@ function AllCustomersBrowser() {
       let q = supabase
         .from("customers")
         .select("customer_id, name, phone, email, city, birthdate, joined_at, total_orders", { count: "exact" });
-      if (search) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+      if (search) {
+        const s = sanitizeSearch(search);
+        if (s) q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
+      }
       const { data, count } = await q.order("joined_at", { ascending: false, nullsFirst: false }).range(page * PAGE, page * PAGE + PAGE - 1);
       if (cancelled) return;
       setRows((data as typeof rows) ?? []);

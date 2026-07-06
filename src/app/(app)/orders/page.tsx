@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { PageHeader, StatusBadge, Spinner } from "@/components/ui";
-import { formatMoney, formatDateTime, formatNumber } from "@/lib/utils";
+import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
 
@@ -65,9 +65,12 @@ export default function OrdersPage() {
     if (city) query = query.eq("city", city);
     if (source) query = query.eq("source", source);
     if (search) {
-      query = query.or(
-        `order_number.ilike.%${search}%,customer_name.ilike.%${search}%,customer_phone.ilike.%${search}%,awb_number.ilike.%${search}%`
-      );
+      const s = sanitizeSearch(search);
+      if (s) {
+        query = query.or(
+          `order_number.ilike.%${s}%,customer_name.ilike.%${s}%,customer_phone.ilike.%${s}%,awb_number.ilike.%${s}%`
+        );
+      }
     }
     const { data, count } = await query
       .order("order_date", { ascending: false, nullsFirst: false })

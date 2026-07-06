@@ -31,7 +31,9 @@ const EXPORT_COLUMNS = [
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return "";
-  const s = String(v);
+  let s = String(v);
+  // CSV-injection guard (Excel formula execution from user-entered cells)
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -66,9 +68,12 @@ export async function GET(request: NextRequest) {
     if (city) query = query.eq("city", city);
     if (source) query = query.eq("source", source);
     if (q) {
-      query = query.or(
-        `order_number.ilike.%${q}%,customer_name.ilike.%${q}%,customer_phone.ilike.%${q}%,awb_number.ilike.%${q}%`
-      );
+      const s = q.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
+      if (s) {
+        query = query.or(
+          `order_number.ilike.%${s}%,customer_name.ilike.%${s}%,customer_phone.ilike.%${s}%,awb_number.ilike.%${s}%`
+        );
+      }
     }
 
     const { data, error } = await query;

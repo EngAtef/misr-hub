@@ -6,6 +6,15 @@
 alter table public.profiles add column if not exists phone text;
 alter table public.profiles add column if not exists avatar_url text;
 
+-- Cap avatar payload (~200KB data URL) so a client can't store a huge blob
+alter table public.profiles drop constraint if exists avatar_url_size;
+alter table public.profiles add constraint avatar_url_size
+  check (avatar_url is null or length(avatar_url) < 300000);
+-- Cap phone length
+alter table public.profiles drop constraint if exists phone_size;
+alter table public.profiles add constraint phone_size
+  check (phone is null or length(phone) < 40);
+
 -- Let a signed-in user update their OWN profile, but only the safe fields
 -- (full_name, phone, avatar_url) — never role / is_active / is_owner.
 -- The guard trigger from migration 011 still blocks privilege changes.
