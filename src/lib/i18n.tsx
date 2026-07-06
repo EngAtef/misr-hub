@@ -6,8 +6,8 @@ export type Lang = "ar" | "en";
 
 const dict = {
   // App
-  appName: { ar: "مصر هب", en: "Misr Hub" },
-  appTagline: { ar: "منصة إدارة العمليات والتقارير", en: "Operations & Reporting Platform" },
+  appName: { ar: "نهضة مصر", en: "Nahdet Misr" },
+  appTagline: { ar: "منصة إدارة المكتبة الإلكترونية", en: "Bookstore Operations Hub" },
   // Navigation
   overview: { ar: "نظرة عامة", en: "Overview" },
   orders: { ar: "الطلبات", en: "Orders" },
@@ -380,6 +380,40 @@ const dict = {
   integrationsHint: { ar: "أدخل بيانات الربط لكل منصة وستكون جاهزة للتفعيل", en: "Store each platform's credentials — ready to activate when you want" },
   connected: { ar: "مُعد", en: "Configured" },
   notConnected: { ar: "غير مُعد", en: "Not configured" },
+  // Customers DB
+  uploadCustomers: { ar: "ملف العملاء", en: "Customers File" },
+  uploadCustomersHint: { ar: "ملف CustomersExport من المنصة — يُحدّث الموجود ويضيف الجديد بدون تكرار", en: "CustomersExport file — updates existing and adds new, no duplicates" },
+  registeredCustomers: { ar: "عملاء مسجلون", en: "Registered Customers" },
+  buyersCount: { ar: "عملاء اشتروا", en: "Customers Who Bought" },
+  registrationToBuyer: { ar: "نسبة التحويل من التسجيل للشراء", en: "Registered → Buyer Rate" },
+  neverPurchased: { ar: "مسجلون لم يشتروا أبداً", en: "Registered, never purchased" },
+  // Tracking reconciliation
+  tracking: { ar: "مطابقة التتبع", en: "Tracking Reconciliation" },
+  trackingHint: { ar: "مقارنة الطلبات الفعلية بما وصل إلى GA4 — ارفع ملف Transactions من GA4 شهرياً", en: "Compares real orders vs what reached GA4 — upload the GA4 Transactions file monthly" },
+  trackedOrders: { ar: "طلبات مُتتبعة", en: "Tracked Orders" },
+  untrackedOrders: { ar: "طلبات غير مُتتبعة", en: "Untracked Orders" },
+  untrackedRevenue: { ar: "إيراد غير مُتتبع", en: "Untracked Revenue" },
+  trackingRate: { ar: "نسبة التتبع", en: "Tracking Rate" },
+  untrackedByPayment: { ar: "غير المُتتبع حسب طريقة الدفع", en: "Untracked by Payment Method" },
+  exportUntracked: { ar: "تصدير غير المُتتبع", en: "Export Untracked" },
+  itemTrackingGaps: { ar: "فجوات تتبع المنتجات", en: "Product Tracking Gaps" },
+  ga4Purchased: { ar: "مشتريات GA4", en: "GA4 Purchased" },
+  actualSold: { ar: "المباع فعلياً", en: "Actually Sold" },
+  gap: { ar: "الفجوة", en: "Gap" },
+  noTrackingData: { ar: "ارفع ملف Transactions من GA4 (نفس الشهر) لتفعيل المطابقة", en: "Upload the GA4 Transactions file for this month to activate reconciliation" },
+  // Targets input
+  addTarget: { ar: "إضافة / تعديل هدف", en: "Add / Edit Target" },
+  targetMonth: { ar: "الشهر", en: "Month" },
+  totalTargetLabel: { ar: "الهدف الإجمالي (ج.م)", en: "Total target (EGP)" },
+  kidsTargetLabel: { ar: "هدف Kids", en: "Kids target" },
+  culturalTargetLabel: { ar: "هدف Cultural", en: "Cultural target" },
+  aovLabel: { ar: "متوسط قيمة الطلب المفترض", en: "Assumed AOV" },
+  convLabel: { ar: "معدل التحويل المفترض %", en: "Assumed CR %" },
+  noteLabel: { ar: "ملاحظة الموسم", en: "Season note" },
+  // Per-user access
+  userAccessList: { ar: "الصفحات المتاحة لهذا الحساب", en: "Pages this account can access" },
+  userAccessHint: { ar: "غير المحدد يتبع صلاحية الدور — التحديد هنا يتجاوزها لهذا الحساب فقط", en: "Overrides the role defaults for this account only" },
+  useRoleDefaults: { ar: "استخدام إعدادات الدور", en: "Use role defaults" },
   // Misc
   refresh: { ar: "تحديث", en: "Refresh" },
   ordersLabel: { ar: "طلب", en: "orders" },

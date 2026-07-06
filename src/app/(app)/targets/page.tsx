@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Target, TrendingUp, Users, MousePointerClick, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
@@ -32,8 +32,9 @@ export default function TargetsPage() {
   const [rows, setRows] = useState<TargetRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<TargetRow | null>(null);
+  const [editing, setEditing] = useState<TargetRow | null | "new">(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     supabase.rpc("fn_targets_overview").then(({ data }) => {
       const list = (data as TargetRow[]) ?? [];
       setRows(list);
@@ -41,10 +42,14 @@ export default function TargetsPage() {
       const now = new Date();
       const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
       const cur = list.find((r) => r.period_month.startsWith(curKey));
-      setSelected(cur ?? list.find((r) => r.actual_revenue > 0) ?? list[0] ?? null);
+      setSelected((prev) => prev ?? cur ?? list.find((r) => r.actual_revenue > 0) ?? list[0] ?? null);
       setLoading(false);
     });
   }, [supabase]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const annual = useMemo(() => {
     const target = rows.reduce((s, r) => s + r.total_target, 0);
@@ -53,11 +58,26 @@ export default function TargetsPage() {
   }, [rows]);
 
   if (loading) return <div><PageHeader title={t("targets")} /><Spinner /></div>;
-  if (!rows.length) return <div><PageHeader title={t("targets")} /><EmptyState message={t("noData")} /></div>;
+
+  const addButton = (
+    <button className="btn-primary" onClick={() => setEditing("new")}>
+      <Plus size={16} />
+      {t("addTarget")}
+    </button>
+  );
+
+  if (!rows.length)
+    return (
+      <div>
+        <PageHeader title={t("targets")} actions={addButton} />
+        <EmptyState message={t("noData")} />
+        {editing && <TargetModal target={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      </div>
+    );
 
   return (
     <div>
-      <PageHeader title={t("targets")} subtitle={t("targetsSubtitle")} />
+      <PageHeader title={t("targets")} subtitle={t("targetsSubtitle")} actions={addButton} />
 
       <div className="card p-5 mb-6">
         <div className="flex items-center justify-between mb-2">
@@ -81,6 +101,7 @@ export default function TargetsPage() {
               key={r.period_month}
               className={cn("card p-4 cursor-pointer transition hover:shadow-md", selected?.period_month === r.period_month && "ring-2 ring-brand-400")}
               onClick={() => setSelected(r)}
+              onDoubleClick={() => setEditing(r)}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -103,6 +124,115 @@ export default function TargetsPage() {
       </div>
 
       {selected && <StepsToAchieve row={selected} />}
+      {editing && (
+        <TargetModal
+          target={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TargetModal({ target, onClose, onSaved }: { target: TargetRow | null; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [form, setForm] = useState({
+    month: target ? target.period_month.slice(0, 7) : new Date().toISOString().slice(0, 7),
+    total: target?.total_target?.toString() ?? "",
+    kids: target?.kids_target?.toString() ?? "",
+    cultural: target?.cultural_target?.toString() ?? "",
+    aov: target?.aov?.toString() ?? "550",
+    conv: target ? String((target.conv_rate ?? 0.015) * 100) : "1.5",
+    label: target?.label ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function set<K extends keyof typeof form>(k: K, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    const month = `${form.month}-01`;
+    const m = parseInt(form.month.slice(5, 7), 10);
+    const quarter = `Q${Math.floor(((m + 5) % 12) / 3) + 1}`; // fiscal year starts July
+    const { error: err } = await supabase.from("targets").upsert(
+      {
+        period_month: month,
+        quarter,
+        label: form.label || null,
+        total_target: Number(form.total) || 0,
+        kids_target: Number(form.kids) || 0,
+        cultural_target: Number(form.cultural) || 0,
+        aov: Number(form.aov) || 550,
+        conv_rate: (Number(form.conv) || 1.5) / 100,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "period_month" }
+    );
+    if (err) {
+      setError(err.message);
+      setSaving(false);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <form onSubmit={submit} className="relative w-full max-w-md card p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">{t("addTarget")}</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X size={20} />
+          </button>
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("targetMonth")}</label>
+          <input type="month" className="input" required value={form.month} onChange={(e) => set("month", e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("totalTargetLabel")}</label>
+          <input type="number" min={0} className="input" dir="ltr" required value={form.total} onChange={(e) => set("total", e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("kidsTargetLabel")}</label>
+            <input type="number" min={0} className="input" dir="ltr" value={form.kids} onChange={(e) => set("kids", e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("culturalTargetLabel")}</label>
+            <input type="number" min={0} className="input" dir="ltr" value={form.cultural} onChange={(e) => set("cultural", e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("aovLabel")}</label>
+            <input type="number" min={1} className="input" dir="ltr" value={form.aov} onChange={(e) => set("aov", e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("convLabel")}</label>
+            <input type="number" min={0.1} step={0.1} className="input" dir="ltr" value={form.conv} onChange={(e) => set("conv", e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("noteLabel")}</label>
+          <input className="input" placeholder="White Friday / Back to School..." value={form.label} onChange={(e) => set("label", e.target.value)} />
+        </div>
+        {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
+        <button type="submit" className="btn-primary w-full" disabled={saving}>
+          {t("save")}
+        </button>
+      </form>
     </div>
   );
 }

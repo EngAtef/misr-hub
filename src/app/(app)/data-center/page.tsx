@@ -8,8 +8,9 @@ import { PageHeader, Spinner } from "@/components/ui";
 import { formatDateTime, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
 import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
-import { parseGa4File, type Ga4Parsed } from "@/lib/import/parse-ga4";
+import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
 import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
+import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
 
 const CHUNK_SIZE = 250;
 
@@ -24,15 +25,16 @@ interface UploadRecord {
   created_at: string;
 }
 
-type UploadType = "orders" | "stock" | "ga4" | "ads";
+type UploadType = "orders" | "customers" | "stock" | "ga4" | "ads";
 type Phase = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
 
 interface Pending {
   type: UploadType;
   fileName: string;
   orders?: ParsedOrder[];
+  customers?: CustomerRow[];
   stock?: StockRow[];
-  ga4?: Ga4Parsed;
+  ga4?: Ga4AnyParsed;
   ads?: ParsedAdRow[];
   count: number;
   extra?: string;
@@ -65,6 +67,7 @@ export default function DataCenterPage() {
 
   const TYPES: { key: UploadType; icon: React.ElementType; title: string; hint: string; accept: string }[] = [
     { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
+    { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadStockHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4", icon: LineChart, title: t("uploadGa4"), hint: t("uploadGa4Hint"), accept: ".csv" },
     { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
@@ -79,6 +82,11 @@ export default function DataCenterPage() {
         if (!hasOrderNumberColumn(buffer)) throw new Error(t("invalidFile"));
         const result = parseOrdersWorkbook(buffer);
         setPending({ type: "orders", fileName: file.name, orders: result.orders, count: result.orders.length });
+      } else if (activeType === "customers") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCustomersFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "customers", fileName: file.name, customers: rows, count: rows.length });
       } else if (activeType === "stock") {
         const buffer = await file.arrayBuffer();
         const rows = parseStockFile(buffer);
@@ -86,9 +94,18 @@ export default function DataCenterPage() {
         setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
       } else if (activeType === "ga4") {
         const text = await file.text();
-        const parsed = parseGa4File(text);
-        if (!parsed || !parsed.rows.length) throw new Error(t("invalidFile"));
-        setPending({ type: "ga4", fileName: file.name, ga4: parsed, count: parsed.rows.length, extra: parsed.month.slice(0, 7) });
+        const parsed = parseGa4Any(text);
+        if (!parsed) throw new Error(t("invalidFile"));
+        const count =
+          parsed.kind === "pages" ? parsed.rows.length : parsed.kind === "transactions" ? parsed.transactions.length : parsed.items.length;
+        if (!count) throw new Error(t("invalidFile"));
+        setPending({
+          type: "ga4",
+          fileName: file.name,
+          ga4: parsed,
+          count,
+          extra: `${parsed.month.slice(0, 7)} · ${parsed.kind}`,
+        });
       } else {
         const buffer = await file.arrayBuffer();
         const rows = parseAdsFile(buffer, file.name);
@@ -154,6 +171,17 @@ export default function DataCenterPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "finish", uploadId, fileName: pending.fileName, processedRows: ok, failedRows: bad }),
         });
+      } else if (pending.type === "customers" && pending.customers) {
+        let ok = 0;
+        for (let i = 0; i < pending.customers.length; i += 2000) {
+          const chunk = pending.customers.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_customers", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.customers.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.customers.length, ok, 0);
       } else if (pending.type === "stock" && pending.stock) {
         const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
         if (error) throw new Error(error.message);
@@ -161,18 +189,40 @@ export default function DataCenterPage() {
         setProgress(100);
         await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
       } else if (pending.type === "ga4" && pending.ga4) {
-        // replace this month's rows (safe re-upload)
-        await supabase.from("ga4_pages").delete().eq("period_month", pending.ga4.month);
+        const g = pending.ga4;
         let ok = 0;
-        for (let i = 0; i < pending.ga4.rows.length; i += 500) {
-          const chunk = pending.ga4.rows.slice(i, i + 500);
-          const { error } = await supabase.from("ga4_pages").insert(chunk);
-          if (error) throw new Error(error.message);
-          ok += chunk.length;
-          setProcessed(ok);
-          setProgress(Math.round((ok / pending.ga4.rows.length) * 100));
+        if (g.kind === "pages") {
+          // replace this month's rows (safe re-upload)
+          await supabase.from("ga4_pages").delete().eq("period_month", g.month);
+          for (let i = 0; i < g.rows.length; i += 500) {
+            const chunk = g.rows.slice(i, i + 500);
+            const { error } = await supabase.from("ga4_pages").insert(chunk);
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.rows.length) * 100));
+          }
+        } else if (g.kind === "transactions") {
+          for (let i = 0; i < g.transactions.length; i += 1000) {
+            const chunk = g.transactions.slice(i, i + 1000);
+            const { error } = await supabase.from("ga4_transactions").upsert(chunk, { onConflict: "transaction_id" });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.transactions.length) * 100));
+          }
+        } else {
+          await supabase.from("ga4_items").delete().eq("period_month", g.month);
+          for (let i = 0; i < g.items.length; i += 1000) {
+            const chunk = g.items.slice(i, i + 1000);
+            const { error } = await supabase.from("ga4_items").insert(chunk);
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.items.length) * 100));
+          }
         }
-        await recordUpload(pending.fileName, pending.ga4.rows.length, ok, 0);
+        await recordUpload(pending.fileName, pending.count, ok, 0);
       } else if (pending.type === "ads" && pending.ads) {
         const res = await fetch("/api/ads", {
           method: "POST",

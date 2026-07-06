@@ -18,6 +18,11 @@ export async function POST(request: NextRequest) {
     const batchLabel = String(body.batchLabel ?? "").trim() || null;
     if (!rows.length) return NextResponse.json({ error: "No rows" }, { status: 400 });
 
+    // Re-uploading the same file replaces its batch instead of duplicating it
+    if (batchLabel) {
+      await db.from("ad_spend").delete().eq("batch_label", batchLabel);
+    }
+
     const payload = rows.map((r) => ({ ...r, batch_label: batchLabel, imported_by: user.id }));
     const { error } = await db.from("ad_spend").insert(payload);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

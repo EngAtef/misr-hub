@@ -13,7 +13,6 @@ import {
   ScrollText,
   LogOut,
   Globe,
-  BookOpen,
   Menu,
   X,
   Lightbulb,
@@ -31,6 +30,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/logo";
 import type { Profile } from "@/lib/types";
 
 interface NavItem {
@@ -72,6 +72,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
+  const [userOverrides, setUserOverrides] = useState<Record<string, boolean> | null>(null);
 
   useEffect(() => {
     if (profile.role === "admin") return;
@@ -86,12 +87,30 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         }
         setPermissions(map);
       });
-  }, [profile.role]);
+    supabase
+      .from("user_page_access")
+      .select("page_key, allowed")
+      .eq("user_id", profile.id)
+      .then(({ data }) => {
+        const rows = (data as { page_key: string; allowed: boolean }[]) ?? [];
+        if (!rows.length) {
+          setUserOverrides(null);
+          return;
+        }
+        const map: Record<string, boolean> = {};
+        for (const r of rows) map[r.page_key] = r.allowed;
+        setUserOverrides(map);
+      });
+  }, [profile.role, profile.id]);
 
   const items = NAV.filter((item) => {
     if (!item.roles.includes(profile.role)) return false;
-    if (profile.role === "admin" || !permissions) return true;
-    const perm = permissions[pageKey(item.href)];
+    if (profile.role === "admin") return true;
+    const key = pageKey(item.href);
+    // per-account checklist wins over role defaults
+    if (userOverrides && userOverrides[key] !== undefined) return userOverrides[key];
+    if (!permissions) return true;
+    const perm = permissions[key];
     if (!perm) return true;
     return profile.role === "manager" ? perm.m : perm.v;
   });
@@ -105,14 +124,9 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-brand-800">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold">
-          <BookOpen className="h-5 w-5 text-brand-950" />
-        </div>
-        <div>
-          <div className="font-bold text-white leading-tight">{t("appName")}</div>
-          <div className="text-[11px] text-brand-300">{t("appTagline")}</div>
-        </div>
+      <div className="px-5 py-5 border-b border-brand-800">
+        <Logo onDark />
+        <div className="mt-1.5 text-[11px] text-brand-300">{t("appTagline")}</div>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {items.map((item) => {

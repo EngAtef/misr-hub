@@ -279,6 +279,28 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
   const [isActive, setIsActive] = useState(user.is_active);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [useDefaults, setUseDefaults] = useState(true);
+  const [pageAccess, setPageAccess] = useState<Record<string, boolean>>(
+    Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, true]))
+  );
+
+  useEffect(() => {
+    supabase
+      .from("user_page_access")
+      .select("page_key, allowed")
+      .eq("user_id", user.id)
+      .then(({ data }) => {
+        const rows = (data as { page_key: string; allowed: boolean }[]) ?? [];
+        if (rows.length) {
+          setUseDefaults(false);
+          setPageAccess((prev) => {
+            const next = { ...prev };
+            for (const r of rows) next[r.page_key] = r.allowed;
+            return next;
+          });
+        }
+      });
+  }, [supabase, user.id]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -296,6 +318,22 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
       setError(err.message);
       setSaving(false);
       return;
+    }
+
+    // Per-account page checklist (overrides role defaults)
+    await supabase.from("user_page_access").delete().eq("user_id", user.id);
+    if (!useDefaults && role !== "admin") {
+      const rows = Object.entries(pageAccess).map(([page_key, allowed]) => ({
+        user_id: user.id,
+        page_key,
+        allowed,
+      }));
+      const { error: permErr } = await supabase.from("user_page_access").insert(rows);
+      if (permErr) {
+        setError(permErr.message);
+        setSaving(false);
+        return;
+      }
     }
     onSaved();
   }
@@ -327,6 +365,38 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
             </select>
           </Field>
         </div>
+
+        {role !== "admin" && (
+          <div className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-sm font-bold">{t("userAccessList")}</div>
+              <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-brand-600"
+                  checked={useDefaults}
+                  onChange={(e) => setUseDefaults(e.target.checked)}
+                />
+                {t("useRoleDefaults")}
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">{t("userAccessHint")}</p>
+            <div className={cn("grid grid-cols-2 gap-x-3 gap-y-2", useDefaults && "opacity-40 pointer-events-none")}>
+              {Object.entries(PAGE_LABELS).map(([key, labelKey]) => (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-brand-600"
+                    checked={pageAccess[key] ?? true}
+                    onChange={(e) => setPageAccess((p) => ({ ...p, [key]: e.target.checked }))}
+                  />
+                  {t(labelKey)}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
         <button type="submit" className="btn-primary w-full" disabled={saving}>
           {t("save")}

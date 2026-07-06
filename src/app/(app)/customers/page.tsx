@@ -47,12 +47,17 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [customers, setCustomers] = useState<SegmentCustomer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
+  const [registered, setRegistered] = useState<number | null>(null);
 
   useEffect(() => {
     supabase.rpc("fn_rfm_summary").then(({ data }) => {
       setSummary((data as SegmentSummary[]) ?? []);
       setLoading(false);
     });
+    supabase
+      .from("customers")
+      .select("customer_id", { count: "exact", head: true })
+      .then(({ count }) => setRegistered(count ?? null));
   }, [supabase]);
 
   async function openSegment(segment: string) {
@@ -83,6 +88,29 @@ export default function CustomersPage() {
         <EmptyState message={t("noData")} />
       ) : (
         <>
+          {registered !== null && registered > 0 && (() => {
+            const buyers = summary.reduce((s, x) => s + Number(x.customers), 0);
+            return (
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-6">
+                <div className="card p-4 border-s-4 border-s-brand-500">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("registeredCustomers")}</div>
+                  <div className="mt-1 text-2xl font-bold">{formatNumber(registered)}</div>
+                </div>
+                <div className="card p-4 border-s-4 border-s-emerald-500">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("buyersCount")}</div>
+                  <div className="mt-1 text-2xl font-bold">{formatNumber(buyers)}</div>
+                </div>
+                <div className="card p-4 border-s-4 border-s-amber-500">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("registrationToBuyer")}</div>
+                  <div className="mt-1 text-2xl font-bold">{((buyers / registered) * 100).toFixed(1)}%</div>
+                </div>
+                <div className="card p-4 border-s-4 border-s-red-500">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("neverPurchased")}</div>
+                  <div className="mt-1 text-2xl font-bold">{formatNumber(Math.max(registered - buyers, 0))}</div>
+                </div>
+              </div>
+            );
+          })()}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
             {ordered.map((s) => {
               const meta = SEGMENT_META[s.segment];

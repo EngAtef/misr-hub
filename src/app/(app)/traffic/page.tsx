@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, TrendingDown, TrendingUp } from "lucide-react";
+import { UploadCloud, TrendingDown, TrendingUp, Radar, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, KpiCard, ChartCard, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge } from "@/components/ui";
 import { BarsChart } from "@/components/charts";
-import { formatNumber, formatMoney, formatPercent, cn } from "@/lib/utils";
+import { formatNumber, formatMoney, formatDateTime, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface MonthRow {
   period_month: string;
@@ -37,6 +37,36 @@ interface PageRow {
   bounce_rate: number | null;
 }
 
+interface TrackingSummary {
+  orders: number;
+  orders_revenue: number;
+  ga4_transactions: number;
+  ga4_revenue: number;
+  tracked: number;
+  untracked: number;
+  untracked_revenue: number;
+  ga4_only: number;
+  untracked_by_source: Record<string, number>;
+  payment_breakdown: { payment_method: string; untracked: number; total: number }[];
+}
+
+interface UntrackedOrder {
+  order_number: string;
+  order_date: string;
+  order_status: string;
+  payment_method: string | null;
+  source: string | null;
+  city: string | null;
+  total_order_amount: number | null;
+}
+
+interface ItemGap {
+  item_name: string;
+  ga4_purchased: number;
+  actual_units: number;
+  gap: number;
+}
+
 function monthLabel(iso: string, lang: "ar" | "en") {
   return new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric" });
 }
@@ -59,9 +89,13 @@ export default function TrafficPage() {
     });
   }, [supabase]);
 
+  const [tracking, setTracking] = useState<TrackingSummary | null>(null);
+  const [untracked, setUntracked] = useState<UntrackedOrder[]>([]);
+  const [itemGaps, setItemGaps] = useState<ItemGap[]>([]);
+
   const loadMonth = useCallback(
     async (month: string) => {
-      const [s, p] = await Promise.all([
+      const [s, p, tr, un, ig] = await Promise.all([
         supabase.rpc("fn_ga4_summary", { p_month: month }),
         supabase
           .from("ga4_pages")
@@ -69,9 +103,15 @@ export default function TrafficPage() {
           .eq("period_month", month)
           .order("views", { ascending: false })
           .limit(25),
+        supabase.rpc("fn_tracking_summary", { p_month: month }),
+        supabase.rpc("fn_untracked_orders", { p_month: month, p_limit: 300 }),
+        supabase.rpc("fn_item_tracking_gaps", { p_month: month, p_limit: 20 }),
       ]);
       setSummary(s.data as Summary);
       setPages((p.data as PageRow[]) ?? []);
+      setTracking(tr.data as TrackingSummary);
+      setUntracked((un.data as UntrackedOrder[]) ?? []);
+      setItemGaps((ig.data as ItemGap[]) ?? []);
     },
     [supabase]
   );
@@ -152,6 +192,137 @@ export default function TrafficPage() {
                 lang={lang}
               />
             </div>
+          </div>
+
+          {/* GA4 vs actual orders reconciliation */}
+          <div className="card p-5">
+            <div className="mb-1 flex items-center gap-2">
+              <Radar size={18} className="text-brand-600" />
+              <h3 className="text-sm font-bold text-slate-700">{t("tracking")}</h3>
+            </div>
+            <p className="mb-4 text-xs text-slate-500">{t("trackingHint")}</p>
+            {!tracking || tracking.ga4_transactions === 0 ? (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                {t("noTrackingData")}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <KpiCard
+                    label={t("trackingRate")}
+                    value={`${((tracking.tracked / Math.max(tracking.orders, 1)) * 100).toFixed(1)}%`}
+                    sub={`${formatNumber(tracking.tracked)} / ${formatNumber(tracking.orders)}`}
+                    accent={tracking.untracked / Math.max(tracking.orders, 1) > 0.05 ? "red" : "green"}
+                  />
+                  <KpiCard label={t("untrackedOrders")} value={formatNumber(tracking.untracked)} accent="red" />
+                  <KpiCard label={t("untrackedRevenue")} value={formatMoney(tracking.untracked_revenue, lang)} accent="amber" />
+                  <KpiCard label="GA4" value={formatNumber(tracking.ga4_transactions)} sub={formatMoney(tracking.ga4_revenue, lang)} accent="slate" />
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <h4 className="mb-2 text-xs font-bold uppercase text-slate-500">{t("untrackedByPayment")}</h4>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="table-base">
+                        <thead>
+                          <tr>
+                            <th>{t("paymentMethod")}</th>
+                            <th>{t("untrackedOrders")}</th>
+                            <th>{t("of")}</th>
+                            <th>%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(tracking.payment_breakdown ?? []).map((p) => {
+                            const pct = p.total > 0 ? (p.untracked / p.total) * 100 : 0;
+                            return (
+                              <tr key={p.payment_method}>
+                                <td className="font-medium">{p.payment_method}</td>
+                                <td>{formatNumber(p.untracked)}</td>
+                                <td className="text-slate-500">{formatNumber(p.total)}</td>
+                                <td className={cn("font-bold", pct > 50 ? "text-red-600" : pct > 10 ? "text-amber-600" : "text-emerald-600")}>
+                                  {pct.toFixed(1)}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase text-slate-500">{t("untrackedOrders")}</h4>
+                      <button
+                        className="btn-secondary !py-1 !px-2.5 text-xs"
+                        onClick={() =>
+                          downloadCsv(
+                            `untracked-orders-${selected?.slice(0, 7)}.csv`,
+                            toCsv(untracked as unknown as Record<string, unknown>[])
+                          )
+                        }
+                      >
+                        <Download size={13} />
+                        {t("exportUntracked")}
+                      </button>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200">
+                      <table className="table-base">
+                        <thead>
+                          <tr>
+                            <th>{t("orderNumber")}</th>
+                            <th>{t("paymentMethod")}</th>
+                            <th>{t("amount")}</th>
+                            <th>{t("status")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {untracked.slice(0, 50).map((o) => (
+                            <tr key={o.order_number}>
+                              <td className="font-bold text-brand-700" dir="ltr">#{o.order_number}</td>
+                              <td className="text-xs">{o.payment_method ?? "—"}</td>
+                              <td>{formatMoney(o.total_order_amount, lang)}</td>
+                              <td><StatusBadge status={o.order_status} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {itemGaps.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-xs font-bold uppercase text-slate-500">{t("itemTrackingGaps")}</h4>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="table-base">
+                        <thead>
+                          <tr>
+                            <th>{t("products")}</th>
+                            <th>{t("ga4Purchased")}</th>
+                            <th>{t("actualSold")}</th>
+                            <th>{t("gap")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {itemGaps.map((g, i) => (
+                            <tr key={i}>
+                              <td className="!whitespace-normal max-w-md font-medium">{g.item_name}</td>
+                              <td>{formatNumber(g.ga4_purchased)}</td>
+                              <td className="font-semibold">{formatNumber(g.actual_units)}</td>
+                              <td className={cn("font-bold", Math.abs(g.gap) > 20 ? "text-red-600" : "text-slate-600")}>
+                                {g.gap > 0 ? "+" : ""}{formatNumber(g.gap)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {months.length > 1 && (

@@ -48,6 +48,87 @@ function splitCsv(line: string): string[] {
   return out;
 }
 
+export interface Ga4Transaction {
+  transaction_id: string;
+  period_month: string;
+  purchases: number | null;
+  revenue: number | null;
+}
+
+export interface Ga4Item {
+  period_month: string;
+  item_name: string;
+  items_viewed: number | null;
+  items_added: number | null;
+  items_purchased: number | null;
+  item_revenue: number | null;
+}
+
+export type Ga4AnyParsed =
+  | { kind: "pages"; month: string; rows: Ga4Row[] }
+  | { kind: "transactions"; month: string; transactions: Ga4Transaction[] }
+  | { kind: "items"; month: string; items: Ga4Item[] };
+
+// Detects and parses any of the three GA4 exports we support:
+// Pages & screens, Transactions, Ecommerce purchases (Item name).
+export function parseGa4Any(text: string): Ga4AnyParsed | null {
+  const lines = text.split(/\r?\n/);
+  let month: string | null = null;
+  let headerIdx = -1;
+  let kind: "pages" | "transactions" | "items" | null = null;
+
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i];
+    const m = line.match(/#\s*Start date:\s*(\d{4})(\d{2})(\d{2})/i);
+    if (m) month = `${m[1]}-${m[2]}-01`;
+    if (!line.startsWith("#")) {
+      const lower = line.toLowerCase();
+      if (lower.includes("page path")) { kind = "pages"; headerIdx = i; break; }
+      if (lower.includes("transaction id")) { kind = "transactions"; headerIdx = i; break; }
+      if (lower.includes("item name")) { kind = "items"; headerIdx = i; break; }
+    }
+  }
+  if (!month || headerIdx === -1 || !kind) return null;
+
+  if (kind === "pages") {
+    const parsed = parseGa4File(text);
+    return parsed ? { kind: "pages", month: parsed.month, rows: parsed.rows } : null;
+  }
+
+  if (kind === "transactions") {
+    const seen = new Set<string>();
+    const transactions: Ga4Transaction[] = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (!lines[i].trim() || lines[i].startsWith("#")) continue;
+      const c = splitCsv(lines[i]);
+      const id = c[0]?.trim();
+      if (!id || id === "0" || seen.has(id)) continue;
+      seen.add(id);
+      transactions.push({ transaction_id: id, period_month: month, purchases: num(c[1]), revenue: num(c[2]) });
+    }
+    return { kind: "transactions", month, transactions };
+  }
+
+  const seen = new Set<string>();
+  const items: Ga4Item[] = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (!lines[i].trim() || lines[i].startsWith("#")) continue;
+    const c = splitCsv(lines[i]);
+    const name = c[0]?.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    items.push({
+      period_month: month,
+      item_name: name,
+      items_viewed: num(c[1]),
+      items_added: num(c[2]),
+      items_purchased: num(c[3]),
+      item_revenue: num(c[4]),
+    });
+  }
+  return { kind: "items", month, items };
+}
+
 // Parses a GA4 "Pages and screens" CSV export. The month is auto-detected
 // from the "# Start date: YYYYMMDD" comment line.
 export function parseGa4File(text: string): Ga4Parsed | null {

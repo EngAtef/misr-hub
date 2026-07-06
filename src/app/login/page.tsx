@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Globe } from "lucide-react";
+import { Globe } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
+import { Logo } from "@/components/logo";
 
 export default function LoginPage() {
   const { t, lang, setLang } = useLang();
@@ -43,12 +44,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800 p-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gold/90 shadow-lg mb-4">
-            <BookOpen className="w-8 h-8 text-brand-950" />
-          </div>
-          <h1 className="text-3xl font-bold text-white">{t("appName")}</h1>
-          <p className="text-brand-200 mt-1">{t("appTagline")}</p>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Logo onDark size="lg" />
+          <p className="text-brand-200 mt-3">{t("appTagline")}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="card p-8 space-y-5">
