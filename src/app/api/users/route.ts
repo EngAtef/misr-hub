@@ -10,17 +10,30 @@ export async function POST(request: NextRequest) {
   const db = user.supabase;
 
   if (body.action === "create") {
-    const { email, password, fullName, role } = body;
+    const { email, password, fullName, phone, role } = body;
     if (!email || !password || !["admin", "manager", "viewer"].includes(role)) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const { data, error } = await db.rpc("admin_create_user", {
+    let { data, error } = await db.rpc("admin_create_user", {
       p_email: email,
       p_password: password,
       p_full_name: fullName ?? "",
       p_role: role,
+      p_phone: phone || null,
     });
+    // Fallback for databases where migration 012 (p_phone) isn't applied yet
+    if (error && /function|p_phone|does not exist/i.test(error.message)) {
+      ({ data, error } = await db.rpc("admin_create_user", {
+        p_email: email,
+        p_password: password,
+        p_full_name: fullName ?? "",
+        p_role: role,
+      }));
+      if (!error && data && phone) {
+        await db.from("profiles").update({ phone }).eq("id", data);
+      }
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     await db.from("audit_log").insert({

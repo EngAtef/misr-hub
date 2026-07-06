@@ -152,6 +152,13 @@ export default function SettingsPage() {
             { key: "ad_account_id", label: "Ad Account ID", placeholder: "act_1234567890" },
             { key: "access_token", label: "Access Token", secret: true },
           ]}
+          steps={[
+            { text: "Open Meta Business Settings", url: "https://business.facebook.com/settings" },
+            { text: "Users → System Users → Add → give it 'Admin' + assign your Ad Account" },
+            { text: "Generate New Token → select the ads_read and read_insights permissions → copy the token" },
+            { text: "Ad Accounts → copy your Ad Account ID (the number after 'act_')" },
+            { text: "Paste both below. Docs:", url: "https://developers.facebook.com/docs/marketing-api/get-started" },
+          ]}
         />
         <IntegrationCard
           settingKey="chatwoot"
@@ -162,6 +169,12 @@ export default function SettingsPage() {
             { key: "account_id", label: "Account ID", placeholder: "1" },
             { key: "api_token", label: "API Access Token", secret: true },
           ]}
+          steps={[
+            { text: "Sign in to your Chatwoot", url: "https://app.chatwoot.com" },
+            { text: "Profile Settings → Access Token → copy it" },
+            { text: "Your Account ID is the number in the dashboard URL: /app/accounts/<ID>/" },
+            { text: "Paste URL + Account ID + token below. API docs:", url: "https://www.chatwoot.com/developers/api/" },
+          ]}
         />
         <IntegrationCard
           settingKey="ga4_api"
@@ -170,6 +183,13 @@ export default function SettingsPage() {
           fields={[
             { key: "property_id", label: "GA4 Property ID", placeholder: "123456789" },
             { key: "service_account_json", label: "Service Account JSON", secret: true },
+          ]}
+          steps={[
+            { text: "Google Cloud Console → create a project", url: "https://console.cloud.google.com/" },
+            { text: "Enable the 'Google Analytics Data API'", url: "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com" },
+            { text: "IAM → Service Accounts → Create → download the JSON key" },
+            { text: "In GA4 Admin → Property Access Management, add the service-account email as Viewer" },
+            { text: "GA4 Admin → Property Settings → copy the Property ID (a number). Paste both below." },
           ]}
         />
         <div className="card p-5 space-y-2">
@@ -190,11 +210,13 @@ function IntegrationCard({
   title,
   description,
   fields,
+  steps,
 }: {
   settingKey: string;
   title: string;
   description: string;
   fields: { key: string; label: string; placeholder?: string; secret?: boolean }[];
+  steps?: { text: string; url?: string }[];
 }) {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
@@ -202,6 +224,7 @@ function IntegrationCard({
   const [configured, setConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
     supabase
@@ -268,7 +291,32 @@ function IntegrationCard({
           {t("saveSettings")}
         </button>
         {saved && <CheckCircle2 size={15} className="text-emerald-600" />}
+        {steps && steps.length > 0 && (
+          <button className="ms-auto text-xs font-semibold text-brand-600 hover:underline" onClick={() => setShowSteps((s) => !s)}>
+            {showSteps ? t("hideGuide") : t("showGuide")}
+          </button>
+        )}
       </div>
+      {showSteps && steps && (
+        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+          <div className="mb-2 text-xs font-bold text-slate-600">{t("integGuide")}</div>
+          <ol className="space-y-1.5 text-xs text-slate-600">
+            {steps.map((s, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700">{i + 1}</span>
+                <span dir="ltr" className="text-start">
+                  {s.text}{" "}
+                  {s.url && (
+                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-brand-600 underline break-all">
+                      {s.url}
+                    </a>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

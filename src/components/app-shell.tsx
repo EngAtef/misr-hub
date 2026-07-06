@@ -28,6 +28,7 @@ import {
   Flag,
   Truck,
   BookOpen,
+  UserCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -59,7 +60,9 @@ const NAV: NavItem[] = [
   { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
   { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"] },
   { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"] },
+  { href: "/studio", labelKey: "studio", icon: BookOpen, roles: ["admin", "manager"] },
   { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
+  { href: "/profile", labelKey: "profile", icon: UserCircle, roles: ["admin", "manager", "viewer"] },
   { href: "/users", labelKey: "users", icon: Users, roles: ["admin"] },
   { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"] },
   { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"] },

@@ -12,6 +12,8 @@ interface ProfileRow {
   id: string;
   email: string;
   full_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
   role: Role;
   is_active: boolean;
   is_owner: boolean;
@@ -35,6 +37,7 @@ const PAGE_LABELS: Record<string, DictKey> = {
   reports: "reports",
   team: "teamContacts",
   "data-center": "dataCenter",
+  studio: "studio",
   assistant: "assistant",
 };
 
@@ -100,12 +103,23 @@ export default function UsersPage() {
               {users.map((u) => (
                 <tr key={u.id}>
                   <td className="font-semibold">
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-2">
+                      {u.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={u.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover" />
+                      ) : (
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+                          {(u.full_name ?? u.email).slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
                       {u.is_owner && <Crown size={14} className="text-gold" />}
                       {u.full_name ?? "—"}
                     </span>
                   </td>
-                  <td dir="ltr">{u.email}</td>
+                  <td dir="ltr">
+                    <div>{u.email}</div>
+                    {u.phone && <div className="text-xs text-slate-400">{u.phone}</div>}
+                  </td>
                   <td>
                     <span className={cn(
                       "inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold",
@@ -165,6 +179,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -179,7 +194,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create", email, password, fullName, role }),
+      body: JSON.stringify({ action: "create", email, password, fullName, phone, role }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -214,6 +229,9 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         </Field>
         <Field label={t("email")}>
           <input type="email" className="input" dir="ltr" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field label={t("phoneNumber")}>
+          <input className="input" dir="ltr" placeholder="+2010..." value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
         <Field label={t("password")}>
           <input type="text" className="input" dir="ltr" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
