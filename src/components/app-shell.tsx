@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -25,6 +25,8 @@ import {
   Sparkles,
   Contact,
   Settings,
+  MousePointerClick,
+  Flag,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -40,31 +42,59 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/", labelKey: "overview", icon: LayoutDashboard, roles: ["admin", "manager", "viewer"] },
-  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
   { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"] },
   { href: "/products", labelKey: "productsPage", icon: Package, roles: ["admin", "manager", "viewer"] },
   { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"] },
+  { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"] },
   { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"] },
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
   { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
-  { href: "/campaigns", labelKey: "campaigns", icon: Target, roles: ["admin", "manager", "viewer"] },
+  { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"] },
   { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"] },
   { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"] },
   { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
   { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"] },
   { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"] },
+  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
   { href: "/users", labelKey: "users", icon: Users, roles: ["admin"] },
   { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"] },
   { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"] },
 ];
+
+// href -> page_permissions.page_key
+function pageKey(href: string): string {
+  return href === "/" ? "overview" : href.slice(1);
+}
 
 export function AppShell({ profile, children }: { profile: Profile; children: React.ReactNode }) {
   const { t, lang, setLang } = useLang();
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
 
-  const items = NAV.filter((item) => item.roles.includes(profile.role));
+  useEffect(() => {
+    if (profile.role === "admin") return;
+    const supabase = createClient();
+    supabase
+      .from("page_permissions")
+      .select("page_key, allow_manager, allow_viewer")
+      .then(({ data }) => {
+        const map: Record<string, { m: boolean; v: boolean }> = {};
+        for (const r of (data as { page_key: string; allow_manager: boolean; allow_viewer: boolean }[]) ?? []) {
+          map[r.page_key] = { m: r.allow_manager, v: r.allow_viewer };
+        }
+        setPermissions(map);
+      });
+  }, [profile.role]);
+
+  const items = NAV.filter((item) => {
+    if (!item.roles.includes(profile.role)) return false;
+    if (profile.role === "admin" || !permissions) return true;
+    const perm = permissions[pageKey(item.href)];
+    if (!perm) return true;
+    return profile.role === "manager" ? perm.m : perm.v;
+  });
 
   async function signOut() {
     const supabase = createClient();

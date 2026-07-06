@@ -6,6 +6,39 @@
   html {
     scroll-behavior: smooth;
   }
+
+  /* Slim, rounded, brand-tinted scrollbars everywhere */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #b9c6e0 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #c3cee4;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #1b6ef5;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  /* Dark sidebar scrollbar */
+  aside *::-webkit-scrollbar-thumb {
+    background: #2c4a8f;
+    background-clip: content-box;
+    border: 2px solid transparent;
+  }
+  aside * {
+    scrollbar-color: #2c4a8f transparent;
+  }
 }
 
 @layer components {

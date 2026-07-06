@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { formatDateTime, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
+import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
+import { parseGa4File, type Ga4Parsed } from "@/lib/import/parse-ga4";
+import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
 
 const CHUNK_SIZE = 250;
 
@@ -21,15 +24,27 @@ interface UploadRecord {
   created_at: string;
 }
 
+type UploadType = "orders" | "stock" | "ga4" | "ads";
 type Phase = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
+
+interface Pending {
+  type: UploadType;
+  fileName: string;
+  orders?: ParsedOrder[];
+  stock?: StockRow[];
+  ga4?: Ga4Parsed;
+  ads?: ParsedAdRow[];
+  count: number;
+  extra?: string;
+}
 
 export default function DataCenterPage() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [activeType, setActiveType] = useState<UploadType>("orders");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [fileName, setFileName] = useState("");
-  const [parsed, setParsed] = useState<ParsedOrder[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [progress, setProgress] = useState(0);
   const [processed, setProcessed] = useState(0);
   const [failed, setFailed] = useState(0);
@@ -39,11 +54,7 @@ export default function DataCenterPage() {
   const [dragOver, setDragOver] = useState(false);
 
   const loadHistory = useCallback(async () => {
-    const { data } = await supabase
-      .from("uploads")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20);
+    const { data } = await supabase.from("uploads").select("*").order("created_at", { ascending: false }).limit(25);
     setHistory((data as UploadRecord[]) ?? []);
     setHistoryLoading(false);
   }, [supabase]);
@@ -52,108 +63,179 @@ export default function DataCenterPage() {
     loadHistory();
   }, [loadHistory]);
 
+  const TYPES: { key: UploadType; icon: React.ElementType; title: string; hint: string; accept: string }[] = [
+    { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
+    { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadStockHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "ga4", icon: LineChart, title: t("uploadGa4"), hint: t("uploadGa4Hint"), accept: ".csv" },
+    { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
+  ];
+
   async function handleFile(file: File) {
-    setFileName(file.name);
     setPhase("parsing");
     setErrorMsg("");
     try {
-      const buffer = await file.arrayBuffer();
-      if (!hasOrderNumberColumn(buffer)) {
-        setPhase("error");
-        setErrorMsg(t("invalidFile"));
-        return;
+      if (activeType === "orders") {
+        const buffer = await file.arrayBuffer();
+        if (!hasOrderNumberColumn(buffer)) throw new Error(t("invalidFile"));
+        const result = parseOrdersWorkbook(buffer);
+        setPending({ type: "orders", fileName: file.name, orders: result.orders, count: result.orders.length });
+      } else if (activeType === "stock") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseStockFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
+      } else if (activeType === "ga4") {
+        const text = await file.text();
+        const parsed = parseGa4File(text);
+        if (!parsed || !parsed.rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "ga4", fileName: file.name, ga4: parsed, count: parsed.rows.length, extra: parsed.month.slice(0, 7) });
+      } else {
+        const buffer = await file.arrayBuffer();
+        const rows = parseAdsFile(buffer, file.name);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "ads", fileName: file.name, ads: rows, count: rows.length });
       }
-      const result = parseOrdersWorkbook(buffer);
-      setParsed(result.orders);
       setPhase("ready");
-    } catch {
+    } catch (e) {
       setPhase("error");
-      setErrorMsg(t("invalidFile"));
+      setErrorMsg(e instanceof Error ? e.message : t("invalidFile"));
     }
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function recordUpload(fileName: string, total: number, ok: number, bad: number) {
+    await supabase.from("uploads").insert({
+      file_name: fileName,
+      uploaded_by_email: (await supabase.auth.getUser()).data.user?.email ?? null,
+      total_rows: total,
+      processed_rows: ok,
+      failed_rows: bad,
+      status: bad > 0 && ok === 0 ? "failed" : "completed",
+      finished_at: new Date().toISOString(),
+    });
   }
 
   async function startImport() {
+    if (!pending) return;
     setPhase("importing");
     setProgress(0);
     setProcessed(0);
     setFailed(0);
 
-    let uploadId: string | null = null;
-    let ok = 0;
-    let bad = 0;
-
     try {
-      const startRes = await fetch("/api/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", fileName, totalRows: parsed.length }),
-      });
-      const startData = await startRes.json();
-      if (!startRes.ok) throw new Error(startData.error ?? "start failed");
-      uploadId = startData.uploadId;
-
-      for (let i = 0; i < parsed.length; i += CHUNK_SIZE) {
-        const chunk = parsed.slice(i, i + CHUNK_SIZE);
-        const res = await fetch("/api/import", {
+      if (pending.type === "orders" && pending.orders) {
+        let uploadId: string | null = null;
+        let ok = 0;
+        let bad = 0;
+        const startRes = await fetch("/api/import", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "chunk", uploadId, orders: chunk }),
+          body: JSON.stringify({ action: "start", fileName: pending.fileName, totalRows: pending.orders.length }),
         });
-        if (res.ok) {
-          ok += chunk.length;
-        } else {
-          bad += chunk.length;
+        const startData = await startRes.json();
+        if (!startRes.ok) throw new Error(startData.error ?? "start failed");
+        uploadId = startData.uploadId;
+
+        for (let i = 0; i < pending.orders.length; i += CHUNK_SIZE) {
+          const chunk = pending.orders.slice(i, i + CHUNK_SIZE);
+          const res = await fetch("/api/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "chunk", uploadId, orders: chunk }),
+          });
+          if (res.ok) ok += chunk.length;
+          else bad += chunk.length;
+          setProcessed(ok);
+          setFailed(bad);
+          setProgress(Math.round(((i + chunk.length) / pending.orders.length) * 100));
         }
-        setProcessed(ok);
-        setFailed(bad);
-        setProgress(Math.round(((i + chunk.length) / parsed.length) * 100));
+        await fetch("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "finish", uploadId, fileName: pending.fileName, processedRows: ok, failedRows: bad }),
+        });
+      } else if (pending.type === "stock" && pending.stock) {
+        const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
+        if (error) throw new Error(error.message);
+        setProcessed(Number(data ?? pending.stock.length));
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
+      } else if (pending.type === "ga4" && pending.ga4) {
+        // replace this month's rows (safe re-upload)
+        await supabase.from("ga4_pages").delete().eq("period_month", pending.ga4.month);
+        let ok = 0;
+        for (let i = 0; i < pending.ga4.rows.length; i += 500) {
+          const chunk = pending.ga4.rows.slice(i, i + 500);
+          const { error } = await supabase.from("ga4_pages").insert(chunk);
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.ga4.rows.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.ga4.rows.length, ok, 0);
+      } else if (pending.type === "ads" && pending.ads) {
+        const res = await fetch("/api/ads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "import",
+            rows: pending.ads,
+            batchLabel: pending.fileName.replace(/\.(csv|xlsx?)$/i, ""),
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error ?? "failed");
+        setProcessed(pending.ads.length);
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.ads.length, pending.ads.length, 0);
       }
-
-      await fetch("/api/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "finish",
-          uploadId,
-          fileName,
-          processedRows: ok,
-          failedRows: bad,
-        }),
-      });
-
       setPhase("done");
       loadHistory();
     } catch (e) {
       setPhase("error");
-      setErrorMsg(e instanceof Error ? e.message : "Import failed");
-      if (uploadId) {
-        fetch("/api/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "finish",
-            uploadId,
-            fileName,
-            processedRows: ok,
-            failedRows: parsed.length - ok,
-            errorMessage: String(e),
-          }),
-        });
-      }
+      setErrorMsg(e instanceof Error ? e.message : t("importFailed"));
     }
   }
 
   function reset() {
     setPhase("idle");
-    setParsed([]);
-    setFileName("");
+    setPending(null);
     setProgress(0);
-    if (fileRef.current) fileRef.current.value = "";
   }
+
+  const active = TYPES.find((x) => x.key === activeType)!;
 
   return (
     <div>
-      <PageHeader title={t("dataCenter")} />
+      <PageHeader title={t("dataCenter")} subtitle={t("chooseUploadType")} />
+
+      <div className="grid gap-3 mb-5 sm:grid-cols-2 xl:grid-cols-4">
+        {TYPES.map((x) => {
+          const Icon = x.icon;
+          return (
+            <button
+              key={x.key}
+              onClick={() => {
+                setActiveType(x.key);
+                reset();
+              }}
+              className={cn(
+                "card p-4 text-start transition hover:shadow-md",
+                activeType === x.key && "ring-2 ring-brand-500"
+              )}
+            >
+              <Icon size={20} className={activeType === x.key ? "text-brand-600" : "text-slate-400"} />
+              <div className="mt-2 font-bold text-sm">{x.title}</div>
+              <div className="mt-0.5 text-xs text-slate-500 leading-relaxed">{x.hint}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mb-5 flex items-start gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-sm text-brand-800">
+        <Users size={16} className="shrink-0 mt-0.5" />
+        {t("customersNote")}
+      </div>
 
       <div className="card p-6 mb-6">
         {phase === "idle" || phase === "error" ? (
@@ -172,17 +254,17 @@ export default function DataCenterPage() {
                 if (file) handleFile(file);
               }}
               className={cn(
-                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-12 text-center transition",
+                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition",
                 dragOver ? "border-brand-500 bg-brand-50" : "border-slate-300 hover:border-brand-400 hover:bg-slate-50"
               )}
             >
-              <UploadCloud className="h-12 w-12 text-brand-500" />
-              <div className="font-semibold text-slate-700">{t("uploadOrders")}</div>
-              <div className="text-sm text-slate-500">{t("uploadHint")}</div>
+              <UploadCloud className="h-11 w-11 text-brand-500" />
+              <div className="font-semibold text-slate-700">{active.title}</div>
+              <div className="text-sm text-slate-500">{active.hint}</div>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept={active.accept}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -196,23 +278,30 @@ export default function DataCenterPage() {
                 {errorMsg}
               </div>
             )}
-            <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
-              <Info size={14} />
-              {t("duplicateNote")}
-            </div>
+            {activeType === "orders" && (
+              <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+                <Info size={14} />
+                {t("duplicateNote")}
+              </div>
+            )}
           </>
         ) : phase === "parsing" ? (
-          <div className="py-12 text-center">
+          <div className="py-10 text-center">
             <Spinner />
             <div className="text-sm text-slate-600">{t("parsing")}</div>
           </div>
-        ) : phase === "ready" ? (
+        ) : phase === "ready" && pending ? (
           <div className="text-center py-8 space-y-4">
             <FileSpreadsheet className="mx-auto h-12 w-12 text-emerald-500" />
             <div>
-              <div className="font-bold text-lg" dir="ltr">{fileName}</div>
+              <div className="font-bold text-lg" dir="ltr">{pending.fileName}</div>
               <div className="text-slate-600">
-                {formatNumber(parsed.length)} {t("rowsFound")}
+                {formatNumber(pending.count)} {t("rowsReady")}
+                {pending.extra && (
+                  <span className="ms-2 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" dir="ltr">
+                    {t("monthDetected")}: {pending.extra}
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex justify-center gap-3">
@@ -228,13 +317,10 @@ export default function DataCenterPage() {
           <div className="py-8 space-y-4">
             <div className="text-center font-semibold">{t("importing")}</div>
             <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-brand-600 transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full rounded-full bg-brand-600 transition-all duration-300" style={{ width: `${progress}%` }} />
             </div>
             <div className="text-center text-sm text-slate-600">
-              {formatNumber(processed)} / {formatNumber(parsed.length)} {t("rowsImported")}
+              {formatNumber(processed)} {t("rowsImported")}
               {failed > 0 && <span className="text-red-600"> — {formatNumber(failed)} {t("rowsFailedLabel")}</span>}
             </div>
           </div>

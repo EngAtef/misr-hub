@@ -139,13 +139,135 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="card p-6 mt-6 space-y-3">
-        <h3 className="font-bold">AI Assistant</h3>
-        <p className="text-sm text-slate-600">
-          The assistant works out of the box using your live data. To upgrade it to full conversational Claude AI,
-          add an <code className="rounded bg-slate-100 px-1 text-xs">ANTHROPIC_API_KEY</code> environment variable in
-          Vercel and redeploy — the assistant will automatically use it.
-        </p>
+      <div className="mt-8 mb-3">
+        <h2 className="text-lg font-bold">{t("integrations")}</h2>
+        <p className="text-sm text-slate-500">{t("integrationsHint")}</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <IntegrationCard
+          settingKey="meta"
+          title="Meta (Facebook & Instagram) Ads"
+          description="Marketing API — pulls ad spend & results automatically instead of CSV exports. Needs a Meta system-user access token + Ad Account ID from business.facebook.com."
+          fields={[
+            { key: "ad_account_id", label: "Ad Account ID", placeholder: "act_1234567890" },
+            { key: "access_token", label: "Access Token", secret: true },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="chatwoot"
+          title="Chatwoot"
+          description="Customer conversations — send WhatsApp/messenger follow-ups from the app via your Chatwoot inbox. Needs your Chatwoot URL + API access token (Profile Settings → Access Token)."
+          fields={[
+            { key: "base_url", label: "Chatwoot URL", placeholder: "https://app.chatwoot.com" },
+            { key: "account_id", label: "Account ID", placeholder: "1" },
+            { key: "api_token", label: "API Access Token", secret: true },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="ga4_api"
+          title="Google Analytics 4 (API)"
+          description="Today GA4 works via monthly CSV upload in the Data Center. For live sync, add a Google Cloud service-account JSON key with GA4 Data API access + your property ID."
+          fields={[
+            { key: "property_id", label: "GA4 Property ID", placeholder: "123456789" },
+            { key: "service_account_json", label: "Service Account JSON", secret: true },
+          ]}
+        />
+        <div className="card p-5 space-y-2">
+          <h3 className="font-bold text-sm">AI Assistant (Claude)</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            The assistant works out of the box using your live data. To upgrade to full conversational AI, add an
+            <code className="rounded bg-slate-100 px-1 text-xs mx-1">ANTHROPIC_API_KEY</code>
+            environment variable in Vercel and redeploy — it upgrades automatically.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IntegrationCard({
+  settingKey,
+  title,
+  description,
+  fields,
+}: {
+  settingKey: string;
+  title: string;
+  description: string;
+  fields: { key: string; label: string; placeholder?: string; secret?: boolean }[];
+}) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [configured, setConfigured] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", settingKey)
+      .maybeSingle()
+      .then(({ data }) => {
+        const v = (data?.value ?? {}) as Record<string, string>;
+        setConfigured(Object.values(v).some((x) => x));
+        const nonSecret: Record<string, string> = {};
+        for (const f of fields) {
+          if (!f.secret && v[f.key]) nonSecret[f.key] = v[f.key];
+        }
+        setValues(nonSecret);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingKey]);
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
+    const { data } = await supabase.from("app_settings").select("value").eq("key", settingKey).maybeSingle();
+    const existing = (data?.value ?? {}) as Record<string, string>;
+    const merged = { ...existing };
+    for (const f of fields) {
+      if (values[f.key] !== undefined && values[f.key] !== "") merged[f.key] = values[f.key];
+    }
+    await supabase.from("app_settings").upsert({ key: settingKey, value: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setConfigured(Object.values(merged).some((x) => x));
+    setSaving(false);
+    setSaved(true);
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const f of fields) if (f.secret) next[f.key] = "";
+      return next;
+    });
+  }
+
+  return (
+    <div className="card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-sm">{title}</h3>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${configured ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+        >
+          {configured ? t("connected") : t("notConnected")}
+        </span>
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
+      {fields.map((f) => (
+        <input
+          key={f.key}
+          className="input !py-1.5 text-sm"
+          dir="ltr"
+          type={f.secret ? "password" : "text"}
+          placeholder={f.secret && configured ? `${f.label} (saved — leave blank to keep)` : f.placeholder ?? f.label}
+          value={values[f.key] ?? ""}
+          onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
+        />
+      ))}
+      <div className="flex items-center gap-2">
+        <button className="btn-secondary !py-1.5 text-xs" onClick={save} disabled={saving}>
+          {t("saveSettings")}
+        </button>
+        {saved && <CheckCircle2 size={15} className="text-emerald-600" />}
       </div>
     </div>
   );
