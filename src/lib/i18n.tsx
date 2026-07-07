@@ -548,9 +548,12 @@ const dict = {
   deleteBook: { ar: "حذف", en: "Delete" },
   deleteBookConfirm: { ar: "حذف هذا الكتاب نهائياً؟ أي تضمين له على الموقع سيتوقف عن العمل.", en: "Delete this book permanently? Any embed of it on the site will stop working." },
   storageUsed: { ar: "المساحة المستخدمة", en: "Storage used" },
+  qrCode: { ar: "رمز QR", en: "QR code" },
+  qrHint: { ar: "اطبعه على الغلاف أو أي إعلان مطبوع — مسحه بالموبايل يفتح الكتاب مباشرة. الملف بدقة عالية مناسبة للطباعة", en: "Print it on the cover or any printed ad — scanning it opens the book directly. High-resolution file, print-ready" },
+  downloadPng: { ar: "تحميل PNG", en: "Download PNG" },
   studioIdeas: { ar: "أفكار إضافية", en: "More ideas" },
   studioIdea1: { ar: "وضع المعاينة المجانية متاح الآن داخل المحوّل: أول صفحات + علامة مائية + زر شراء — جرّبه من خيار Free preview mode", en: "Free preview mode is now built into the converter: first pages + watermark + buy button — try it from the Free preview mode option" },
-  studioIdea2: { ar: "رمز QR على الغلاف المطبوع يفتح المعاينة المجانية على الموقع", en: "A QR code on the printed cover that opens the free preview on the site" },
+  studioIdea2: { ar: "رمز QR لكل كتاب مستضاف متاح الآن من قائمة الكتب المستضافة — اطبعه على الأغلفة والإعلانات", en: "A QR code for every hosted book is now available from the hosted-books list — print it on covers and ads" },
   studioIdea3: { ar: "توليد صورة غلاف موحّدة المقاس لكل كتاب لصفحات المنتج", en: "Generate a uniform cover image per book for product pages" },
   // Profile / security
   profile: { ar: "الملف الشخصي", en: "My Profile" },

@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <style>
   :root{
     --bg:#eef1f6; --surface:#ffffff; --ink:#171a21; --muted:#5d6675;
@@ -365,6 +366,7 @@
         <pre id="embedCode" dir="ltr" style="display:none;overflow-x:auto;background:#171a21;color:#e7ebf3;border-radius:8px;padding:12px;margin:10px 0 0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
         <div id="embedActions" style="display:none;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap">
           <button class="btn-ghost" id="copyEmbedBtn">Copy embed code</button>
+          <button class="btn-ghost" id="qrBtn" title="Print-ready QR code that opens this book">⬇ QR code</button>
           <a id="openReader" href="#" target="_blank" rel="noopener" class="linkbtn">Open hosted flipbook ↗</a>
         </div>
       </div>
@@ -922,6 +924,24 @@
     return { url:/^https?:/i.test(info.readerUrl)?info.readerUrl:location.origin+info.readerUrl, mb };
   }
   function notifyHosted(url,silent){ try{ if(window.parent!==window) window.parent.postMessage({type:"flipbook-hosted",url:url,silent:!!silent},location.origin); }catch(e){} }
+  /* print-ready QR (high error correction, 4-module quiet zone, ~1024px) */
+  function qrPngDataURL(text,px){
+    if(typeof qrcode==="undefined") throw new Error("QR library didn't load — connect to the internet once and retry.");
+    const qr=qrcode(0,"H"); qr.addData(text); qr.make();
+    const n=qr.getModuleCount(), margin=4, total=n+margin*2;
+    const cell=Math.max(1,Math.floor((px||1024)/total)), size=cell*total;
+    const c=document.createElement("canvas"); c.width=c.height=size; const x=c.getContext("2d");
+    x.fillStyle="#ffffff"; x.fillRect(0,0,size,size); x.fillStyle="#000000";
+    for(let r=0;r<n;r++) for(let col=0;col<n;col++) if(qr.isDark(r,col)) x.fillRect((col+margin)*cell,(r+margin)*cell,cell,cell);
+    return c.toDataURL("image/png");
+  }
+  function downloadQr(url,name){
+    try{
+      const data=qrPngDataURL(url,1024);
+      const a=document.createElement("a"); a.href=data; a.download=(slugify(name||"book")||"book")+"-qr.png";
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ showErr(e.message||String(e)); }
+  }
   function resetEmbedPanel(){ E("embedPanel").style.display="none"; E("embedCode").style.display="none"; E("embedCode").textContent=""; E("embedActions").style.display="none"; E("embedStatus").textContent=""; E("hostBtn").style.display="none"; }
   async function hostFlipbook(){
     if(!window._flipHtml){ showErr("Generate a flipbook first."); return; }
@@ -1000,11 +1020,13 @@
       inner+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--hair)">'+
         '<span style="flex:1;font-weight:600;min-width:160px">'+escapeHtml(h.title)+'</span>'+
         '<a class="linkbtn" target="_blank" rel="noopener" href="'+h.url+'">open ↗</a>'+
+        '<button class="btn-ghost" style="padding:7px 12px" data-qridx="'+i+'">QR</button>'+
         '<button class="btn-ghost" style="padding:7px 12px" data-embedidx="'+i+'">Copy embed</button></div>';
     });
     inner+='<div style="margin-top:10px"><button class="btn-ghost" id="copyAllEmbeds">Copy all embed codes</button></div>';
     box.innerHTML=inner; out.appendChild(box);
     $$("button[data-embedidx]",box).forEach(b=>b.addEventListener("click",()=>{ const h=hosted[+b.dataset.embedidx]; navigator.clipboard.writeText(embedSnippet(h.url,h.title)).then(()=>{ const o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1400); }).catch(()=>{}); }));
+    $$("button[data-qridx]",box).forEach(b=>b.addEventListener("click",()=>{ const h=hosted[+b.dataset.qridx]; downloadQr(h.url,h.title); }));
     E("copyAllEmbeds").addEventListener("click",()=>{ const all=hosted.map(h=>"<!-- "+h.title.replace(/--/g,"—")+" -->\n"+embedSnippet(h.url,h.title)).join("\n\n"); navigator.clipboard.writeText(all).then(()=>{ const b=E("copyAllEmbeds"), o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1400); }).catch(()=>{}); });
   }
   async function exportBatch(){
@@ -1123,6 +1145,7 @@
   els.downloadMain.addEventListener("click",downloadMain);
   E("hostBtn").addEventListener("click",hostFlipbook);
   E("copyEmbedBtn").addEventListener("click",copyEmbedCode);
+  E("qrBtn").addEventListener("click",()=>{ const u=E("openReader").href; if(u&&u!=="#") downloadQr(u,window._flipTitle||(book&&book.title)); });
   $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); syncConditionalUI(); const bh=E("batchHostBtn"); if(bh) bh.style.display = bundle==="flipbook" ? "" : "none"; }));
   // conditional UI
   ["format","bgMode","tiles","uniform","sens","previewMode"].forEach(id=>E(id).addEventListener("change",syncConditionalUI));

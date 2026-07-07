@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Maximize2, Copy, Lightbulb, ExternalLink, Link2, Trash2, RefreshCw, BookOpen } from "lucide-react";
+import { Maximize2, Copy, Lightbulb, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download } from "lucide-react";
+import QRCode from "qrcode";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
 
@@ -30,6 +31,8 @@ export default function StudioPage() {
   const [loadingBooks, setLoadingBooks] = useState(true);
   const [copiedId, setCopiedId] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [qrId, setQrId] = useState("");
+  const [qrData, setQrData] = useState("");
 
   const loadBooks = useCallback(async () => {
     try {
@@ -82,6 +85,21 @@ export default function StudioPage() {
     navigator.clipboard.writeText(text);
     setCopiedId(key);
     setTimeout(() => setCopiedId(""), 1500);
+  }
+
+  async function toggleQr(b: HostedBook) {
+    if (qrId === b.id) {
+      setQrId("");
+      return;
+    }
+    // High error correction + wide margin = reliable scans even on small prints.
+    const dataUrl = await QRCode.toDataURL(b.readerUrl, {
+      width: 1024,
+      margin: 4,
+      errorCorrectionLevel: "H",
+    });
+    setQrData(dataUrl);
+    setQrId(b.id);
   }
 
   async function deleteBook(b: HostedBook) {
@@ -178,7 +196,8 @@ export default function StudioPage() {
         ) : (
           <ul className="divide-y divide-slate-100">
             {books.map((b) => (
-              <li key={b.id} className="flex items-center gap-3 py-2.5 flex-wrap">
+              <li key={b.id} className="py-2.5">
+                <div className="flex items-center gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{b.title || b.id}</div>
                   <div className="text-xs text-slate-400" dir="ltr">
@@ -196,6 +215,10 @@ export default function StudioPage() {
                     <Link2 size={13} />
                     {copiedId === `${b.id}:link` ? t("copied") : t("copyLink")}
                   </button>
+                  <button className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => toggleQr(b)}>
+                    <QrCode size={13} />
+                    {t("qrCode")}
+                  </button>
                   <a className="btn-secondary !px-2.5 !py-1.5 !text-xs" href={b.readerUrl} target="_blank" rel="noopener noreferrer">
                     <ExternalLink size={13} />
                     {t("openLink")}
@@ -209,6 +232,21 @@ export default function StudioPage() {
                     {t("deleteBook")}
                   </button>
                 </div>
+                </div>
+                {qrId === b.id && qrData && (
+                  <div className="mt-3 flex items-center gap-4 rounded-xl border border-slate-100 bg-slate-50 p-3 flex-wrap">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={qrData} alt={`QR — ${b.title}`} className="h-36 w-36 rounded-lg border border-slate-200 bg-white" />
+                    <div className="min-w-0 flex-1">
+                      <p className="mb-2 text-xs text-slate-500">{t("qrHint")}</p>
+                      <p className="mb-3 truncate text-xs text-slate-400" dir="ltr">{b.readerUrl}</p>
+                      <a className="btn-primary !px-3 !py-1.5 !text-xs" href={qrData} download={`${b.id}-qr.png`}>
+                        <Download size={13} />
+                        {t("downloadPng")}
+                      </a>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
