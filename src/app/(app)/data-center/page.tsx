@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
@@ -12,6 +12,7 @@ import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
 import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
 import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
+import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
 
 const CHUNK_SIZE = 250;
 
@@ -26,7 +27,7 @@ interface UploadRecord {
   created_at: string;
 }
 
-type UploadType = "orders" | "customers" | "stock" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
+type UploadType = "orders" | "customers" | "stock" | "costs" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
 
 const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
   ga4_pages: "pages",
@@ -41,6 +42,7 @@ interface Pending {
   orders?: ParsedOrder[];
   customers?: CustomerRow[];
   stock?: StockRow[];
+  costs?: CostRow[];
   ga4?: Ga4AnyParsed;
   ads?: ParsedAdRow[];
   count: number;
@@ -76,6 +78,7 @@ export default function DataCenterPage() {
     { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
     { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
     { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
     { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
@@ -101,6 +104,11 @@ export default function DataCenterPage() {
         const rows = parseStockFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
+      } else if (activeType === "costs") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCostsFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "costs", fileName: file.name, costs: rows, count: rows.length });
       } else if (activeType.startsWith("ga4")) {
         const text = await file.text();
         const parsed = parseGa4Any(text);
@@ -201,6 +209,17 @@ export default function DataCenterPage() {
         setProcessed(Number(data ?? pending.stock.length));
         setProgress(100);
         await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
+      } else if (pending.type === "costs" && pending.costs) {
+        let ok = 0;
+        for (let i = 0; i < pending.costs.length; i += 2000) {
+          const chunk = pending.costs.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.costs.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.costs.length, ok, 0);
       } else if (pending.type.startsWith("ga4") && pending.ga4) {
         const g = pending.ga4;
         let ok = 0;
