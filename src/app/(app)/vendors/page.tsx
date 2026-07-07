@@ -23,6 +23,66 @@ interface VendorKpis {
 
 const AL_ADWAA_PATTERN = "أضواء";
 
+interface ScRow {
+  vendor: string; titles: number; units: number; revenue: number; profit: number;
+  margin_pct: number | null; return_rate: number; stockout_titles: number; avg_sell_through: number;
+}
+
+function VendorScorecard() {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [rows, setRows] = useState<ScRow[] | null>(null);
+
+  useEffect(() => {
+    supabase.rpc("fn_vendor_scorecard", { p_from: null, p_to: null }).then(({ data }) => setRows((data as ScRow[]) ?? []));
+  }, [supabase]);
+
+  if (rows === null) return null;
+  if (!rows.length) {
+    return <div className="card p-5 mb-6 text-sm text-slate-500">{t("scNoVendors")}</div>;
+  }
+
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-lg font-bold">{t("scorecard")}</h2>
+      <div className="card overflow-x-auto">
+        <table className="table-base">
+          <thead>
+            <tr>
+              <th>{t("selectVendor")}</th>
+              <th>{t("scTitles")}</th>
+              <th>{t("scUnits")}</th>
+              <th>{t("revenue")}</th>
+              <th>{t("grossProfit")}</th>
+              <th>{t("marginPct")}</th>
+              <th>{t("scReturnRate")}</th>
+              <th>{t("scStockouts")}</th>
+              <th>{t("scSellThrough")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.vendor}>
+                <td className="font-semibold">{r.vendor}</td>
+                <td>{formatNumber(r.titles)}</td>
+                <td>{formatNumber(r.units)}</td>
+                <td>{formatMoney(r.revenue, lang)}</td>
+                <td className="text-emerald-700 font-semibold">{formatMoney(r.profit, lang)}</td>
+                <td className={cn("font-bold", (r.margin_pct ?? 0) < 15 ? "text-red-600" : (r.margin_pct ?? 0) < 30 ? "text-amber-600" : "text-emerald-600")}>
+                  {r.margin_pct != null ? `${r.margin_pct}%` : "—"}
+                </td>
+                <td className={cn("font-semibold", r.return_rate > 10 ? "text-red-600" : "text-slate-600")}>{r.return_rate}%</td>
+                <td className={cn(r.stockout_titles > 0 && "text-amber-700 font-semibold")}>{formatNumber(r.stockout_titles)}</td>
+                <td>{formatNumber(r.avg_sell_through)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function VendorsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
@@ -118,6 +178,8 @@ export default function VendorsPage() {
           {t("vendorShareNote")}
         </div>
       )}
+
+      <VendorScorecard />
 
       {loading ? (
         <Spinner />

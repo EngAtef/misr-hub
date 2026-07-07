@@ -192,6 +192,87 @@ export default function SettingsPage() {
             { text: "GA4 Admin → Property Settings → copy the Property ID (a number). Paste both below." },
           ]}
         />
+        <IntegrationCard
+          settingKey="courier"
+          title="Courier / Shipping (Bosta · Mylerz · Aramex · R2S)"
+          description="Live AWB tracking — real-time delivery status, actual SLA per city, failed-delivery reasons, and stuck-shipment detection before the customer complains. Needs your courier's API key."
+          fields={[
+            { key: "provider", label: "Provider (bosta / mylerz / aramex / r2s)", placeholder: "bosta" },
+            { key: "base_url", label: "API Base URL", placeholder: "https://app.bosta.co/api/v2" },
+            { key: "api_key", label: "API Key", secret: true },
+          ]}
+          steps={[
+            { text: "Log in to your courier's business dashboard (e.g. Bosta):", url: "https://business.bosta.co" },
+            { text: "Settings → Integrations / API → generate an API key (read/tracking scope is enough)" },
+            { text: "Copy the API base URL from their developer docs. Bosta:", url: "https://docs.bosta.co" },
+            { text: "Mylerz API:", url: "https://mylerz.com.eg" },
+            { text: "Paste provider + base URL + key below. We only READ tracking — never create shipments." },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="payment"
+          title="Payment Gateway (Paymob · Fawry · Valu)"
+          description="Reconcile settled payments vs orders, see real transaction fees eating margin, and flag failed/pending online payments. Needs your gateway's secret/API key (read scope)."
+          fields={[
+            { key: "provider", label: "Provider (paymob / fawry / valu)", placeholder: "paymob" },
+            { key: "base_url", label: "API Base URL", placeholder: "https://accept.paymob.com/api" },
+            { key: "api_key", label: "Secret / API Key", secret: true },
+          ]}
+          steps={[
+            { text: "Paymob dashboard → Settings → Account Info → API Key:", url: "https://accept.paymob.com" },
+            { text: "Fawry merchant portal → Integration → credentials:", url: "https://developer.fawrystaging.com" },
+            { text: "Valu merchant portal → API credentials (contact your Valu account manager)" },
+            { text: "Paste provider + base URL + key. Docs — Paymob:", url: "https://docs.paymob.com" },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="whatsapp"
+          title="WhatsApp Business API (official)"
+          description="Automated messages: order confirmation, 'shipped', delivery reminders, birthday vouchers, and abandoned-cart recovery. Needs a WhatsApp Cloud API phone-number ID + permanent token."
+          fields={[
+            { key: "phone_number_id", label: "Phone Number ID", placeholder: "1029384756" },
+            { key: "business_account_id", label: "WABA ID", placeholder: "9988776655" },
+            { key: "access_token", label: "Permanent Access Token", secret: true },
+          ]}
+          steps={[
+            { text: "Meta for Developers → create/select an app → add 'WhatsApp':", url: "https://developers.facebook.com/apps" },
+            { text: "WhatsApp → API Setup → copy the Phone Number ID and WABA ID" },
+            { text: "Create a System User with a permanent token (whatsapp_business_messaging scope)" },
+            { text: "Register & verify your sender number; get message templates approved" },
+            { text: "Cloud API docs:", url: "https://developers.facebook.com/docs/whatsapp/cloud-api" },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="tiktok_ads"
+          title="TikTok Ads"
+          description="Live daily spend & results alongside Meta, for true blended ROAS with no manual CSV. Needs a TikTok Marketing API access token + Advertiser ID."
+          fields={[
+            { key: "advertiser_id", label: "Advertiser ID", placeholder: "700000000000000" },
+            { key: "access_token", label: "Access Token", secret: true },
+          ]}
+          steps={[
+            { text: "TikTok for Business → Marketing API → create a developer app:", url: "https://ads.tiktok.com/marketing_api/homepage" },
+            { text: "Authorize your Ad Account → generate a long-lived access token (reporting scope)" },
+            { text: "Copy your Advertiser ID from Ads Manager → Account settings" },
+            { text: "Paste both below. Docs:", url: "https://business-api.tiktok.com/portal/docs" },
+          ]}
+        />
+        <IntegrationCard
+          settingKey="accounting"
+          title="Accounting / ERP (Odoo · Zoho Books · QuickBooks)"
+          description="Push profit and purchase-order data to finance so nobody re-keys it. Also a bridge for SAP SKU↔Material mapping. Needs your accounting platform's API credentials."
+          fields={[
+            { key: "provider", label: "Provider (odoo / zoho / quickbooks / sap)", placeholder: "odoo" },
+            { key: "base_url", label: "API Base URL / Instance", placeholder: "https://mycompany.odoo.com" },
+            { key: "api_key", label: "API Key / Token", secret: true },
+          ]}
+          steps={[
+            { text: "Odoo → Settings → Users → API Keys → generate:", url: "https://www.odoo.com/documentation" },
+            { text: "Zoho Books → Settings → API → self-client OAuth token:", url: "https://www.zoho.com/books/api/v3/" },
+            { text: "QuickBooks → developer.intuit.com → create app → OAuth 2.0:", url: "https://developer.intuit.com" },
+            { text: "Paste provider + instance URL + key below." },
+          ]}
+        />
         <div className="card p-5 space-y-2">
           <h3 className="font-bold text-sm">AI Assistant (Claude)</h3>
           <p className="text-xs text-slate-500 leading-relaxed">

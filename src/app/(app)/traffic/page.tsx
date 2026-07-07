@@ -386,6 +386,8 @@ export default function TrafficPage() {
             )}
           </div>
 
+          <FunnelBreakdown month={selected} />
+
           {months.length > 1 && (
             <ChartCard title={t("monthComparison")}>
               <BarsChart
@@ -442,6 +444,60 @@ export default function TrafficPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface FunnelRow { dimension: string; label: string; orders: number; delivered: number; cancelled: number; delivered_rate: number; aov: number; }
+
+function FunnelBreakdown({ month }: { month: string | null }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [rows, setRows] = useState<FunnelRow[]>([]);
+
+  useEffect(() => {
+    if (!month) return;
+    const isAll = month === GA4_ALL_TIME;
+    const monthEnd = isAll ? null : new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 1).toISOString().slice(0, 10);
+    supabase
+      .rpc("fn_funnel_breakdown", { p_from: isAll ? null : `${month}T00:00:00Z`, p_to: isAll ? null : `${monthEnd}T00:00:00Z` })
+      .then(({ data }) => setRows((data as FunnelRow[]) ?? []));
+  }, [supabase, month]);
+
+  if (!rows.length) return null;
+  const pay = rows.filter((r) => r.dimension === "payment_method");
+  const src = rows.filter((r) => r.dimension === "source");
+
+  const Table = ({ title, data }: { title: string; data: FunnelRow[] }) => (
+    <div>
+      <h4 className="mb-2 text-xs font-bold uppercase text-slate-500">{title}</h4>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="table-base">
+          <thead><tr><th>{title}</th><th>{t("orders")}</th><th>{t("delivered")}</th><th>{t("deliveryRate")}</th><th>{t("avgOrderValue")}</th></tr></thead>
+          <tbody>
+            {data.map((r) => (
+              <tr key={r.label}>
+                <td className="font-medium">{lang === "ar" ? (STATUS_AR[r.label] ?? r.label) : r.label}</td>
+                <td className="font-semibold">{formatNumber(r.orders)}</td>
+                <td>{formatNumber(r.delivered)}</td>
+                <td className={cn("font-bold", r.delivered_rate < 40 ? "text-red-600" : r.delivered_rate < 70 ? "text-amber-600" : "text-emerald-600")}>{r.delivered_rate}%</td>
+                <td>{formatMoney(r.aov, lang)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="card p-5">
+      <h3 className="mb-1 text-sm font-bold text-slate-700">{t("funnelDrill")}</h3>
+      <p className="mb-4 text-xs text-slate-500">{t("funnelDrillHint")}</p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Table title={t("byPayment")} data={pay} />
+        <Table title={t("bySource")} data={src} />
+      </div>
     </div>
   );
 }
