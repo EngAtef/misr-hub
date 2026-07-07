@@ -549,8 +549,8 @@ const dict = {
   deleteBookConfirm: { ar: "حذف هذا الكتاب نهائياً؟ أي تضمين له على الموقع سيتوقف عن العمل.", en: "Delete this book permanently? Any embed of it on the site will stop working." },
   storageUsed: { ar: "المساحة المستخدمة", en: "Storage used" },
   studioIdeas: { ar: "أفكار إضافية", en: "More ideas" },
-  studioIdea1: { ar: "معاينة أول 3 صفحات مجاناً لكل كتاب (Preview) لزيادة التحويل", en: "Free 3-page preview per book to lift conversion" },
-  studioIdea2: { ar: "علامة مائية بالشعار على صفحات المعاينة لحماية المحتوى", en: "Logo watermark on preview pages to protect content" },
+  studioIdea1: { ar: "وضع المعاينة المجانية متاح الآن داخل المحوّل: أول صفحات + علامة مائية + زر شراء — جرّبه من خيار Free preview mode", en: "Free preview mode is now built into the converter: first pages + watermark + buy button — try it from the Free preview mode option" },
+  studioIdea2: { ar: "رمز QR على الغلاف المطبوع يفتح المعاينة المجانية على الموقع", en: "A QR code on the printed cover that opens the free preview on the site" },
   studioIdea3: { ar: "توليد صورة غلاف موحّدة المقاس لكل كتاب لصفحات المنتج", en: "Generate a uniform cover image per book for product pages" },
   // Profile / security
   profile: { ar: "الملف الشخصي", en: "My Profile" },

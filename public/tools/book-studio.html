@@ -329,6 +329,18 @@
             <button data-bundle="flipbook">Flipbook (HTML)</button>
           </div>
         </div>
+
+        <div class="opt full" id="previewOpt" style="display:none">
+          <label class="h">Free preview mode</label>
+          <p class="cap">Publish a free sample instead of the whole book: only the first pages, a watermark on every page, an "end of preview" page, and a floating <b>get the full book</b> button that opens your buy link.</p>
+          <div class="check"><input type="checkbox" id="previewMode"><label for="previewMode">Preview mode — host only a sample of the book</label></div>
+          <div class="row2" id="previewCtl" style="display:none;margin-top:4px">
+            <input id="previewPages" type="number" min="1" max="50" value="3"><span class="hint">pages</span>
+            <input id="buyUrl" type="text" dir="ltr" placeholder="https://… buy / product page link" style="flex:1;min-width:230px">
+            <input id="wmText" type="text" placeholder="watermark text" value="نسخة معاينة — Preview" style="width:190px">
+          </div>
+          <p class="subhint" id="previewHint" style="display:none;margin-inline-start:0">In batch mode the same buy link is used for every book — leave it empty to skip the button and show only the end-of-preview page.</p>
+        </div>
       </div>
 
       <div class="gen-row" id="singleGenRow">
@@ -437,6 +449,8 @@
     uniform:E("uniform"), uniformDims:E("uniformDims"), uniW:E("uniW"), uniH:E("uniH"),
     tiles:E("tiles"), tileHeightOpt:E("tileHeightOpt"), pageH:E("pageH"),
     prefix:E("prefix"), numbering:E("numbering"), bundleSeg:E("bundleSeg"),
+    previewOpt:E("previewOpt"), previewMode:E("previewMode"), previewCtl:E("previewCtl"),
+    previewPages:E("previewPages"), buyUrl:E("buyUrl"), wmText:E("wmText"), previewHint:E("previewHint"),
     generate:E("generateBtn"), progress:E("progress"), bar:E("bar"), ptext:E("ptext"), err:E("err"),
     results:E("results"), gallery:E("gallery"), resultSummary:E("resultSummary"), downloadMain:E("downloadMain"),
     stage:E("stage"),
@@ -586,7 +600,9 @@
       bgMode:els.bgMode.value, bgColor:els.bgColor.value, trim:els.trim.checked, useOriginal:els.useOriginal.checked,
       uniform:els.uniform.checked, uniW:int(els.uniW.value,0), uniH:int(els.uniH.value,0),
       tiles:els.tiles.checked, tileH:clamp(int(els.pageH.value,2200),200,8000),
-      prefix:els.prefix.value.trim(), numbering:els.numbering.value };
+      prefix:els.prefix.value.trim(), numbering:els.numbering.value,
+      preview:els.previewMode.checked, previewPages:clamp(int(els.previewPages.value,3),1,50),
+      buyUrl:els.buyUrl.value.trim(), wmText:els.wmText.value.trim() };
   }
   const SCAN_W=900, SCAN_SCALE=1, SPREAD_RATIO=1.25, THUMB_W=240;
   function singleImageInfo(wrap){
@@ -653,7 +669,7 @@
     });
     updateSel();
   }
-  function updateSel(){ const n=book.pages.filter(p=>p.selected).length; els.selCount.textContent=n+" selected"; els.selCount2.textContent=n+" page"+(n!==1?"s":"")+" → "+bundleLabel(); els.generate.disabled=n===0||busy; }
+  function updateSel(){ const n=book.pages.filter(p=>p.selected).length; els.selCount.textContent=n+" selected"; let lbl=n+" page"+(n!==1?"s":"")+" → "+bundleLabel(); if(bundle==="flipbook"&&els.previewMode.checked) lbl+=" (preview: first "+clamp(int(els.previewPages.value,3),1,50)+")"; els.selCount2.textContent=lbl; els.generate.disabled=n===0||busy; }
   function bundleLabel(){ return bundle==="pdf"?"PDF":bundle==="cbz"?"CBZ":bundle==="flipbook"?"flipbook":"images"; }
 
   /* ============================ export ============================ */
@@ -737,25 +753,90 @@
   /* ============================ flipbook export ============================ */
   const FLIPBOOK_TPL_B64="PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9InV0Zi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLCB2aWV3cG9ydC1maXQ9Y292ZXIiPgo8dGl0bGU+X19USVRMRV9fPC90aXRsZT4KPHN0eWxlPgogIDpyb290ey0tYjE6IzZkNGFlMDstLWIyOiM5MzMzZWE7LS1hY2NlbnQ6I2Y1OWUwYjstLWZ0OjcwMG1zfQogICp7Ym94LXNpemluZzpib3JkZXItYm94fQogIGh0bWwsYm9keXtoZWlnaHQ6MTAwJTttYXJnaW46MH0KICBib2R5e2ZvbnQtZmFtaWx5Oi1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LCJTZWdvZSBVSSIsUm9ib3RvLEFyaWFsLHNhbnMtc2VyaWY7CiAgICBiYWNrZ3JvdW5kOnJhZGlhbC1ncmFkaWVudCgxMjAlIDkwJSBhdCA1MCUgLTEwJSwjMmEyMzUwIDAlLCMxNjE2MWYgNDUlLCMwZDBkMTQgMTAwJSk7CiAgICBjb2xvcjojZmZmO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47b3ZlcmZsb3c6aGlkZGVuOy13ZWJraXQtdGFwLWhpZ2hsaWdodC1jb2xvcjp0cmFuc3BhcmVudH0KICAuYmFye2ZsZXg6bm9uZTtkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDoxMHB4O3BhZGRpbmc6MTBweCAxNHB4fQogIC5iYXIgLmRvdHt3aWR0aDoyMnB4O2hlaWdodDoyMnB4O2JvcmRlci1yYWRpdXM6NnB4O2ZsZXg6bm9uZTtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCgxMzVkZWcsdmFyKC0tYjEpLHZhcigtLWIyKSk7Ym94LXNoYWRvdzowIDNweCAxMHB4IHJnYmEoMTA5LDc0LDIyNCwuNCl9CiAgLmJhciAudHtmb250LXdlaWdodDo3MDA7Zm9udC1zaXplOjE0cHg7d2hpdGUtc3BhY2U6bm93cmFwO292ZXJmbG93OmhpZGRlbjt0ZXh0LW92ZXJmbG93OmVsbGlwc2lzfQogIC5iYXIgLnNwe2ZsZXg6MX0KICAuaWNvbmJ0bnt3aWR0aDozMnB4O2hlaWdodDozMnB4O2JvcmRlcjowO2JvcmRlci1yYWRpdXM6OHB4O2JhY2tncm91bmQ6cmdiYSgyNTUsMjU1LDI1NSwuMDgpO2NvbG9yOiNmZmY7Y3Vyc29yOnBvaW50ZXI7Zm9udC1zaXplOjE0cHh9CiAgLmljb25idG46aG92ZXJ7YmFja2dyb3VuZDpyZ2JhKDI1NSwyNTUsMjU1LC4xNil9CiAgLnN0YWdle2ZsZXg6MTtkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2p1c3RpZnktY29udGVudDpjZW50ZXI7bWluLWhlaWdodDowO3BhZGRpbmc6NnB4IDE0cHggNHB4O3BlcnNwZWN0aXZlOjIyMDBweDstd2Via2l0LXBlcnNwZWN0aXZlOjIyMDBweH0KICAuYm9va3twb3NpdGlvbjpyZWxhdGl2ZTtoZWlnaHQ6MTAwJTtkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2p1c3RpZnktY29udGVudDpjZW50ZXJ9CiAgLnBhcGVye2Rpc3BsYXk6YmxvY2s7bWF4LWhlaWdodDoxMDAlO21heC13aWR0aDoxMDAlO3dpZHRoOmF1dG87aGVpZ2h0OmF1dG87Ym9yZGVyLXJhZGl1czoycHg7YmFja2dyb3VuZDojZmZmOwogICAgYm94LXNoYWRvdzowIDE0cHggNDRweCByZ2JhKDAsMCwwLC41NSk7dXNlci1zZWxlY3Q6bm9uZTstd2Via2l0LXVzZXItZHJhZzpub25lfQogIC5sYXllcntwb3NpdGlvbjphYnNvbHV0ZTt0b3A6NTAlO2xlZnQ6NTAlO3RyYW5zZm9ybTp0cmFuc2xhdGUoLTUwJSwtNTAlKTtwb2ludGVyLWV2ZW50czpub25lfQogIC5mbGlwe3Bvc2l0aW9uOmFic29sdXRlO2luc2V0OjA7dHJhbnNmb3JtLXN0eWxlOnByZXNlcnZlLTNkO3RyYW5zZm9ybS1vcmlnaW46bGVmdCBjZW50ZXI7CiAgICB0cmFuc2Zvcm06cm90YXRlWSgwZGVnKTt0cmFuc2l0aW9uOnRyYW5zZm9ybSB2YXIoLS1mdCkgY3ViaWMtYmV6aWVyKC4yLC42MiwuMjEsMSl9CiAgLmZsaXAgLmZhY2V7cG9zaXRpb246YWJzb2x1dGU7aW5zZXQ6MDtiYWNrZmFjZS12aXNpYmlsaXR5OmhpZGRlbjstd2Via2l0LWJhY2tmYWNlLXZpc2liaWxpdHk6aGlkZGVuO2JvcmRlci1yYWRpdXM6MnB4O292ZXJmbG93OmhpZGRlbjtiYWNrZ3JvdW5kOiNmZmY7Ym94LXNoYWRvdzowIDE0cHggNDRweCByZ2JhKDAsMCwwLC40KX0KICAuZmxpcCAuZmFjZSBpbWd7d2lkdGg6MTAwJTtoZWlnaHQ6MTAwJTtkaXNwbGF5OmJsb2NrfQogIC5mbGlwIC5iYWNre3RyYW5zZm9ybTpyb3RhdGVZKDE4MGRlZyl9CiAgLmZsaXAgLnNoYWRle3Bvc2l0aW9uOmFic29sdXRlO2luc2V0OjA7Ym9yZGVyLXJhZGl1czoycHg7YmFja2dyb3VuZDpsaW5lYXItZ3JhZGllbnQoOTBkZWcscmdiYSgwLDAsMCwuMzApLHJnYmEoMCwwLDAsMCkgNzAlKTtvcGFjaXR5OjA7dHJhbnNpdGlvbjpvcGFjaXR5IHZhcigtLWZ0KX0KICAuY29udHJvbHN7ZmxleDpub25lO2Rpc3BsYXk6ZmxleDtqdXN0aWZ5LWNvbnRlbnQ6Y2VudGVyO2dhcDoxNHB4O3BhZGRpbmc6OHB4IDE0cHggMTRweH0KICAubmF2e2Rpc3BsYXk6aW5saW5lLWZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDo4cHg7YmFja2dyb3VuZDpyZ2JhKDI1NSwyNTUsMjU1LC4wNyk7Ym9yZGVyOjFweCBzb2xpZCByZ2JhKDI1NSwyNTUsMjU1LC4xKTtib3JkZXItcmFkaXVzOjk5OXB4O3BhZGRpbmc6NnB4IDhweH0KICAubmF2IGJ1dHRvbnt3aWR0aDozNnB4O2hlaWdodDozNnB4O2JvcmRlcjowO2JvcmRlci1yYWRpdXM6OTk5cHg7YmFja2dyb3VuZDp0cmFuc3BhcmVudDtjb2xvcjojZmZmO2ZvbnQtc2l6ZToxN3B4O2N1cnNvcjpwb2ludGVyO2xpbmUtaGVpZ2h0OjF9CiAgLm5hdiBidXR0b246aG92ZXI6bm90KDpkaXNhYmxlZCl7YmFja2dyb3VuZDpyZ2JhKDI1NSwyNTUsMjU1LC4xNil9CiAgLm5hdiBidXR0b246ZGlzYWJsZWR7b3BhY2l0eTouMztjdXJzb3I6ZGVmYXVsdH0KICAuY291bnRlcntmb250LWZhbWlseTp1aS1tb25vc3BhY2UsTWVubG8sQ29uc29sYXMsbW9ub3NwYWNlO2ZvbnQtc2l6ZToxMi41cHg7Y29sb3I6I2Q3ZDllMzttaW4td2lkdGg6NzRweDt0ZXh0LWFsaWduOmNlbnRlcn0KICBAbWVkaWEgKHByZWZlcnMtcmVkdWNlZC1tb3Rpb246cmVkdWNlKXsuZmxpcCwuZmxpcCAuc2hhZGV7dHJhbnNpdGlvbjpub25lfX0KPC9zdHlsZT4KPC9oZWFkPgo8Ym9keT4KICA8ZGl2IGNsYXNzPSJiYXIiPjxzcGFuIGNsYXNzPSJkb3QiPjwvc3Bhbj48c3BhbiBjbGFzcz0idCIgaWQ9InRpdGxlIj5fX1RJVExFX188L3NwYW4+PHNwYW4gY2xhc3M9InNwIj48L3NwYW4+PGJ1dHRvbiBjbGFzcz0iaWNvbmJ0biIgaWQ9ImZzIiB0aXRsZT0iRnVsbHNjcmVlbiI+JiMxMDUzMDs8L2J1dHRvbj48L2Rpdj4KICA8ZGl2IGNsYXNzPSJzdGFnZSIgaWQ9InN0YWdlIj4KICAgIDxkaXYgY2xhc3M9ImJvb2siIGlkPSJib29rIj4KICAgICAgPGltZyBjbGFzcz0icGFwZXIiIGlkPSJiYXNlIiBhbHQ9IiI+CiAgICAgIDxkaXYgY2xhc3M9ImxheWVyIiBpZD0iZmxpcExheWVyIiBzdHlsZT0iZGlzcGxheTpub25lIj4KICAgICAgICA8ZGl2IGNsYXNzPSJmbGlwIiBpZD0iZmxpcCI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJmYWNlIGZyb250Ij48aW1nIGlkPSJmbGlwRnJvbnQiIGFsdD0iIj48L2Rpdj4KICAgICAgICAgIDxkaXYgY2xhc3M9ImZhY2UgYmFjayI+PGltZyBpZD0iZmxpcEJhY2siIGFsdD0iIj48L2Rpdj4KICAgICAgICAgIDxkaXYgY2xhc3M9InNoYWRlIiBpZD0ic2hhZGUiPjwvZGl2PgogICAgICAgIDwvZGl2PgogICAgICA8L2Rpdj4KICAgIDwvZGl2PgogIDwvZGl2PgogIDxkaXYgY2xhc3M9ImNvbnRyb2xzIj4KICAgIDxkaXYgY2xhc3M9Im5hdiI+PGJ1dHRvbiBpZD0icHJldiIgYXJpYS1sYWJlbD0iUHJldmlvdXMiPiYjODI0OTs8L2J1dHRvbj48c3BhbiBjbGFzcz0iY291bnRlciIgaWQ9ImNvdW50ZXIiPiYjODIxMTsgLyAmIzgyMTE7PC9zcGFuPjxidXR0b24gaWQ9Im5leHQiIGFyaWEtbGFiZWw9Ik5leHQiPiYjODI1MDs8L2J1dHRvbj48L2Rpdj4KICA8L2Rpdj4KPHNjcmlwdD4KKGZ1bmN0aW9uKCl7CiAgInVzZSBzdHJpY3QiOwogIHZhciBQQUdFUyA9IF9fUEFHRVNfXzsKICB2YXIgRlQgPSA3MDA7CiAgdmFyICQgPSBmdW5jdGlvbihpZCl7IHJldHVybiBkb2N1bWVudC5nZXRFbGVtZW50QnlJZChpZCk7IH07CiAgdmFyIGJhc2U9JCgiYmFzZSIpLCBmbGlwTGF5ZXI9JCgiZmxpcExheWVyIiksIGZsaXA9JCgiZmxpcCIpLAogICAgICBmbGlwRnJvbnQ9JCgiZmxpcEZyb250IiksIGZsaXBCYWNrPSQoImZsaXBCYWNrIiksIHNoYWRlPSQoInNoYWRlIiksCiAgICAgIGNvdW50ZXI9JCgiY291bnRlciIpLCBwcmV2PSQoInByZXYiKSwgbmV4dD0kKCJuZXh0IiksIHN0YWdlPSQoInN0YWdlIik7CiAgdmFyIGlkeD0wLCBidXN5PWZhbHNlOwoKICBpZighUEFHRVMgfHwgIVBBR0VTLmxlbmd0aCl7IGNvdW50ZXIudGV4dENvbnRlbnQ9IjAgLyAwIjsgcmV0dXJuOyB9CgogIGZ1bmN0aW9uIHNpemVMYXllcigpewogICAgdmFyIHI9YmFzZS5nZXRCb3VuZGluZ0NsaWVudFJlY3QoKTsKICAgIGZsaXBMYXllci5zdHlsZS53aWR0aD1yLndpZHRoKyJweCI7CiAgICBmbGlwTGF5ZXIuc3R5bGUuaGVpZ2h0PXIuaGVpZ2h0KyJweCI7CiAgfQogIGZ1bmN0aW9uIHVwZGF0ZVVJKCl7CiAgICBjb3VudGVyLnRleHRDb250ZW50PShpZHgrMSkrIiAvICIrUEFHRVMubGVuZ3RoOwogICAgcHJldi5kaXNhYmxlZCA9IGlkeDw9MCB8fCBidXN5OwogICAgbmV4dC5kaXNhYmxlZCA9IGlkeD49UEFHRVMubGVuZ3RoLTEgfHwgYnVzeTsKICB9CiAgZnVuY3Rpb24gc2hvdyhpKXsgaWR4PWk7IGJhc2Uuc3JjPVBBR0VTW2ldOyB1cGRhdGVVSSgpOyB9CgogIGZ1bmN0aW9uIGdvKGRpcil7CiAgICBpZihidXN5KSByZXR1cm47CiAgICB2YXIgdGFyZ2V0ID0gaWR4ICsgZGlyOwogICAgaWYodGFyZ2V0PDAgfHwgdGFyZ2V0Pj1QQUdFUy5sZW5ndGgpIHJldHVybjsKICAgIGJ1c3k9dHJ1ZTsgdXBkYXRlVUkoKTsKICAgIHNpemVMYXllcigpOwoKICAgIGlmKGRpcj4wKXsKICAgICAgYmFzZS5zcmMgICAgICA9IFBBR0VTW3RhcmdldF07ICAgLy8gcmV2ZWFsZWQgdW5kZXJuZWF0aCA9IG5leHQKICAgICAgZmxpcEZyb250LnNyYyA9IFBBR0VTW2lkeF07ICAgICAgIC8vIHR1cm5pbmcgcGFnZSBmcm9udCA9IGN1cnJlbnQKICAgICAgZmxpcEJhY2suc3JjICA9IFBBR0VTW3RhcmdldF07ICAgIC8vIGl0cyBiYWNrID0gbmV4dAogICAgICBmbGlwLnN0eWxlLnRyYW5zaXRpb249Im5vbmUiOyBmbGlwLnN0eWxlLnRyYW5zZm9ybT0icm90YXRlWSgwZGVnKSI7CiAgICAgIHNoYWRlLnN0eWxlLnRyYW5zaXRpb249Im5vbmUiOyAgc2hhZGUuc3R5bGUub3BhY2l0eT0iMCI7CiAgICB9IGVsc2UgewogICAgICBiYXNlLnNyYyAgICAgID0gUEFHRVNbdGFyZ2V0XTsgICAvLyBmaW5hbCBwYWdlIHVuZGVybmVhdGggPSBwcmV2CiAgICAgIGZsaXBGcm9udC5zcmMgPSBQQUdFU1t0YXJnZXRdOyAgICAvLyB0dXJuaW5nIHBhZ2UgZnJvbnQgPSBwcmV2CiAgICAgIGZsaXBCYWNrLnNyYyAgPSBQQUdFU1tpZHhdOyAgICAgICAvLyBpdHMgYmFjayA9IGN1cnJlbnQKICAgICAgZmxpcC5zdHlsZS50cmFuc2l0aW9uPSJub25lIjsgZmxpcC5zdHlsZS50cmFuc2Zvcm09InJvdGF0ZVkoLTE4MGRlZykiOwogICAgICBzaGFkZS5zdHlsZS50cmFuc2l0aW9uPSJub25lIjsgIHNoYWRlLnN0eWxlLm9wYWNpdHk9IjEiOwogICAgfQogICAgZmxpcExheWVyLnN0eWxlLmRpc3BsYXk9IiI7CgogICAgcmVxdWVzdEFuaW1hdGlvbkZyYW1lKGZ1bmN0aW9uKCl7IHJlcXVlc3RBbmltYXRpb25GcmFtZShmdW5jdGlvbigpewogICAgICBmbGlwLnN0eWxlLnRyYW5zaXRpb249IiI7ICBzaGFkZS5zdHlsZS50cmFuc2l0aW9uPSIiOwogICAgICBpZihkaXI+MCl7IGZsaXAuc3R5bGUudHJhbnNmb3JtPSJyb3RhdGVZKC0xODBkZWcpIjsgc2hhZGUuc3R5bGUub3BhY2l0eT0iMSI7IH0KICAgICAgZWxzZSAgICAgeyBmbGlwLnN0eWxlLnRyYW5zZm9ybT0icm90YXRlWSgwZGVnKSI7ICAgIHNoYWRlLnN0eWxlLm9wYWNpdHk9IjAiOyB9CiAgICB9KTsgfSk7CgogICAgdmFyIGRvbmU9ZmFsc2U7CiAgICBmdW5jdGlvbiBmaW5pc2goKXsKICAgICAgaWYoZG9uZSkgcmV0dXJuOyBkb25lPXRydWU7CiAgICAgIGZsaXAucmVtb3ZlRXZlbnRMaXN0ZW5lcigidHJhbnNpdGlvbmVuZCIsIGZpbmlzaCk7CiAgICAgIGlkeD10YXJnZXQ7IGZsaXBMYXllci5zdHlsZS5kaXNwbGF5PSJub25lIjsgYnVzeT1mYWxzZTsKICAgICAgYmFzZS5zcmM9UEFHRVNbaWR4XTsgdXBkYXRlVUkoKTsKICAgIH0KICAgIGZsaXAuYWRkRXZlbnRMaXN0ZW5lcigidHJhbnNpdGlvbmVuZCIsIGZpbmlzaCk7CiAgICBzZXRUaW1lb3V0KGZpbmlzaCwgRlQrMjQwKTsKICB9CgogIHByZXYuYWRkRXZlbnRMaXN0ZW5lcigiY2xpY2siLCBmdW5jdGlvbihlKXsgZS5zdG9wUHJvcGFnYXRpb24oKTsgZ28oLTEpOyB9KTsKICBuZXh0LmFkZEV2ZW50TGlzdGVuZXIoImNsaWNrIiwgZnVuY3Rpb24oZSl7IGUuc3RvcFByb3BhZ2F0aW9uKCk7IGdvKDEpOyB9KTsKICBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCJrZXlkb3duIiwgZnVuY3Rpb24oZSl7CiAgICBpZihlLmtleT09PSJBcnJvd0xlZnQiKSBnbygtMSk7CiAgICBlbHNlIGlmKGUua2V5PT09IkFycm93UmlnaHQiKSBnbygxKTsKICB9KTsKICBzdGFnZS5hZGRFdmVudExpc3RlbmVyKCJjbGljayIsIGZ1bmN0aW9uKGUpewogICAgdmFyIHI9c3RhZ2UuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7CiAgICBpZigoZS5jbGllbnRYLXIubGVmdCkgPiByLndpZHRoLzIpIGdvKDEpOyBlbHNlIGdvKC0xKTsKICB9KTsKICB2YXIgc3g9bnVsbDsKICBzdGFnZS5hZGRFdmVudExpc3RlbmVyKCJ0b3VjaHN0YXJ0IiwgZnVuY3Rpb24oZSl7IHN4PWUudG91Y2hlc1swXS5jbGllbnRYOyB9LCB7cGFzc2l2ZTp0cnVlfSk7CiAgc3RhZ2UuYWRkRXZlbnRMaXN0ZW5lcigidG91Y2hlbmQiLCBmdW5jdGlvbihlKXsKICAgIGlmKHN4PT1udWxsKSByZXR1cm47CiAgICB2YXIgZHg9ZS5jaGFuZ2VkVG91Y2hlc1swXS5jbGllbnRYIC0gc3g7CiAgICBpZihNYXRoLmFicyhkeCk+NDApIGdvKGR4PDA/MTotMSk7CiAgICBzeD1udWxsOwogIH0pOwogICQoImZzIikuYWRkRXZlbnRMaXN0ZW5lcigiY2xpY2siLCBmdW5jdGlvbihlKXsKICAgIGUuc3RvcFByb3BhZ2F0aW9uKCk7CiAgICBpZihkb2N1bWVudC5mdWxsc2NyZWVuRWxlbWVudCl7IGlmKGRvY3VtZW50LmV4aXRGdWxsc2NyZWVuKSBkb2N1bWVudC5leGl0RnVsbHNjcmVlbigpOyB9CiAgICBlbHNlIGlmKGRvY3VtZW50LmRvY3VtZW50RWxlbWVudC5yZXF1ZXN0RnVsbHNjcmVlbil7IGRvY3VtZW50LmRvY3VtZW50RWxlbWVudC5yZXF1ZXN0RnVsbHNjcmVlbigpLmNhdGNoKGZ1bmN0aW9uKCl7fSk7IH0KICB9KTsKICB3aW5kb3cuYWRkRXZlbnRMaXN0ZW5lcigicmVzaXplIiwgc2l6ZUxheWVyKTsKICBiYXNlLmFkZEV2ZW50TGlzdGVuZXIoImxvYWQiLCBzaXplTGF5ZXIpOwoKICBzaG93KDApOwp9KSgpOwo8L3NjcmlwdD4KPC9ib2R5Pgo8L2h0bWw+Cg==";
   function flipbookTemplate(){ try{ return decodeURIComponent(escape(atob(FLIPBOOK_TPL_B64))); }catch(e){ return atob(FLIPBOOK_TPL_B64); } }
-  async function blobToJpegDataURL(blob,q,maxW){
+  async function blobToJpegDataURL(blob,q,maxW,wmText){
     const im=await blobToImage(blob);
     let w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
     if(maxW && w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
     const c=document.createElement("canvas"); c.width=Math.max(1,w); c.height=Math.max(1,h);
     const ctx=c.getContext("2d"); ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,c.width,c.height);
     ctx.imageSmoothingQuality="high"; ctx.drawImage(im,0,0,c.width,c.height);
+    if(wmText) drawWatermark(ctx,c.width,c.height,wmText);
     try{ URL.revokeObjectURL(im.src); }catch(e){}
     return c.toDataURL("image/jpeg", q);
   }
+  /* diagonal watermark repeated three times — light enough to read through,
+     visible on both light and dark pages (white fill + dark outline) */
+  function drawWatermark(ctx,w,h,text){
+    ctx.save(); ctx.translate(w/2,h/2); ctx.rotate(-Math.PI/7);
+    const fs=Math.max(18,Math.round(w/14));
+    ctx.font="700 "+fs+"px -apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.globalAlpha=.16; ctx.lineWidth=Math.max(2,fs/14);
+    ctx.strokeStyle="rgba(0,0,0,.85)"; ctx.fillStyle="rgba(255,255,255,.92)";
+    [-h*0.35,0,h*0.35].forEach(y=>{ ctx.strokeText(text,0,y); ctx.fillText(text,0,y); });
+    ctx.restore();
+  }
+  /* the closing page of a preview: brand background + title + buy call-to-action */
+  function ctaPageDataURL(w,h,title,buyUrl){
+    const c=document.createElement("canvas"); c.width=Math.max(400,w); c.height=Math.max(500,h);
+    w=c.width; h=c.height; const x=c.getContext("2d");
+    const g=x.createLinearGradient(0,0,w,h); g.addColorStop(0,"#241f47"); g.addColorStop(.55,"#3b2f8f"); g.addColorStop(1,"#5b4ad8");
+    x.fillStyle=g; x.fillRect(0,0,w,h);
+    x.globalAlpha=.07; x.fillStyle="#ffffff";
+    x.beginPath(); x.arc(w*.88,h*.10,w*.30,0,7); x.fill();
+    x.beginPath(); x.arc(w*.08,h*.92,w*.36,0,7); x.fill();
+    x.globalAlpha=1; x.textAlign="center"; x.textBaseline="middle";
+    const base=w/22, sans="'Segoe UI',Tahoma,Arial,sans-serif";
+    x.fillStyle="#fbb43a"; x.font="700 "+Math.round(base*1.15)+"px "+sans;
+    x.fillText("نهاية المعاينة المجانية",w/2,h*.26);
+    x.fillStyle="rgba(255,255,255,.72)"; x.font=Math.round(base*.68)+"px "+sans;
+    x.fillText("End of free preview",w/2,h*.26+base*1.7);
+    // book title, wrapped to two lines if long
+    x.fillStyle="#ffffff"; x.font="800 "+Math.round(base*1.35)+"px "+sans;
+    const t=(title||"").trim();
+    if(t.length>26){
+      const cut=t.lastIndexOf(" ",Math.ceil(t.length/2))>0?t.lastIndexOf(" ",Math.ceil(t.length/2)):Math.ceil(t.length/2);
+      x.fillText(t.slice(0,cut),w/2,h*.44-base*.9);
+      x.fillText(t.slice(cut+1)||t.slice(cut),w/2,h*.44+base*.9);
+    } else if(t){ x.fillText(t,w/2,h*.44); }
+    // buy button
+    const bw=Math.min(w*.72,base*16), bh=base*2.6, bx=(w-bw)/2, by=h*.60;
+    const bg=x.createLinearGradient(bx,by,bx+bw,by); bg.addColorStop(0,"#f59e0b"); bg.addColorStop(1,"#fbb43a");
+    x.fillStyle=bg;
+    if(typeof x.roundRect==="function"){ x.beginPath(); x.roundRect(bx,by,bw,bh,bh/2); x.fill(); }
+    else x.fillRect(bx,by,bw,bh);
+    x.fillStyle="#3a2602"; x.font="800 "+Math.round(base*.92)+"px "+sans;
+    x.fillText("🛒 احصل على الكتاب كاملاً",w/2,by+bh/2+1);
+    if(buyUrl){ x.fillStyle="rgba(255,255,255,.62)"; x.font=Math.round(base*.55)+"px ui-monospace,Consolas,monospace";
+      x.fillText(buyUrl.replace(/^https?:\/\//i,"").slice(0,64),w/2,by+bh+base*1.3); }
+    return c.toDataURL("image/jpeg",.9);
+  }
+  /* floating buy button injected into the exported flipbook (target=_top so it
+     escapes the embed iframe and opens the store page) */
+  function injectBuyBar(html,buyUrl){
+    if(!/^https?:\/\//i.test(buyUrl||"")) return html;
+    const safe=buyUrl.replace(/"/g,"&quot;");
+    const bar='<a href="'+safe+'" target="_top" rel="noopener" style="position:fixed;bottom:72px;right:16px;z-index:50;background:linear-gradient(92deg,#f59e0b,#fbb43a);color:#3a2602;font-weight:800;font-family:-apple-system,\'Segoe UI\',Tahoma,Arial,sans-serif;font-size:14px;padding:11px 18px;border-radius:999px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.35)">🛒 احصل على الكتاب كاملاً</a>';
+    return html.replace("</body>", bar+"\n</body>");
+  }
   async function resultsToFlipbookHtml(results,title,opts,progress){
     let q=clamp(int(els.quality.value,82),10,100)/100; if(!(q>0)) q=0.82;
+    const preview=!!(opts&&opts.preview);
+    const list=preview?results.slice(0,Math.max(1,(opts.previewPages||3))):results;
+    const wm=preview?((opts.wmText||"").trim()||"Preview"):null;
     const urls=[];
-    for(let i=0;i<results.length;i++){ if(progress) progress(i/results.length,"Embedding page "+(i+1)+"/"+results.length);
-      urls.push(await blobToJpegDataURL(results[i].blob, q, 1400));
+    for(let i=0;i<list.length;i++){ if(progress) progress(i/list.length,"Embedding page "+(i+1)+"/"+list.length);
+      urls.push(await blobToJpegDataURL(list[i].blob, q, 1400, wm));
+    }
+    if(preview&&list.length){
+      const pw=Math.min(1400,list[0].w||1000), ph=Math.round((list[0].h||1400)*pw/(list[0].w||1000));
+      urls.push(ctaPageDataURL(pw,ph,title,(opts.buyUrl||"").trim()));
     }
     const tpl=flipbookTemplate();
     const safeTitle=(title||"Flipbook").replace(/[<>&\"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'\"':"&quot;"}[c]));
-    return tpl.split("__TITLE__").join(safeTitle).split("__PAGES__").join(JSON.stringify(urls));
+    let out=tpl.split("__TITLE__").join(safeTitle).split("__PAGES__").join(JSON.stringify(urls));
+    if(preview) out=injectBuyBar(out,(opts.buyUrl||"").trim());
+    return out;
   }
   async function imageSize(blob){ try{ const im=await blobToImage(blob); return {w:im.naturalWidth,h:im.naturalHeight}; }catch(e){ return {w:0,h:0}; } }
 
@@ -789,8 +870,9 @@
   async function generate(){
     if(busy||!book) return;
     const opts=optsFromUI(); book.opts=opts;
-    const selected=orderedPages().filter(p=>p.selected);
+    let selected=orderedPages().filter(p=>p.selected);
     if(!selected.length){ showErr("Pick at least one page."); return; }
+    if(bundle==="flipbook" && opts.preview) selected=selected.slice(0,opts.previewPages);
     hideErr(); busy=true; els.generate.disabled=true; els.progress.classList.add("show"); els.results.classList.remove("show");
     outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[]; els.gallery.innerHTML=""; resetEmbedPanel();
     try{
@@ -799,7 +881,7 @@
       const slug=slugify(opts.prefix||book.title);
       if(bundle==="pdf"){ setProgress(1,"Building PDF…"); await buildPdf(results,slug); }
       else if(bundle==="cbz"){ setProgress(1,"Building CBZ…"); await buildZip(results,slug,".cbz"); }
-      else if(bundle==="flipbook"){ const html=await resultsToFlipbookHtml(results,(opts.prefix||book.title),opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; }
+      else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; }
       // gallery always
       results.forEach(addPlate);
       window._results=results; window._slug=slug;
@@ -847,7 +929,7 @@
     btn.disabled=true; E("embedPanel").style.display=""; E("embedCode").style.display="none"; E("embedActions").style.display="none";
     try{
       st.textContent="Uploading…";
-      const title=(book&&book.title)||"Book";
+      const title=window._flipTitle||((book&&book.title)||"Book");
       const {url,mb}=await uploadFlipbook(window._flipHtml, window._flipName||"book", title);
       E("embedCode").textContent=embedSnippet(url,title); E("embedCode").style.display="";
       E("openReader").href=url; E("embedActions").style.display="flex";
@@ -895,8 +977,9 @@
         prog(bi/valid.length,"Rendering "+item.file.name+"…");
         // re-parse the book so its embedded images are freshly available
         const fresh=await parseEpub(await item.file.arrayBuffer());
-        const results=await exportPages(fresh,item.pages.slice(),opts,(f,t)=>prog((bi+f*0.75)/valid.length,t));
-        const title=fresh.title||item.file.name.replace(/\.epub$/i,"");
+        let bpages=item.pages.slice(); if(opts.preview) bpages=bpages.slice(0,opts.previewPages);
+        const results=await exportPages(fresh,bpages,opts,(f,t)=>prog((bi+f*0.75)/valid.length,t));
+        const title=(fresh.title||item.file.name.replace(/\.epub$/i,""))+(opts.preview?" — معاينة":"");
         const html=await resultsToFlipbookHtml(results,title,opts,(f,t)=>prog((bi+0.75+f*0.2)/valid.length,"Embedding "+title));
         prog((bi+0.95)/valid.length,"Uploading "+title+"…");
         const up=await uploadFlipbook(html,slugify(title),title);
@@ -935,10 +1018,11 @@
         prog(bi/valid.length,"Exporting "+item.file.name);
         // re-parse the book so its embedded images are freshly available
         const fresh=await parseEpub(await item.file.arrayBuffer());
-        const results=await exportPages(fresh,item.pages.slice(),opts,(f,t)=>prog((bi+f)/valid.length,t));
+        let bpages=item.pages.slice(); if(bundle==="flipbook"&&opts.preview) bpages=bpages.slice(0,opts.previewPages);
+        const results=await exportPages(fresh,bpages,opts,(f,t)=>prog((bi+f)/valid.length,t));
         let bname=slugify(fresh.title||item.file.name.replace(/\.epub$/i,""));
         if(usedNames.has(bname)){ let k=2; while(usedNames.has(bname+"-"+k)) k++; bname=bname+"-"+k; } usedNames.add(bname);
-        if(bundle==="flipbook"){ const html=await resultsToFlipbookHtml(results,(fresh.title||item.file.name.replace(/\.epub$/i,"")),opts); z.file(bname+".html", html); }
+        if(bundle==="flipbook"){ const html=await resultsToFlipbookHtml(results,(fresh.title||item.file.name.replace(/\.epub$/i,""))+(opts.preview?" — معاينة":""),opts); z.file(bname+".html", html); }
         else { const folder=z.folder(bname); results.forEach(r=>folder.file(r.name,r.blob)); }
         bi++;
       }
@@ -1005,7 +1089,7 @@
     els.drop.querySelector(".big").textContent="Drop one or more .epub files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); const bem=E("batchEmbeds"); if(bem) bem.remove(); }
 
   /* ============================ settings persistence ============================ */
-  const SETTING_IDS=["sens","dontSplit","splitSpreads","rtl","reverse","pageW","scale","format","quality","bgMode","bgColor","trim","useOriginal","uniform","uniW","uniH","tiles","pageH","prefix","numbering"];
+  const SETTING_IDS=["sens","dontSplit","splitSpreads","rtl","reverse","pageW","scale","format","quality","bgMode","bgColor","trim","useOriginal","uniform","uniW","uniH","tiles","pageH","prefix","numbering","previewMode","previewPages","buyUrl","wmText"];
   function saveSettings(){ const o={bundle}; SETTING_IDS.forEach(id=>{ const el=E(id); if(!el)return; o[id]=el.type==="checkbox"?el.checked:el.value; }); store.set(o); }
   function applySettingsToUI(){ const o=store.get(); if(!o)return; SETTING_IDS.forEach(id=>{ if(o[id]==null)return; const el=E(id); if(!el)return; if(el.type==="checkbox") el.checked=!!o[id]; else el.value=o[id]; });
     if(o.bundle){ bundle=o.bundle; $$("#bundleSeg button").forEach(b=>b.classList.toggle("on",b.dataset.bundle===bundle)); }
@@ -1016,6 +1100,9 @@
     els.bgColor.style.display=els.bgMode.value==="custom"?"":"none";
     els.tileHeightOpt.style.display=els.tiles.checked?"":"none";
     els.uniformDims.style.opacity=els.uniform.checked?"1":".4"; els.uniW.disabled=els.uniH.disabled=!els.uniform.checked;
+    els.previewOpt.style.display=bundle==="flipbook"?"":"none";
+    els.previewCtl.style.display=els.previewMode.checked?"":"none";
+    els.previewHint.style.display=els.previewMode.checked?"":"none";
     const lbls=["High (more pages)","Medium","Low (fewer pages)"]; els.sensLbl.textContent=lbls[int(els.sens.value,1)];
   }
 
@@ -1036,9 +1123,10 @@
   els.downloadMain.addEventListener("click",downloadMain);
   E("hostBtn").addEventListener("click",hostFlipbook);
   E("copyEmbedBtn").addEventListener("click",copyEmbedCode);
-  $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); const bh=E("batchHostBtn"); if(bh) bh.style.display = bundle==="flipbook" ? "" : "none"; }));
+  $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); syncConditionalUI(); const bh=E("batchHostBtn"); if(bh) bh.style.display = bundle==="flipbook" ? "" : "none"; }));
   // conditional UI
-  ["format","bgMode","tiles","uniform","sens"].forEach(id=>E(id).addEventListener("change",syncConditionalUI));
+  ["format","bgMode","tiles","uniform","sens","previewMode"].forEach(id=>E(id).addEventListener("change",syncConditionalUI));
+  ["previewMode","previewPages"].forEach(id=>E(id).addEventListener("change",()=>{ if(book&&!batch) updateSel(); }));
   els.sens.addEventListener("input",syncConditionalUI);
   // re-scan triggers (structural)
   ["sens","dontSplit","splitSpreads","tiles","pageH"].forEach(id=>E(id).addEventListener("change",()=>{ saveSettings(); if(book&&!batch) rescan(); }));
