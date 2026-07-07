@@ -567,6 +567,8 @@ const dict = {
   showGuide: { ar: "عرض خطوات الربط", en: "Show setup steps" },
   hideGuide: { ar: "إخفاء", en: "Hide" },
   quickSearch: { ar: "بحث سريع: رقم طلب أو هاتف...", en: "Quick search: order # or phone..." },
+  downloadTemplate: { ar: "تحميل قالب فارغ", en: "Download template" },
+  templateNote: { ar: "املأ القالب بنفس أسماء الأعمدة ثم ارفعه", en: "Fill the template using the same column names, then upload" },
   // Connectors
   connCourier: { ar: "شركة الشحن", en: "Courier" },
   connPayment: { ar: "بوابة الدفع", en: "Payment Gateway" },

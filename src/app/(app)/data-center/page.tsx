@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
@@ -34,6 +34,53 @@ const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
   ga4_tx: "transactions",
   ga4_items: "items",
 };
+
+// Downloadable templates showing the exact columns each upload expects.
+// GA4 templates keep the "# Start/End date" comment lines the parser needs.
+const TEMPLATES: Record<string, string> = {
+  orders:
+    "Order number,Customer ID,Order Date,Order status,Delivery status,Payment method,Full Customer name,Customer phone number,Product name,Product Sku,Items Prices,City,Area,Total Order Amount,COD amount,Actual Delivery Fees,Original Delivery Fees,Cancellation Reason,Source\r\n" +
+    "12345,1001,05-07-26 13:03 PM,Delivered,Delivered,Cash On Delivery,Ahmed Ali,01000000000,Book A | Book B,SKU001 | SKU002,120 | 80,Cairo,Nasr City,200,200,0,25,,web\r\n" +
+    "# Tip: this is the platform OrderExport format. Best is to export it directly from Super Commerce — products/prices/skus are pipe (|) separated.",
+  customers:
+    "id,name,email,birthdate,contact,total_orders,language,active,Joined on,City,Area,addresses\r\n" +
+    "1001,Ahmed Ali,ahmed@example.com,1990-05-12,01000000000,3,ar,1,2026-01-15 10:00:00,Cairo,Nasr City,\"12 Street, Cairo\"",
+  stock:
+    "Sku,product name,ecom,sap,category\r\n" +
+    "SKU001,Book A,50,120,Kids\r\n" +
+    "SKU002,Book B,0,30,Cultural\r\n" +
+    "# Or upload the raw SAP export directly (columns: Material, Material Description, Unrestricted...).",
+  costs:
+    "SKU,cost\r\n" +
+    "SKU001,45\r\n" +
+    "SKU002,60",
+  ga4_pages:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Page path and screen class,Views,Active users,Views per active user,Average engagement time per active user,Event count,Add to carts,Key events,Total revenue,Bounce rate,Engagement rate\r\n" +
+    "/ar/products,19547,5079,3.85,71.5,50273,2705,0,0,0.12,0.87",
+  ga4_tx:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Transaction ID,Ecommerce purchases,Purchase revenue\r\n" +
+    "NM000012345,1,200.00",
+  ga4_items:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Item name,Items viewed,Items added to cart,Items purchased,Item revenue\r\n" +
+    "Book A,759,285,79,9480.00",
+  ads:
+    "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Reporting starts,Reporting ends\r\n" +
+    "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,2026-06-01,2026-06-22",
+};
+
+function downloadTemplate(type: string, fileName: string) {
+  const csv = "﻿" + (TEMPLATES[type] ?? "");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `template-${fileName}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 type Phase = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
 
 interface Pending {
@@ -365,8 +412,17 @@ export default function DataCenterPage() {
                 {errorMsg}
               </div>
             )}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {TEMPLATES[activeType] && (
+                <button className="btn-secondary !py-1.5 text-xs" onClick={() => downloadTemplate(activeType, active.key)}>
+                  <FileDown size={14} />
+                  {t("downloadTemplate")}
+                </button>
+              )}
+              <span className="text-xs text-slate-400">{t("templateNote")}</span>
+            </div>
             {activeType === "orders" && (
-              <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+              <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                 <Info size={14} />
                 {t("duplicateNote")}
               </div>
