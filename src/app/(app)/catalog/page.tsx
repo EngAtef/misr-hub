@@ -91,6 +91,7 @@ function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileN
             ecom_stock: String(b.stock_qty),
             sap_stock: "",
             category: b.section ?? "",
+            vendor: b.vendor ?? "",
           }));
           const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
           if (error) {

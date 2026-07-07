@@ -20,6 +20,8 @@ export interface CatalogBook {
   barcode: string | null;
   // numeric available stock (stock - reserved) when the file provides it
   stock_qty?: number | null;
+  // vendor/brand for multi-supplier analysis (e.g. Al Adwaa)
+  vendor?: string | null;
 }
 
 export const CATALOG_FIELDS = [
@@ -169,6 +171,7 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       image: clean(row["main_image"]),
       barcode: clean(row["barcode"]),
       stock_qty: isNaN(stockNum) ? null : Math.max(Math.round(stockNum - reserved), 0),
+      vendor: clean(row["brand"]) ?? clean(row["vendor"]) ?? clean(row["publisher"]),
     };
 
     // book metadata lives in the attribute_name/value_N pairs
