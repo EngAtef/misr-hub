@@ -821,32 +821,38 @@
     else { await buildZip(results,window._slug||"book",".zip"); } }
 
   /* ============================ host & embed ============================ */
-  /* Uploads the generated flipbook to the app's own storage (Supabase bucket
+  /* Uploads generated flipbooks to the app's own storage (Supabase bucket
      via /api/flipbooks) and returns ready <iframe> embed code — the user
      never needs external hosting. Requires being signed in to the app. */
+  function embedSnippet(url,title){
+    const t=(title||"Book").replace(/"/g,"&quot;");
+    return '<iframe src="'+url+'" width="100%" height="600" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="'+t+'"></iframe>';
+  }
+  async function uploadFlipbook(html,filename,title){
+    const bytes=new Blob([html]).size, mb=bytes/1048576;
+    if(bytes>48*1048576) throw new Error("Flipbook is "+mb.toFixed(1)+" MB — over the 50 MB hosting limit. Lower the JPEG quality or resolution and regenerate.");
+    const res=await fetch("/api/flipbooks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:filename||"book",title:title||""})});
+    if(res.status===401) throw new Error("You need to be signed in — open Book Studio from inside NM Smart App and try again.");
+    if(!res.ok) throw new Error("Couldn't start the upload (HTTP "+res.status+").");
+    const info=await res.json();
+    const up=await fetch(info.uploadUrl,{method:"PUT",headers:{"content-type":"text/html","x-upsert":"false"},body:html});
+    if(!up.ok) throw new Error("Upload failed (HTTP "+up.status+").");
+    return { url:/^https?:/i.test(info.readerUrl)?info.readerUrl:location.origin+info.readerUrl, mb };
+  }
+  function notifyHosted(url,silent){ try{ if(window.parent!==window) window.parent.postMessage({type:"flipbook-hosted",url:url,silent:!!silent},location.origin); }catch(e){} }
   function resetEmbedPanel(){ E("embedPanel").style.display="none"; E("embedCode").style.display="none"; E("embedCode").textContent=""; E("embedActions").style.display="none"; E("embedStatus").textContent=""; E("hostBtn").style.display="none"; }
   async function hostFlipbook(){
     if(!window._flipHtml){ showErr("Generate a flipbook first."); return; }
     const btn=E("hostBtn"), st=E("embedStatus");
     btn.disabled=true; E("embedPanel").style.display=""; E("embedCode").style.display="none"; E("embedActions").style.display="none";
     try{
-      const bytes=new Blob([window._flipHtml]).size, mb=bytes/1048576;
-      if(bytes>48*1048576) throw new Error("This flipbook is "+mb.toFixed(1)+" MB — over the 50 MB hosting limit. Lower the JPEG quality or resolution and regenerate.");
-      st.textContent="Preparing upload ("+mb.toFixed(1)+" MB)…";
-      const res=await fetch("/api/flipbooks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:window._flipName||"book"})});
-      if(res.status===401) throw new Error("You need to be signed in — open Book Studio from inside NM Smart App and try again.");
-      if(!res.ok) throw new Error("Couldn't start the upload (HTTP "+res.status+").");
-      const info=await res.json();
-      st.textContent="Uploading "+mb.toFixed(1)+" MB…";
-      const up=await fetch(info.uploadUrl,{method:"PUT",headers:{"content-type":"text/html","x-upsert":"false"},body:window._flipHtml});
-      if(!up.ok) throw new Error("Upload failed (HTTP "+up.status+").");
-      const url=/^https?:/i.test(info.readerUrl)?info.readerUrl:location.origin+info.readerUrl;
-      const t=(book&&book.title?book.title:"Book").replace(/"/g,"&quot;");
-      const code='<iframe src="'+url+'" width="100%" height="600" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="'+t+'"></iframe>';
-      E("embedCode").textContent=code; E("embedCode").style.display="";
+      st.textContent="Uploading…";
+      const title=(book&&book.title)||"Book";
+      const {url,mb}=await uploadFlipbook(window._flipHtml, window._flipName||"book", title);
+      E("embedCode").textContent=embedSnippet(url,title); E("embedCode").style.display="";
       E("openReader").href=url; E("embedActions").style.display="flex";
-      st.textContent="Hosted ✓ — paste this code into any page of your website:";
-      try{ if(window.parent!==window) window.parent.postMessage({type:"flipbook-hosted",url:url},location.origin); }catch(e){}
+      st.textContent="Hosted ✓ ("+mb.toFixed(1)+" MB) — paste this code into any page of your website:";
+      notifyHosted(url,false);
     }catch(e){ st.textContent="✗ "+(e.message||e); }
     finally{ btn.disabled=false; }
   }
@@ -870,9 +876,53 @@
   function addBatchExport(){
     if(E("batchExportRow")) return;
     const wrap=document.createElement("div"); wrap.className="gen-row"; wrap.id="batchExportRow"; wrap.style.marginTop="14px";
-    wrap.innerHTML='<button id="batchExportBtn" class="btn-primary">Export all books (ZIP)</button><div class="progress" id="bprog" style="flex:1"><div class="bar"><i id="bbar"></i></div><div class="ptext" id="bptext"></div></div>';
+    wrap.innerHTML='<button id="batchExportBtn" class="btn-primary">Export all books (ZIP)</button><button id="batchHostBtn" class="btn-ghost" style="display:none">🌐 Host all &amp; get embed codes</button><div class="progress" id="bprog" style="flex:1"><div class="bar"><i id="bbar"></i></div><div class="ptext" id="bptext"></div></div>';
     els.bookPanel.appendChild(wrap);
+    const embeds=document.createElement("div"); embeds.id="batchEmbeds"; els.bookPanel.appendChild(embeds);
     E("batchExportBtn").addEventListener("click",exportBatch);
+    E("batchHostBtn").addEventListener("click",hostAllBooks);
+    E("batchHostBtn").style.display = bundle==="flipbook" ? "" : "none";
+  }
+  async function hostAllBooks(){
+    if(busy||!batch) return; busy=true; E("batchHostBtn").disabled=true; E("batchExportBtn").disabled=true;
+    const opts=optsFromUI();
+    const prog=(f,t)=>{ E("bbar").style.width=Math.round(f*100)+"%"; E("bptext").textContent=t; };
+    E("bprog").classList.add("show"); E("batchEmbeds").innerHTML="";
+    const hosted=[];
+    try{
+      const valid=batch.books.filter(b=>!b.error); let bi=0;
+      for(const item of valid){
+        prog(bi/valid.length,"Rendering "+item.file.name+"…");
+        // re-parse the book so its embedded images are freshly available
+        const fresh=await parseEpub(await item.file.arrayBuffer());
+        const results=await exportPages(fresh,item.pages.slice(),opts,(f,t)=>prog((bi+f*0.75)/valid.length,t));
+        const title=fresh.title||item.file.name.replace(/\.epub$/i,"");
+        const html=await resultsToFlipbookHtml(results,title,opts,(f,t)=>prog((bi+0.75+f*0.2)/valid.length,"Embedding "+title));
+        prog((bi+0.95)/valid.length,"Uploading "+title+"…");
+        const up=await uploadFlipbook(html,slugify(title),title);
+        hosted.push({title:title,url:up.url});
+        notifyHosted(up.url,true);
+        bi++;
+      }
+      prog(1,hosted.length+" book"+(hosted.length!==1?"s":"")+" hosted ✓");
+      renderBatchEmbeds(hosted);
+    }catch(e){ console.error(e); E("bptext").textContent="✗ "+(e.message||e); if(hosted.length) renderBatchEmbeds(hosted); }
+    finally{ busy=false; E("batchHostBtn").disabled=false; E("batchExportBtn").disabled=false; }
+  }
+  function renderBatchEmbeds(hosted){
+    const out=E("batchEmbeds"); out.innerHTML=""; if(!hosted.length) return;
+    const box=document.createElement("div"); box.className="card"; box.style.cssText="margin-top:12px;padding:16px 18px";
+    let inner='<div style="font-weight:700;margin-bottom:6px">Hosted books — embed codes</div>';
+    hosted.forEach((h,i)=>{
+      inner+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--hair)">'+
+        '<span style="flex:1;font-weight:600;min-width:160px">'+escapeHtml(h.title)+'</span>'+
+        '<a class="linkbtn" target="_blank" rel="noopener" href="'+h.url+'">open ↗</a>'+
+        '<button class="btn-ghost" style="padding:7px 12px" data-embedidx="'+i+'">Copy embed</button></div>';
+    });
+    inner+='<div style="margin-top:10px"><button class="btn-ghost" id="copyAllEmbeds">Copy all embed codes</button></div>';
+    box.innerHTML=inner; out.appendChild(box);
+    $$("button[data-embedidx]",box).forEach(b=>b.addEventListener("click",()=>{ const h=hosted[+b.dataset.embedidx]; navigator.clipboard.writeText(embedSnippet(h.url,h.title)).then(()=>{ const o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1400); }).catch(()=>{}); }));
+    E("copyAllEmbeds").addEventListener("click",()=>{ const all=hosted.map(h=>"<!-- "+h.title.replace(/--/g,"—")+" -->\n"+embedSnippet(h.url,h.title)).join("\n\n"); navigator.clipboard.writeText(all).then(()=>{ const b=E("copyAllEmbeds"), o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1400); }).catch(()=>{}); });
   }
   async function exportBatch(){
     if(busy) return; busy=true; E("batchExportBtn").disabled=true;
@@ -918,7 +968,7 @@
     ["bookbar","pagesSection","singleGenRow","progress","err","results"].forEach(id=>{
       const el=E(id); if(el) el.classList.toggle("hidden", !single);
     });
-    if(single){ const row=E("batchExportRow"); if(row) row.remove(); }
+    if(single){ const row=E("batchExportRow"); if(row) row.remove(); const be=E("batchEmbeds"); if(be) be.remove(); }
   }
 
   /* ============================ load flow ============================ */
@@ -952,7 +1002,7 @@
   }
   function resetToDrop(){ book=null; batch=null; blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
     els.bookPanel.classList.add("hidden"); els.batchPanel.classList.add("hidden"); els.drop.classList.remove("hidden","hot");
-    els.drop.querySelector(".big").textContent="Drop one or more .epub files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); }
+    els.drop.querySelector(".big").textContent="Drop one or more .epub files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); const bem=E("batchEmbeds"); if(bem) bem.remove(); }
 
   /* ============================ settings persistence ============================ */
   const SETTING_IDS=["sens","dontSplit","splitSpreads","rtl","reverse","pageW","scale","format","quality","bgMode","bgColor","trim","useOriginal","uniform","uniW","uniH","tiles","pageH","prefix","numbering"];
@@ -986,7 +1036,7 @@
   els.downloadMain.addEventListener("click",downloadMain);
   E("hostBtn").addEventListener("click",hostFlipbook);
   E("copyEmbedBtn").addEventListener("click",copyEmbedCode);
-  $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); }));
+  $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); const bh=E("batchHostBtn"); if(bh) bh.style.display = bundle==="flipbook" ? "" : "none"; }));
   // conditional UI
   ["format","bgMode","tiles","uniform","sens"].forEach(id=>E(id).addEventListener("change",syncConditionalUI));
   els.sens.addEventListener("input",syncConditionalUI);

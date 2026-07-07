@@ -1,29 +1,67 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Maximize2, Copy, Lightbulb } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Maximize2, Copy, Lightbulb, ExternalLink, Link2, Trash2, RefreshCw, BookOpen } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
 
+interface HostedBook {
+  id: string;
+  title: string;
+  size: number;
+  createdAt: string;
+  readerUrl: string;
+}
+
+function fmtSize(bytes: number) {
+  if (!bytes) return "—";
+  const mb = bytes / 1048576;
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 export default function StudioPage() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [url, setUrl] = useState("");
   const [w, setW] = useState("100%");
   const [h, setH] = useState("600");
   const [copied, setCopied] = useState(false);
+  const [books, setBooks] = useState<HostedBook[]>([]);
+  const [totalBytes, setTotalBytes] = useState(0);
+  const [loadingBooks, setLoadingBooks] = useState(true);
+  const [copiedId, setCopiedId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
 
-  // When the converter hosts a flipbook it posts the reader URL up to us,
-  // so the embed generator fills itself in.
+  const loadBooks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/flipbooks");
+      if (!res.ok) return;
+      const j = await res.json();
+      setBooks(j.books || []);
+      setTotalBytes(j.totalBytes || 0);
+    } catch {
+      // list stays as-is; the refresh button retries
+    } finally {
+      setLoadingBooks(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBooks();
+  }, [loadBooks]);
+
+  // When the converter hosts a flipbook it posts the reader URL up to us:
+  // the embed generator fills itself in and the hosted list refreshes.
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === "flipbook-hosted" && typeof e.data.url === "string") {
-        setUrl(e.data.url);
+        if (!e.data.silent) setUrl(e.data.url);
+        loadBooks();
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [loadBooks]);
 
   const embed = url
     ? `<iframe src="${url}" width="${w}" height="${h}" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="Nahdet Misr Book"></iframe>`
@@ -33,6 +71,35 @@ export default function StudioPage() {
     navigator.clipboard.writeText(embed);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  function embedFor(b: HostedBook) {
+    const title = (b.title || "Book").replace(/"/g, "&quot;");
+    return `<iframe src="${b.readerUrl}" width="${w}" height="${h}" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="${title}"></iframe>`;
+  }
+
+  function copyText(key: string, text: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedId(key);
+    setTimeout(() => setCopiedId(""), 1500);
+  }
+
+  async function deleteBook(b: HostedBook) {
+    if (!window.confirm(t("deleteBookConfirm"))) return;
+    setDeletingId(b.id);
+    try {
+      const res = await fetch("/api/flipbooks", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: b.id }),
+      });
+      if (res.ok) {
+        setBooks((prev) => prev.filter((x) => x.id !== b.id));
+        setTotalBytes((prev) => Math.max(0, prev - b.size));
+      }
+    } finally {
+      setDeletingId("");
+    }
   }
 
   return (
@@ -79,6 +146,72 @@ export default function StudioPage() {
               {copied ? t("copied") : t("copyEmbed")}
             </button>
           </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-6">
+        <div className="mb-1 flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="flex items-center gap-2 font-bold">
+            <BookOpen size={18} className="text-brand-500" />
+            {t("hostedBooks")}
+            {books.length > 0 && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{books.length}</span>
+            )}
+          </h3>
+          <div className="flex items-center gap-3">
+            {totalBytes > 0 && (
+              <span className="text-xs text-slate-400">
+                {t("storageUsed")}: {fmtSize(totalBytes)}
+              </span>
+            )}
+            <button className="btn-secondary !px-2.5 !py-1.5" onClick={() => loadBooks()} title={t("refresh")}>
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
+        <p className="mb-4 text-xs text-slate-500">{t("hostedHint")}</p>
+
+        {loadingBooks ? (
+          <p className="py-4 text-center text-sm text-slate-400">…</p>
+        ) : books.length === 0 ? (
+          <p className="py-4 text-center text-sm text-slate-400">{t("hostedEmpty")}</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {books.map((b) => (
+              <li key={b.id} className="flex items-center gap-3 py-2.5 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{b.title || b.id}</div>
+                  <div className="text-xs text-slate-400" dir="ltr">
+                    {b.createdAt ? new Date(b.createdAt).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { year: "numeric", month: "short", day: "numeric" }) : ""}
+                    {" · "}
+                    {fmtSize(b.size)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => copyText(`${b.id}:embed`, embedFor(b))}>
+                    <Copy size={13} />
+                    {copiedId === `${b.id}:embed` ? t("copied") : t("copyEmbed")}
+                  </button>
+                  <button className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => copyText(`${b.id}:link`, b.readerUrl)}>
+                    <Link2 size={13} />
+                    {copiedId === `${b.id}:link` ? t("copied") : t("copyLink")}
+                  </button>
+                  <a className="btn-secondary !px-2.5 !py-1.5 !text-xs" href={b.readerUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink size={13} />
+                    {t("openLink")}
+                  </a>
+                  <button
+                    className="btn-secondary !px-2.5 !py-1.5 !text-xs !text-red-600"
+                    onClick={() => deleteBook(b)}
+                    disabled={deletingId === b.id}
+                  >
+                    <Trash2 size={13} />
+                    {t("deleteBook")}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
