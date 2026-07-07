@@ -69,6 +69,9 @@ export type Ga4AnyParsed =
   | { kind: "transactions"; month: string; spanDays: number; transactions: Ga4Transaction[] }
   | { kind: "items"; month: string; spanDays: number; items: Ga4Item[] };
 
+// Sentinel period_month for all-time / multi-month GA4 uploads.
+export const GA4_ALL_TIME = "2000-01-01";
+
 // GA4 sometimes exports transaction ids as "NM000024492" while the store
 // uses plain "24492" — normalize both sides to bare digits for matching.
 export function normalizeTxId(id: string): string {
@@ -105,6 +108,10 @@ export function parseGa4Any(text: string): Ga4AnyParsed | null {
   if (!month || headerIdx === -1 || !kind) return null;
   const spanDays =
     startDate && endDate ? Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1 : 31;
+  // Multi-month (all-time) exports land in a dedicated "All time" bucket so
+  // they don't masquerade as a single calendar month. Monthly files keep
+  // their real month, so per-month uploads later work correctly.
+  if (spanDays > 45) month = GA4_ALL_TIME;
 
   if (kind === "pages") {
     const parsed = parseGa4File(text);

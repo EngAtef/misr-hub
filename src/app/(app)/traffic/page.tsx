@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge } from "@/components/ui";
 import { BarsChart } from "@/components/charts";
-import { normalizeTxId } from "@/lib/import/parse-ga4";
+import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
 
 interface MonthRow {
@@ -56,6 +56,7 @@ interface ItemGap {
 }
 
 function monthLabel(iso: string, lang: "ar" | "en") {
+  if (iso === GA4_ALL_TIME) return lang === "ar" ? "كل الفترة (إجمالي)" : "All time (historical)";
   return new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
@@ -97,7 +98,10 @@ export default function TrafficPage() {
 
   const loadMonth = useCallback(
     async (month: string) => {
-      const monthEnd = new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 1).toISOString().slice(0, 10);
+      const isAllTime = month === GA4_ALL_TIME;
+      const monthEnd = isAllTime
+        ? null
+        : new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 1).toISOString().slice(0, 10);
       const [s, p] = await Promise.all([
         supabase.rpc("fn_ga4_summary", { p_month: month }),
         supabase
@@ -110,37 +114,31 @@ export default function TrafficPage() {
       setSummary(s.data as Summary);
       setPages((p.data as PageRow[]) ?? []);
 
-      // orders of the selected month for reconciliation
+      // orders for reconciliation: all-time bucket compares ALL orders
       const all: OrderSlim[] = [];
-      for (let offset = 0; offset < 60000; offset += 1000) {
-        const { data } = await supabase
+      for (let offset = 0; offset < 200000; offset += 1000) {
+        let q = supabase
           .from("orders")
           .select("order_number, order_date, order_status, payment_method, source, city, total_order_amount")
-          .gte("order_date", `${month}T00:00:00Z`)
-          .lt("order_date", `${monthEnd}T00:00:00Z`)
           .range(offset, offset + 999);
+        if (!isAllTime) q = q.gte("order_date", `${month}T00:00:00Z`).lt("order_date", `${monthEnd}T00:00:00Z`);
+        const { data } = await q;
         const chunk = (data as OrderSlim[]) ?? [];
         all.push(...chunk);
         if (chunk.length < 1000) break;
       }
       setMonthOrders(all);
 
-      // item gaps: prefer this month's GA4 items; fall back to the all-period upload
-      let { data: items } = await supabase
+      // item gaps: this bucket's GA4 items vs actual sales in the same window
+      const { data: items } = await supabase
         .from("ga4_items")
         .select("item_name, items_purchased")
         .eq("period_month", month)
-        .limit(5000);
-      let allTime = false;
-      if (!items || !items.length) {
-        const res = await supabase.from("ga4_items").select("item_name, items_purchased").limit(10000);
-        items = res.data;
-        allTime = true;
-      }
+        .limit(8000);
       const { data: actual } = await supabase.rpc("fn_top_products", {
-        p_from: allTime ? null : `${month}T00:00:00Z`,
-        p_to: allTime ? null : `${monthEnd}T00:00:00Z`,
-        p_limit: 5000,
+        p_from: isAllTime ? null : `${month}T00:00:00Z`,
+        p_to: isAllTime ? null : `${monthEnd}T00:00:00Z`,
+        p_limit: 8000,
       });
       const actualMap = new Map<string, number>();
       for (const a of (actual as { product_name: string; quantity: number }[]) ?? []) {
