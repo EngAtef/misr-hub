@@ -17,6 +17,15 @@ const nextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      {
+        // Hosted flipbook reader: must be embeddable in an <iframe> on any
+        // site. frame-ancestors supersedes X-Frame-Options in modern browsers.
+        source: "/reader/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "ALLOWALL" },
+          { key: "Content-Security-Policy", value: "frame-ancestors *" },
+        ],
+      },
     ];
   },
 };

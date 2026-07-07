@@ -534,7 +534,7 @@ const dict = {
   studioSubtitle: { ar: "حوّل ملفات EPUB إلى PDF أو صور أو فليب-بوك، وأنشئ كود تضمين لكل كتاب على موقعك", en: "Convert EPUB to PDF / images / flipbook, and generate an embed code for each book on your site" },
   openStudio: { ar: "فتح المحوّل بملء الشاشة", en: "Open converter full screen" },
   embedTitle: { ar: "تضمين قارئ الكتاب على موقعك (iframe)", en: "Embed the book reader on your site (iframe)" },
-  embedHint: { ar: "ارفع الفليب-بوك الناتج على استضافتك ثم ضع رابطه هنا لتوليد كود التضمين — أو استخدم رابط الكتاب مباشرة", en: "Upload the exported flipbook to your hosting, paste its URL here to generate the embed code — or use the book URL directly" },
+  embedHint: { ar: "بعد توليد الفليب-بوك اضغط «Host & get embed code» داخل المحوّل — يُستضاف الكتاب تلقائياً على التطبيق ويظهر رابطه هنا. أو ضع رابط أي كتاب مستضاف يدوياً", en: "After generating a flipbook, click “Host & get embed code” inside the converter — the book is hosted on the app automatically and its link appears here. Or paste any hosted book URL manually" },
   bookUrlLabel: { ar: "رابط الكتاب أو الفليب-بوك", en: "Book / flipbook URL" },
   embedWidth: { ar: "العرض", en: "Width" },
   embedHeight: { ar: "الارتفاع", en: "Height" },

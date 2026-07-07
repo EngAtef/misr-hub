@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Maximize2, Copy, Lightbulb } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
@@ -11,6 +11,19 @@ export default function StudioPage() {
   const [w, setW] = useState("100%");
   const [h, setH] = useState("600");
   const [copied, setCopied] = useState(false);
+
+  // When the converter hosts a flipbook it posts the reader URL up to us,
+  // so the embed generator fills itself in.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === "flipbook-hosted" && typeof e.data.url === "string") {
+        setUrl(e.data.url);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   const embed = url
     ? `<iframe src="${url}" width="${w}" height="${h}" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="Nahdet Misr Book"></iframe>`

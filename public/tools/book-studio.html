@@ -321,7 +321,7 @@
 
         <div class="opt full">
           <label class="h">Output bundle</label>
-          <p class="cap">How you get the result. <b>Images + ZIP</b>: separate image files in one zip. <b>CBZ</b>: a comic/picture-book reader file. <b>Single PDF</b>: all pages in one PDF document. <b>Flipbook (HTML)</b>: one self-contained page-turning web file (images baked in, no external libraries) — host it and embed it on your site with an iframe.</p>
+          <p class="cap">How you get the result. <b>Images + ZIP</b>: separate image files in one zip. <b>CBZ</b>: a comic/picture-book reader file. <b>Single PDF</b>: all pages in one PDF document. <b>Flipbook (HTML)</b>: one self-contained page-turning web file (images baked in, no external libraries) — after generating, click <b>Host &amp; get embed code</b> and you get ready iframe code, no hosting needed.</p>
           <div class="seg" id="bundleSeg">
             <button data-bundle="images" class="on">Images + ZIP</button>
             <button data-bundle="cbz">CBZ</button>
@@ -342,10 +342,20 @@
     <div class="results" id="results">
       <div class="section-title"><h2>Output</h2>
         <div class="controls-inline">
+          <button class="btn-primary" id="hostBtn" style="display:none;padding:11px 20px;font-size:14px">🌐 Host &amp; get embed code</button>
           <button class="btn-ghost" id="downloadMain">Download</button>
         </div>
       </div>
       <div id="resultSummary" class="note"></div>
+      <div id="embedPanel" class="card" style="display:none;margin:12px 0 16px;padding:16px 18px">
+        <div style="font-weight:700">Embed on your site</div>
+        <div class="note" id="embedStatus" style="margin-top:4px"></div>
+        <pre id="embedCode" dir="ltr" style="display:none;overflow-x:auto;background:#171a21;color:#e7ebf3;border-radius:8px;padding:12px;margin:10px 0 0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
+        <div id="embedActions" style="display:none;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn-ghost" id="copyEmbedBtn">Copy embed code</button>
+          <a id="openReader" href="#" target="_blank" rel="noopener" class="linkbtn">Open hosted flipbook ↗</a>
+        </div>
+      </div>
       <div class="gallery" id="gallery"></div>
     </div>
   </div>
@@ -782,7 +792,7 @@
     const selected=orderedPages().filter(p=>p.selected);
     if(!selected.length){ showErr("Pick at least one page."); return; }
     hideErr(); busy=true; els.generate.disabled=true; els.progress.classList.add("show"); els.results.classList.remove("show");
-    outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[]; els.gallery.innerHTML="";
+    outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[]; els.gallery.innerHTML=""; resetEmbedPanel();
     try{
       const results=await exportPages(book,selected,opts,(f,t)=>setProgress(f,t));
       saveSettings();
@@ -796,6 +806,7 @@
       els.resultSummary.textContent=results.length+" page"+(results.length!==1?"s":"")+(results.length?(" · "+results[0].w+"×"+results[0].h+(opts.uniform?" each":"")):"")+(bundle==="pdf"?" · PDF downloaded":bundle==="cbz"?" · CBZ downloaded":bundle==="flipbook"?(" · flipbook downloaded ("+slug+".html)"):"");
       els.downloadMain.textContent = bundle==="pdf"?"Re-download PDF":bundle==="cbz"?"Re-download CBZ":bundle==="flipbook"?"Re-download flipbook":"Download all (ZIP)";
       setProgress(1,"Done."); els.results.classList.add("show");
+      E("hostBtn").style.display = bundle==="flipbook" ? "" : "none";
     }catch(e){ console.error(e); showErr("Generation failed: "+(e.message||e)+". Try 1× resolution or a smaller width."); }
     finally{ busy=false; els.generate.disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1400); }
   }
@@ -808,6 +819,38 @@
     if(bundle==="pdf"){ await buildPdf(results,window._slug||"book"); }
     else if(bundle==="cbz"){ await buildZip(results,window._slug||"book",".cbz"); }
     else { await buildZip(results,window._slug||"book",".zip"); } }
+
+  /* ============================ host & embed ============================ */
+  /* Uploads the generated flipbook to the app's own storage (Supabase bucket
+     via /api/flipbooks) and returns ready <iframe> embed code — the user
+     never needs external hosting. Requires being signed in to the app. */
+  function resetEmbedPanel(){ E("embedPanel").style.display="none"; E("embedCode").style.display="none"; E("embedCode").textContent=""; E("embedActions").style.display="none"; E("embedStatus").textContent=""; E("hostBtn").style.display="none"; }
+  async function hostFlipbook(){
+    if(!window._flipHtml){ showErr("Generate a flipbook first."); return; }
+    const btn=E("hostBtn"), st=E("embedStatus");
+    btn.disabled=true; E("embedPanel").style.display=""; E("embedCode").style.display="none"; E("embedActions").style.display="none";
+    try{
+      const bytes=new Blob([window._flipHtml]).size, mb=bytes/1048576;
+      if(bytes>48*1048576) throw new Error("This flipbook is "+mb.toFixed(1)+" MB — over the 50 MB hosting limit. Lower the JPEG quality or resolution and regenerate.");
+      st.textContent="Preparing upload ("+mb.toFixed(1)+" MB)…";
+      const res=await fetch("/api/flipbooks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:window._flipName||"book"})});
+      if(res.status===401) throw new Error("You need to be signed in — open Book Studio from inside NM Smart App and try again.");
+      if(!res.ok) throw new Error("Couldn't start the upload (HTTP "+res.status+").");
+      const info=await res.json();
+      st.textContent="Uploading "+mb.toFixed(1)+" MB…";
+      const up=await fetch(info.uploadUrl,{method:"PUT",headers:{"content-type":"text/html","x-upsert":"false"},body:window._flipHtml});
+      if(!up.ok) throw new Error("Upload failed (HTTP "+up.status+").");
+      const url=/^https?:/i.test(info.readerUrl)?info.readerUrl:location.origin+info.readerUrl;
+      const t=(book&&book.title?book.title:"Book").replace(/"/g,"&quot;");
+      const code='<iframe src="'+url+'" width="100%" height="600" style="border:0;border-radius:12px;max-width:100%" allowfullscreen loading="lazy" title="'+t+'"></iframe>';
+      E("embedCode").textContent=code; E("embedCode").style.display="";
+      E("openReader").href=url; E("embedActions").style.display="flex";
+      st.textContent="Hosted ✓ — paste this code into any page of your website:";
+      try{ if(window.parent!==window) window.parent.postMessage({type:"flipbook-hosted",url:url},location.origin); }catch(e){}
+    }catch(e){ st.textContent="✗ "+(e.message||e); }
+    finally{ btn.disabled=false; }
+  }
+  function copyEmbedCode(){ const c=E("embedCode").textContent; if(!c)return; navigator.clipboard.writeText(c).then(()=>{ const b=E("copyEmbedBtn"), old=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=old,1500); }).catch(()=>{}); }
 
   /* ============================ batch ============================ */
   async function runBatch(files){
@@ -941,6 +984,8 @@
   els.rangeInput.addEventListener("keydown",e=>{ if(e.key==="Enter") applyRange(); });
   els.generate.addEventListener("click",generate);
   els.downloadMain.addEventListener("click",downloadMain);
+  E("hostBtn").addEventListener("click",hostFlipbook);
+  E("copyEmbedBtn").addEventListener("click",copyEmbedCode);
   $$("#bundleSeg button").forEach(b=>b.addEventListener("click",()=>{ bundle=b.dataset.bundle; $$("#bundleSeg button").forEach(x=>x.classList.toggle("on",x===b)); updateSel(); saveSettings(); }));
   // conditional UI
   ["format","bgMode","tiles","uniform","sens"].forEach(id=>E(id).addEventListener("change",syncConditionalUI));
