@@ -176,12 +176,24 @@ export default function StudioPage() {
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{books.length}</span>
             )}
           </h3>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             {totalBytes > 0 && (
               <span className="text-xs text-slate-400">
                 {t("storageUsed")}: {fmtSize(totalBytes)}
               </span>
             )}
+            <a className="btn-secondary !px-2.5 !py-1.5 !text-xs" href="/library" target="_blank" rel="noopener noreferrer" title={t("publicLibraryHint")}>
+              <BookOpen size={13} />
+              {t("publicLibrary")}
+            </a>
+            <button
+              className="btn-secondary !px-2.5 !py-1.5 !text-xs"
+              onClick={() => copyText("library", `${window.location.origin}/library`)}
+              title={t("publicLibraryHint")}
+            >
+              <Link2 size={13} />
+              {copiedId === "library" ? t("copied") : t("copyLink")}
+            </button>
             <button className="btn-secondary !px-2.5 !py-1.5" onClick={() => loadBooks()} title={t("refresh")}>
               <RefreshCw size={14} />
             </button>

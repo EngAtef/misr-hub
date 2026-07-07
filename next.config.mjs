@@ -26,6 +26,14 @@ const nextConfig = {
           { key: "Content-Security-Policy", value: "frame-ancestors *" },
         ],
       },
+      {
+        // Public library listing — also embeddable.
+        source: "/library",
+        headers: [
+          { key: "X-Frame-Options", value: "ALLOWALL" },
+          { key: "Content-Security-Policy", value: "frame-ancestors *" },
+        ],
+      },
     ];
   },
 };

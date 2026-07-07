@@ -31,8 +31,9 @@ export async function middleware(request: NextRequest) {
   const isApi = request.nextUrl.pathname.startsWith("/api");
   const isPublicTool = request.nextUrl.pathname.startsWith("/tools/");
   const isPublicReader = request.nextUrl.pathname.startsWith("/reader/");
+  const isPublicLibrary = request.nextUrl.pathname === "/library";
 
-  if (!user && !isLoginPage && !isApi && !isPublicTool && !isPublicReader) {
+  if (!user && !isLoginPage && !isApi && !isPublicTool && !isPublicReader && !isPublicLibrary) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -549,6 +549,8 @@ const dict = {
   deleteBookConfirm: { ar: "حذف هذا الكتاب نهائياً؟ أي تضمين له على الموقع سيتوقف عن العمل.", en: "Delete this book permanently? Any embed of it on the site will stop working." },
   storageUsed: { ar: "المساحة المستخدمة", en: "Storage used" },
   qrCode: { ar: "رمز QR", en: "QR code" },
+  publicLibrary: { ar: "المكتبة العامة", en: "Public library" },
+  publicLibraryHint: { ar: "صفحة عامة تعرض كل الكتب المستضافة في رابط واحد — شاركه أو ضمّنه على الموقع", en: "A public page listing every hosted book under one link — share it or embed it on the site" },
   qrHint: { ar: "اطبعه على الغلاف أو أي إعلان مطبوع — مسحه بالموبايل يفتح الكتاب مباشرة. الملف بدقة عالية مناسبة للطباعة", en: "Print it on the cover or any printed ad — scanning it opens the book directly. High-resolution file, print-ready" },
   downloadPng: { ar: "تحميل PNG", en: "Download PNG" },
   studioIdeas: { ar: "أفكار إضافية", en: "More ideas" },
