@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface Row {
@@ -18,6 +18,22 @@ export default function ForecastPage() {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const { sort, toggle, apply } = useSort<Row>();
+
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        name: (r) => r.product_name,
+        sku: (r) => r.sku,
+        units30: (r) => r.units_30d,
+        velocity: (r) => r.velocity_per_day,
+        seasonal: (r) => r.seasonal_factor,
+        forecast: (r) => r.forecast_next_30,
+        currentStock: (r) => r.current_ecom,
+        suggestedBuy: (r) => r.suggested_buy,
+      }),
+    [rows, apply]
+  );
 
   useEffect(() => {
     supabase.rpc("fn_demand_forecast", { p_limit: 100 }).then(({ data }) => {
@@ -55,18 +71,18 @@ export default function ForecastPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("products")}</th>
-                <th>{t("sku")}</th>
-                <th>{t("fcUnits30")}</th>
-                <th>{t("fcVelocity")}</th>
-                <th>{t("fcSeasonal")}</th>
-                <th>{t("fcForecast")}</th>
-                <th>{t("fcCurrentStock")}</th>
-                <th>{t("fcSuggestedBuy")}</th>
+                <SortTh label={t("products")} k="name" sort={sort} onToggle={toggle} />
+                <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcUnits30")} k="units30" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcVelocity")} k="velocity" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcSeasonal")} k="seasonal" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcForecast")} k="forecast" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcCurrentStock")} k="currentStock" sort={sort} onToggle={toggle} />
+                <SortTh label={t("fcSuggestedBuy")} k="suggestedBuy" sort={sort} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <tr key={r.sku}>
                   <td className="!whitespace-normal max-w-xs font-medium">{r.product_name}</td>
                   <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>

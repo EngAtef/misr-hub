@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 
@@ -71,6 +71,21 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<SegmentCustomer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [registered, setRegistered] = useState<number | null>(null);
+  const { sort, toggle, apply } = useSort<SegmentCustomer>();
+
+  const sortedCustomers = useMemo(
+    () =>
+      apply(customers, {
+        name: (c) => c.customer_name,
+        phone: (c) => c.customer_phone,
+        city: (c) => c.city,
+        orders: (c) => c.orders,
+        spent: (c) => c.total_spent,
+        last: (c) => c.last_order_date,
+        recency: (c) => c.recency_days,
+      }),
+    [customers, apply]
+  );
 
   useEffect(() => {
     supabase.rpc("fn_rfm_summary").then(({ data }) => {
@@ -195,18 +210,18 @@ export default function CustomersPage() {
                   <table className="table-base">
                     <thead>
                       <tr>
-                        <th>{t("customer")}</th>
-                        <th>{t("phone")}</th>
-                        <th>{t("city")}</th>
-                        <th>{t("orders")}</th>
-                        <th>{t("totalSpent")}</th>
-                        <th>{t("lastOrder")}</th>
-                        <th>{t("recencyDays")}</th>
+                        <SortTh label={t("customer")} k="name" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("phone")} k="phone" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("city")} k="city" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("totalSpent")} k="spent" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("lastOrder")} k="last" sort={sort} onToggle={toggle} />
+                        <SortTh label={t("recencyDays")} k="recency" sort={sort} onToggle={toggle} />
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {customers.map((c) => (
+                      {sortedCustomers.map((c) => (
                         <tr key={c.customer_id}>
                           <td className="font-medium">{c.customer_name ?? c.customer_id}</td>
                           <td dir="ltr" className="text-slate-600">{c.customer_phone ?? "—"}</td>
@@ -249,6 +264,12 @@ function AllCustomersBrowser() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const PAGE = 25;
+  const { sort, toggle } = useSort<never>();
+
+  function onSort(key: string) {
+    toggle(key);
+    setPage(0);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -262,7 +283,9 @@ function AllCustomersBrowser() {
         const s = sanitizeSearch(search);
         if (s) q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
       }
-      const { data, count } = await q.order("joined_at", { ascending: false, nullsFirst: false }).range(page * PAGE, page * PAGE + PAGE - 1);
+      const { data, count } = await q
+        .order(sort?.key ?? "joined_at", { ascending: sort?.dir === "asc", nullsFirst: false })
+        .range(page * PAGE, page * PAGE + PAGE - 1);
       if (cancelled) return;
       setRows((data as typeof rows) ?? []);
       setTotal(count ?? 0);
@@ -271,7 +294,7 @@ function AllCustomersBrowser() {
     return () => {
       cancelled = true;
     };
-  }, [open, search, page, supabase]);
+  }, [open, search, page, supabase, sort]);
 
   if (!open) {
     return (
@@ -310,13 +333,13 @@ function AllCustomersBrowser() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("customer")}</th>
-                <th>{t("phone")}</th>
-                <th>{t("email")}</th>
-                <th>{t("city")}</th>
-                <th>{t("birthDate")}</th>
-                <th>{t("registeredAt")}</th>
-                <th>{t("orders")}</th>
+                <SortTh label={t("customer")} k="name" sort={sort} onToggle={onSort} />
+                <SortTh label={t("phone")} k="phone" sort={sort} onToggle={onSort} />
+                <SortTh label={t("email")} k="email" sort={sort} onToggle={onSort} />
+                <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
+                <SortTh label={t("birthDate")} k="birthdate" sort={sort} onToggle={onSort} />
+                <SortTh label={t("registeredAt")} k="joined_at" sort={sort} onToggle={onSort} />
+                <SortTh label={t("orders")} k="total_orders" sort={sort} onToggle={onSort} />
                 <th></th>
               </tr>
             </thead>
@@ -362,6 +385,22 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
   const [birthdays, setBirthdays] = useState<BirthdayRow[]>([]);
   const [loadingB, setLoadingB] = useState(true);
   const [exportingWinback, setExportingWinback] = useState(false);
+  const { sort, toggle, apply } = useSort<BirthdayRow>();
+
+  const sortedBirthdays = useMemo(
+    () =>
+      apply(birthdays, {
+        day: (b) => b.birth_day,
+        birthdate: (b) => b.birthdate,
+        name: (b) => b.name,
+        phone: (b) => b.phone,
+        city: (b) => b.city,
+        orders: (b) => b.orders,
+        spent: (b) => b.total_spent,
+        last: (b) => b.last_order,
+      }),
+    [birthdays, apply]
+  );
 
   useEffect(() => {
     supabase.rpc("fn_birthdays", { p_limit: 2000 }).then(({ data }) => {
@@ -435,19 +474,19 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("birthDay")}</th>
-                  <th>{t("birthDate")}</th>
-                  <th>{t("customer")}</th>
-                  <th>{t("phone")}</th>
-                  <th>{t("city")}</th>
-                  <th>{t("orders")}</th>
-                  <th>{t("totalSpent")}</th>
-                  <th>{t("lastOrder")}</th>
+                  <SortTh label={t("birthDay")} k="day" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("birthDate")} k="birthdate" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("customer")} k="name" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("phone")} k="phone" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("city")} k="city" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("totalSpent")} k="spent" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("lastOrder")} k="last" sort={sort} onToggle={toggle} />
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {birthdays.map((b) => (
+                {sortedBirthdays.map((b) => (
                   <tr key={b.customer_id}>
                     <td className="font-bold text-pink-600">{b.birth_day}</td>
                     <td className="text-xs text-slate-600" dir="ltr">{formatDate(b.birthdate)}</td>

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, ArrowUpDown, Clock } from "lucide-react";
+import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState, KpiCard } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
 import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface EngineRow {
@@ -56,7 +56,6 @@ const ML_META: Record<string, { key: DictKey; style: string }> = {
 };
 
 type Tab = "replenish" | "overstock" | "oos" | "lists";
-type SortKey = "units" | "velocity" | "target" | "ecom" | "sap" | "move" | "shortfall" | "surplus" | "value" | "cover";
 
 const SETTINGS_KEY = "nm-stock-engine-settings";
 
@@ -82,7 +81,7 @@ export default function StockPage() {
   const [search, setSearch] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
+  const { sort, toggle, apply } = useSort<EngineRow>();
   const [moveEdits, setMoveEdits] = useState<Record<string, string>>({});
   const [hasStockData, setHasStockData] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
@@ -194,29 +193,22 @@ export default function StockPage() {
     return list;
   }, [rows, tab, search, vendorFilter, categoryFilter, hasStockData]);
 
-  const sorted = useMemo(() => {
-    if (!sort) return filtered;
-    const get = (r: EngineRow): number => {
-      switch (sort.key) {
-        case "units": return r.units;
-        case "velocity": return r.velocity;
-        case "target": return r.target;
-        case "ecom": return r.ecom_stock ?? -1;
-        case "sap": return r.sap_stock ?? -1;
-        case "move": return effMove(r);
-        case "shortfall": return r.shortfall;
-        case "surplus": return r.surplus ?? 0;
-        case "cover": return r.cover_days ?? -1;
-        case "value": return unitValue(r) * (tab === "overstock" ? (r.surplus ?? 0) : effMove(r));
-      }
-    };
-    const dir = sort.dir === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => (get(a) - get(b)) * dir);
-  }, [filtered, sort, tab, effMove, unitValue]);
-
-  function toggleSort(key: SortKey) {
-    setSort((s) => (s?.key === key ? (s.dir === "desc" ? { key, dir: "asc" } : null) : { key, dir: "desc" }));
-  }
+  const sorted = useMemo(
+    () =>
+      apply(filtered, {
+        units: (r) => r.units,
+        velocity: (r) => r.velocity,
+        target: (r) => r.target,
+        ecom: (r) => r.ecom_stock,
+        sap: (r) => r.sap_stock,
+        move: (r) => effMove(r),
+        shortfall: (r) => r.shortfall,
+        surplus: (r) => r.surplus,
+        cover: (r) => r.cover_days,
+        value: (r) => unitValue(r) * (tab === "overstock" ? (r.surplus ?? 0) : effMove(r)),
+      }),
+    [filtered, apply, tab, effMove, unitValue]
+  );
 
   const kpis = useMemo(() => {
     const moveRows = rows.filter((r) => ["move", "low_sap"].includes(r.status));
@@ -371,13 +363,8 @@ export default function StockPage() {
     { key: "lists", labelKey: "stockTabLists", count: moveLists.filter((l) => l.status === "pending").length },
   ];
 
-  const Th = ({ labelKey, k }: { labelKey: DictKey; k: SortKey }) => (
-    <th className="cursor-pointer select-none" onClick={() => toggleSort(k)}>
-      <span className="inline-flex items-center gap-1">
-        {t(labelKey)}
-        <ArrowUpDown size={12} className={cn("opacity-40", sort?.key === k && "opacity-100 text-brand-700")} />
-      </span>
-    </th>
+  const Th = ({ labelKey, k }: { labelKey: DictKey; k: string }) => (
+    <SortTh label={t(labelKey)} k={k} sort={sort} onToggle={toggle} />
   );
 
   return (

@@ -5,7 +5,7 @@ import { Download, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
-import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, StatusBadge } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, StatusBadge, SortTh, useSort } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
 import { formatMoney, formatNumber, formatDateTime, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
 
@@ -114,9 +114,18 @@ function dayKey(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "";
 }
 
+interface FreeCityRow {
+  city: string;
+  orders: number;
+  cost: number;
+  revenue: number;
+  costPct: number;
+}
+
 function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   const { t } = useLang();
   const [threshold, setThreshold] = useState(500);
+  const { sort, toggle, apply } = useSort<FreeCityRow>();
 
   const d = useMemo(() => {
     const valid = rows.filter(notCancelled);
@@ -161,6 +170,18 @@ function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   const cityRows = Array.from(d.byCity.entries())
     .map(([city, v]) => ({ city, ...v, costPct: v.revenue > 0 ? (v.cost / v.revenue) * 100 : 0 }))
     .sort((a, b) => b.cost - a.cost);
+
+  const sortedCityRows = useMemo(
+    () =>
+      apply(cityRows, {
+        city: (r) => r.city,
+        orders: (r) => r.orders,
+        cost: (r) => r.cost,
+        revenue: (r) => r.revenue,
+        costPct: (r) => r.costPct,
+      }),
+    [cityRows, apply]
+  );
 
   const uplift = d.aovFree - d.aovPaid;
   const costPerOrder = d.free.length ? d.cost / d.free.length : 0;
@@ -246,15 +267,15 @@ function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("city")}</th>
-                <th>{t("freeDeliveryOrders")}</th>
-                <th>{t("absorbedCost")}</th>
-                <th>{t("revenue")}</th>
-                <th>{t("costPctRevenue")}</th>
+                <SortTh label={t("city")} k="city" sort={sort} onToggle={toggle} />
+                <SortTh label={t("freeDeliveryOrders")} k="orders" sort={sort} onToggle={toggle} />
+                <SortTh label={t("absorbedCost")} k="cost" sort={sort} onToggle={toggle} />
+                <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggle} />
+                <SortTh label={t("costPctRevenue")} k="costPct" sort={sort} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
-              {cityRows.map((r) => (
+              {sortedCityRows.map((r) => (
                 <tr key={r.city}>
                   <td className="font-medium">{r.city}</td>
                   <td>{formatNumber(r.orders)}</td>
@@ -271,8 +292,18 @@ function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   );
 }
 
+interface SpeedCityRow {
+  city: string;
+  delivered: number;
+  fast: number;
+  hours: number;
+  rate: number;
+  avg: number;
+}
+
 function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   const { t } = useLang();
+  const { sort, toggle, apply } = useSort<SpeedCityRow>();
 
   const d = useMemo(() => {
     const delivered = rows.filter((r) => r.order_status === "Delivered" && r.order_date && r.delivery_date);
@@ -309,6 +340,18 @@ function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
     .map(([city, v]) => ({ city, ...v, rate: v.delivered ? (v.fast / v.delivered) * 100 : 0, avg: v.delivered ? v.hours / v.delivered : 0 }))
     .sort((a, b) => b.delivered - a.delivered);
 
+  const sortedCityRows = useMemo(
+    () =>
+      apply(cityRows, {
+        city: (r) => r.city,
+        delivered: (r) => r.delivered,
+        fast: (r) => r.fast,
+        rate: (r) => r.rate,
+        avg: (r) => r.avg,
+      }),
+    [cityRows, apply]
+  );
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -326,15 +369,15 @@ function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
         <table className="table-base">
           <thead>
             <tr>
-              <th>{t("city")}</th>
-              <th>{t("deliveredTotal")}</th>
-              <th>{t("deliveredWithin24")}</th>
-              <th>{t("within24Rate")}</th>
-              <th>{t("avgDeliveryHours")}</th>
+              <SortTh label={t("city")} k="city" sort={sort} onToggle={toggle} />
+              <SortTh label={t("deliveredTotal")} k="delivered" sort={sort} onToggle={toggle} />
+              <SortTh label={t("deliveredWithin24")} k="fast" sort={sort} onToggle={toggle} />
+              <SortTh label={t("within24Rate")} k="rate" sort={sort} onToggle={toggle} />
+              <SortTh label={t("avgDeliveryHours")} k="avg" sort={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
-            {cityRows.map((r) => (
+            {sortedCityRows.map((r) => (
               <tr key={r.city}>
                 <td className="font-medium">{r.city}</td>
                 <td>{formatNumber(r.delivered)}</td>
@@ -352,8 +395,18 @@ function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   );
 }
 
+interface ReasonRow {
+  reason: string;
+  count: number;
+  lost: number;
+}
+
 function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   const { t } = useLang();
+  const { sort: sortReason, toggle: toggleReason, apply: applyReason } = useSort<ReasonRow>();
+  const { sort: sortPay, toggle: togglePay, apply: applyPay } = useSort<{ method: string; count: number }>();
+  const { sort: sortCity, toggle: toggleCity, apply: applyCity } = useSort<{ city: string; count: number }>();
+  const { sort: sortRecent, toggle: toggleRecent, apply: applyRecent } = useSort<Row>();
 
   const d = useMemo(() => {
     const cancelled = rows.filter((r) => r.order_status === "Cancelled");
@@ -383,6 +436,58 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   const reasonRows = Array.from(d.reasons.entries())
     .map(([reason, v]) => ({ reason, ...v }))
     .sort((a, b) => b.count - a.count);
+
+  const sortedReasonRows = useMemo(
+    () =>
+      applyReason(reasonRows, {
+        reason: (r) => r.reason,
+        count: (r) => r.count,
+        lost: (r) => r.lost,
+      }),
+    [reasonRows, applyReason]
+  );
+
+  const paymentRows = Array.from(d.byPayment.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([method, count]) => ({ method, count }));
+
+  const sortedPaymentRows = useMemo(
+    () =>
+      applyPay(paymentRows, {
+        method: (r) => (lang === "ar" ? (STATUS_AR[r.method] ?? r.method) : r.method),
+        count: (r) => r.count,
+      }),
+    [paymentRows, applyPay, lang]
+  );
+
+  const cityCountRows = Array.from(d.byCity.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([city, count]) => ({ city, count }));
+
+  const sortedCityCountRows = useMemo(
+    () =>
+      applyCity(cityCountRows, {
+        city: (r) => r.city,
+        count: (r) => r.count,
+      }),
+    [cityCountRows, applyCity]
+  );
+
+  const recentRows = d.cancelled.slice(0, 60);
+
+  const sortedRecentRows = useMemo(
+    () =>
+      applyRecent(recentRows, {
+        order: (r) => r.order_number,
+        date: (r) => r.order_date,
+        city: (r) => r.city,
+        amount: (r) => r.total_order_amount,
+        status: (r) => r.order_status,
+        reason: (r) => [r.cancellation_reason, r.cancellation_note].filter(Boolean).join(" — ") || null,
+      }),
+    [recentRows, applyRecent]
+  );
 
   function exportCancelled() {
     downloadCsv(
@@ -427,13 +532,13 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("reason")}</th>
-                  <th>{t("orders")}</th>
-                  <th>{t("lostRevenue")}</th>
+                  <SortTh label={t("reason")} k="reason" sort={sortReason} onToggle={toggleReason} />
+                  <SortTh label={t("orders")} k="count" sort={sortReason} onToggle={toggleReason} />
+                  <SortTh label={t("lostRevenue")} k="lost" sort={sortReason} onToggle={toggleReason} />
                 </tr>
               </thead>
               <tbody>
-                {reasonRows.map((r) => (
+                {sortedReasonRows.map((r) => (
                   <tr key={r.reason}>
                     <td className="!whitespace-normal max-w-sm">{r.reason}</td>
                     <td className="font-bold">{formatNumber(r.count)}</td>
@@ -450,15 +555,15 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("byPaymentTable")}</th>
-                  <th>{t("cancelledOrdersKpi")}</th>
+                  <SortTh label={t("byPaymentTable")} k="method" sort={sortPay} onToggle={togglePay} />
+                  <SortTh label={t("cancelledOrdersKpi")} k="count" sort={sortPay} onToggle={togglePay} />
                 </tr>
               </thead>
               <tbody>
-                {Array.from(d.byPayment.entries()).sort((a, b) => b[1] - a[1]).map(([p, n]) => (
-                  <tr key={p}>
-                    <td>{lang === "ar" ? (STATUS_AR[p] ?? p) : p}</td>
-                    <td className="font-bold">{formatNumber(n)}</td>
+                {sortedPaymentRows.map((r) => (
+                  <tr key={r.method}>
+                    <td>{lang === "ar" ? (STATUS_AR[r.method] ?? r.method) : r.method}</td>
+                    <td className="font-bold">{formatNumber(r.count)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -468,15 +573,15 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("byCityTable")}</th>
-                  <th>{t("cancelledOrdersKpi")}</th>
+                  <SortTh label={t("byCityTable")} k="city" sort={sortCity} onToggle={toggleCity} />
+                  <SortTh label={t("cancelledOrdersKpi")} k="count" sort={sortCity} onToggle={toggleCity} />
                 </tr>
               </thead>
               <tbody>
-                {Array.from(d.byCity.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([c, n]) => (
-                  <tr key={c}>
-                    <td>{c}</td>
-                    <td className="font-bold">{formatNumber(n)}</td>
+                {sortedCityCountRows.map((r) => (
+                  <tr key={r.city}>
+                    <td>{r.city}</td>
+                    <td className="font-bold">{formatNumber(r.count)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -491,16 +596,16 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("orderNumber")}</th>
-                <th>{t("date")}</th>
-                <th>{t("city")}</th>
-                <th>{t("amount")}</th>
-                <th>{t("status")}</th>
-                <th>{t("reason")}</th>
+                <SortTh label={t("orderNumber")} k="order" sort={sortRecent} onToggle={toggleRecent} />
+                <SortTh label={t("date")} k="date" sort={sortRecent} onToggle={toggleRecent} />
+                <SortTh label={t("city")} k="city" sort={sortRecent} onToggle={toggleRecent} />
+                <SortTh label={t("amount")} k="amount" sort={sortRecent} onToggle={toggleRecent} />
+                <SortTh label={t("status")} k="status" sort={sortRecent} onToggle={toggleRecent} />
+                <SortTh label={t("reason")} k="reason" sort={sortRecent} onToggle={toggleRecent} />
               </tr>
             </thead>
             <tbody>
-              {d.cancelled.slice(0, 60).map((r) => (
+              {sortedRecentRows.map((r) => (
                 <tr key={r.order_number}>
                   <td className="font-bold text-brand-700" dir="ltr">#{r.order_number}</td>
                   <td className="text-xs text-slate-500">{formatDateTime(r.order_date)}</td>

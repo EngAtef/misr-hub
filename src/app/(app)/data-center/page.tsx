@@ -5,7 +5,7 @@ import Link from "next/link";
 import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner } from "@/components/ui";
+import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
 import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
@@ -110,6 +110,19 @@ export default function DataCenterPage() {
   const [history, setHistory] = useState<UploadRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
+  const { sort, toggle, apply } = useSort<UploadRecord>();
+
+  const sortedHistory = useMemo(
+    () =>
+      apply(history, {
+        fileName: (r) => r.file_name,
+        uploadedBy: (r) => r.uploaded_by_email,
+        rows: (r) => r.processed_rows,
+        status: (r) => r.status,
+        date: (r) => r.created_at,
+      }),
+    [history, apply]
+  );
 
   const loadHistory = useCallback(async () => {
     const { data } = await supabase.from("uploads").select("*").order("created_at", { ascending: false }).limit(25);
@@ -492,15 +505,15 @@ export default function DataCenterPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("fileName")}</th>
-                <th>{t("uploadedBy")}</th>
-                <th>{t("rows")}</th>
-                <th>{t("status")}</th>
-                <th>{t("date")}</th>
+                <SortTh label={t("fileName")} k="fileName" sort={sort} onToggle={toggle} />
+                <SortTh label={t("uploadedBy")} k="uploadedBy" sort={sort} onToggle={toggle} />
+                <SortTh label={t("rows")} k="rows" sort={sort} onToggle={toggle} />
+                <SortTh label={t("status")} k="status" sort={sort} onToggle={toggle} />
+                <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
-              {history.map((h) => (
+              {sortedHistory.map((h) => (
                 <tr key={h.id}>
                   <td dir="ltr" className="font-medium">{h.file_name}</td>
                   <td className="text-slate-600">{h.uploaded_by_email ?? "—"}</td>

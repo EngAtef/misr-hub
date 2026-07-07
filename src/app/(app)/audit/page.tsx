@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner } from "@/components/ui";
+import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 
 interface AuditRow {
@@ -19,6 +19,18 @@ export default function AuditPage() {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const { sort, toggle, apply } = useSort<AuditRow>();
+
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        date: (r) => r.created_at,
+        user: (r) => r.user_email,
+        action: (r) => r.action,
+        details: (r) => (r.details ? JSON.stringify(r.details) : null),
+      }),
+    [rows, apply]
+  );
 
   useEffect(() => {
     supabase
@@ -44,14 +56,14 @@ export default function AuditPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("date")}</th>
-                <th>{t("user")}</th>
-                <th>{t("action")}</th>
-                <th>{t("details")}</th>
+                <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
+                <SortTh label={t("user")} k="user" sort={sort} onToggle={toggle} />
+                <SortTh label={t("action")} k="action" sort={sort} onToggle={toggle} />
+                <SortTh label={t("details")} k="details" sort={sort} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <tr key={r.id}>
                   <td className="text-xs text-slate-500">{formatDateTime(r.created_at)}</td>
                   <td dir="ltr">{r.user_email ?? "—"}</td>

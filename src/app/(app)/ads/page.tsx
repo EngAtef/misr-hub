@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { UploadCloud, Download, Pencil, Check, X, Info, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState, KpiCard } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { parseAdsFile } from "@/lib/import/parse-ads";
 
@@ -39,6 +39,23 @@ export default function AdsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editKeyword, setEditKeyword] = useState("");
   const [editSku, setEditSku] = useState("");
+  const { sort, toggle, apply } = useSort<AdPerf>();
+
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        adName: (r) => r.ad_name,
+        keyword: (r) => r.mapped_sku ?? r.match_keyword,
+        spend: (r) => r.spend,
+        reportedPurchases: (r) => r.reported_purchases,
+        actualOrders: (r) => r.actual_orders,
+        actualRevenue: (r) => r.actual_revenue,
+        reportedRoas: (r) => r.reported_roas,
+        actualRoas: (r) => r.actual_roas,
+        actualCr: (r) => r.actual_cr,
+      }),
+    [rows, apply]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -185,20 +202,20 @@ export default function AdsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("adName")}</th>
-                  <th>{t("matchKeyword")}</th>
-                  <th>{t("spend")}</th>
-                  <th>{t("reportedPurchases")}</th>
-                  <th>{t("actualOrders")}</th>
-                  <th>{t("actualRevenue")}</th>
-                  <th>{t("reportedRoas")}</th>
-                  <th>{t("actualRoas")}</th>
-                  <th>{t("actualCr")}</th>
+                  <SortTh label={t("adName")} k="adName" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("matchKeyword")} k="keyword" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("spend")} k="spend" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("reportedPurchases")} k="reportedPurchases" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("actualOrders")} k="actualOrders" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("actualRevenue")} k="actualRevenue" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("reportedRoas")} k="reportedRoas" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("actualRoas")} k="actualRoas" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("actualCr")} k="actualCr" sort={sort} onToggle={toggle} />
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {sortedRows.map((r) => (
                   <tr key={r.id}>
                     <td className="!whitespace-normal max-w-[180px]">
                       <div className="font-medium">{r.ad_name ?? "—"}</div>

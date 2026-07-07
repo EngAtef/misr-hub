@@ -1,7 +1,74 @@
 "use client";
 
+import { useCallback, useState } from "react";
+import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { cn, STATUS_COLORS, STATUS_AR } from "@/lib/utils";
 import { useLang } from "@/lib/i18n";
+
+// ---- Table sorting -------------------------------------------------
+export type SortState = { key: string; dir: "asc" | "desc" } | null;
+
+function sortCmp(a: unknown, b: unknown): number {
+  const aEmpty = a == null || a === "";
+  const bEmpty = b == null || b === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1;
+  if (bEmpty) return 1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  const an = Number(a), bn = Number(b);
+  if (!isNaN(an) && !isNaN(bn) && String(a).trim() !== "" && String(b).trim() !== "") return an - bn;
+  return String(a).localeCompare(String(b), "ar");
+}
+
+/**
+ * Client-side table sorting. `apply(rows, accessors)` returns the rows
+ * sorted by the active column; clicking a SortTh cycles desc → asc → off.
+ */
+export function useSort<T>() {
+  const [sort, setSort] = useState<SortState>(null);
+  const toggle = useCallback((key: string) => {
+    setSort((s) => (s?.key === key ? (s.dir === "desc" ? { key, dir: "asc" } : null) : { key, dir: "desc" }));
+  }, []);
+  const apply = useCallback(
+    (rows: T[], accessors: Record<string, (r: T) => unknown>) => {
+      if (!sort) return rows;
+      const acc = accessors[sort.key];
+      if (!acc) return rows;
+      const dir = sort.dir === "asc" ? 1 : -1;
+      return [...rows].sort((a, b) => sortCmp(acc(a), acc(b)) * dir);
+    },
+    [sort]
+  );
+  return { sort, toggle, apply, setSort };
+}
+
+export function SortTh({
+  label,
+  k,
+  sort,
+  onToggle,
+  className,
+}: {
+  label: React.ReactNode;
+  k: string;
+  sort: SortState;
+  onToggle: (key: string) => void;
+  className?: string;
+}) {
+  const active = sort?.key === k;
+  return (
+    <th className={cn("cursor-pointer select-none hover:text-brand-700", className)} onClick={() => onToggle(k)}>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        {label}
+        {active ? (
+          sort!.dir === "desc" ? <ArrowDown size={12} className="text-brand-700 shrink-0" /> : <ArrowUp size={12} className="text-brand-700 shrink-0" />
+        ) : (
+          <ArrowUpDown size={12} className="opacity-30 shrink-0" />
+        )}
+      </span>
+    </th>
+  );
+}
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   return (

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
 import { TrendChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 
@@ -37,6 +37,23 @@ function VendorScorecard() {
     supabase.rpc("fn_vendor_scorecard", { p_from: null, p_to: null }).then(({ data }) => setRows((data as ScRow[]) ?? []));
   }, [supabase]);
 
+  const { sort, toggle, apply } = useSort<ScRow>();
+  const sortedRows = useMemo(
+    () =>
+      apply(rows ?? [], {
+        vendor: (r) => r.vendor,
+        titles: (r) => r.titles,
+        units: (r) => r.units,
+        revenue: (r) => r.revenue,
+        profit: (r) => r.profit,
+        margin: (r) => r.margin_pct,
+        returnRate: (r) => r.return_rate,
+        stockouts: (r) => r.stockout_titles,
+        sellThrough: (r) => r.avg_sell_through,
+      }),
+    [rows, apply]
+  );
+
   if (rows === null) return null;
   if (!rows.length) {
     return <div className="card p-5 mb-6 text-sm text-slate-500">{t("scNoVendors")}</div>;
@@ -49,19 +66,19 @@ function VendorScorecard() {
         <table className="table-base">
           <thead>
             <tr>
-              <th>{t("selectVendor")}</th>
-              <th>{t("scTitles")}</th>
-              <th>{t("scUnits")}</th>
-              <th>{t("revenue")}</th>
-              <th>{t("grossProfit")}</th>
-              <th>{t("marginPct")}</th>
-              <th>{t("scReturnRate")}</th>
-              <th>{t("scStockouts")}</th>
-              <th>{t("scSellThrough")}</th>
+              <SortTh label={t("selectVendor")} k="vendor" sort={sort} onToggle={toggle} />
+              <SortTh label={t("scTitles")} k="titles" sort={sort} onToggle={toggle} />
+              <SortTh label={t("scUnits")} k="units" sort={sort} onToggle={toggle} />
+              <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggle} />
+              <SortTh label={t("grossProfit")} k="profit" sort={sort} onToggle={toggle} />
+              <SortTh label={t("marginPct")} k="margin" sort={sort} onToggle={toggle} />
+              <SortTh label={t("scReturnRate")} k="returnRate" sort={sort} onToggle={toggle} />
+              <SortTh label={t("scStockouts")} k="stockouts" sort={sort} onToggle={toggle} />
+              <SortTh label={t("scSellThrough")} k="sellThrough" sort={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.vendor}>
                 <td className="font-semibold">{r.vendor}</td>
                 <td>{formatNumber(r.titles)}</td>
@@ -136,6 +153,18 @@ export default function VendorsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const { sort: sortBooks, toggle: toggleBooks, apply: applyBooks } = useSort<{ product_name: string; sku: string; units: number; revenue: number }>();
+  const sortedBooks = useMemo(
+    () =>
+      applyBooks(books, {
+        name: (b) => b.product_name,
+        sku: (b) => b.sku,
+        units: (b) => b.units,
+        revenue: (b) => b.revenue,
+      }),
+    [books, applyBooks]
+  );
 
   return (
     <div>
@@ -234,14 +263,14 @@ export default function VendorsPage() {
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>{t("products")}</th>
-                      <th>{t("sku")}</th>
-                      <th>{t("vendorUnits")}</th>
-                      <th>{t("revenue")}</th>
+                      <SortTh label={t("products")} k="name" sort={sortBooks} onToggle={toggleBooks} />
+                      <SortTh label={t("sku")} k="sku" sort={sortBooks} onToggle={toggleBooks} />
+                      <SortTh label={t("vendorUnits")} k="units" sort={sortBooks} onToggle={toggleBooks} />
+                      <SortTh label={t("revenue")} k="revenue" sort={sortBooks} onToggle={toggleBooks} />
                     </tr>
                   </thead>
                   <tbody>
-                    {books.map((b, i) => (
+                    {sortedBooks.map((b, i) => (
                       <tr key={i}>
                         <td className="!whitespace-normal max-w-xs font-medium">{b.product_name}</td>
                         <td dir="ltr" className="font-mono text-xs text-slate-500">{b.sku}</td>

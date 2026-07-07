@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Download, RefreshCw, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 
@@ -59,8 +59,20 @@ export default function ReturnsPage() {
     return c;
   }, [rows]);
 
-  const filtered = filter ? rows.filter((r) => r.status === filter) : rows;
   const totalRefunded = rows.filter((r) => r.status === "refunded").reduce((s, r) => s + (r.amount ?? 0), 0);
+  const { sort, toggle, apply } = useSort<Ret>();
+  const sorted = useMemo(
+    () =>
+      apply(filter ? rows.filter((r) => r.status === filter) : rows, {
+        order: (r) => r.order_number,
+        customer: (r) => r.customer_name,
+        reason: (r) => r.reason,
+        amount: (r) => r.amount,
+        date: (r) => r.created_at,
+        status: (r) => r.status,
+      }),
+    [rows, filter, apply]
+  );
 
   return (
     <div>
@@ -98,24 +110,24 @@ export default function ReturnsPage() {
 
       {loading ? (
         <Spinner />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <EmptyState message={t("noResults")} />
       ) : (
         <div className="card overflow-x-auto">
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("orderNumber")}</th>
-                <th>{t("customer")}</th>
-                <th>{t("reason")}</th>
-                <th>{t("amount")}</th>
-                <th>{t("date")}</th>
-                <th>{t("status")}</th>
+                <SortTh label={t("orderNumber")} k="order" sort={sort} onToggle={toggle} />
+                <SortTh label={t("customer")} k="customer" sort={sort} onToggle={toggle} />
+                <SortTh label={t("reason")} k="reason" sort={sort} onToggle={toggle} />
+                <SortTh label={t("amount")} k="amount" sort={sort} onToggle={toggle} />
+                <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
+                <SortTh label={t("status")} k="status" sort={sort} onToggle={toggle} />
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
+              {sorted.map((r) => {
                 const nextIdx = FLOW.indexOf(r.status);
                 const next = nextIdx >= 0 && nextIdx < FLOW.length - 1 ? FLOW[nextIdx + 1] : null;
                 return (

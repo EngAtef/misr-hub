@@ -5,7 +5,7 @@ import { Megaphone, TrendingUp, Package, Share2, Truck, AlertTriangle } from "lu
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, StatusBadge, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, StatusBadge, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, formatPercent, cn } from "@/lib/utils";
 import { type FollowUpReason } from "@/lib/whatsapp";
 import { ContactActions } from "@/components/contact-actions";
@@ -235,6 +235,21 @@ export default function InsightsPage() {
     return out;
   }, [kpis.data, customers.data, byCity.data, bySource.data, byPromo.data, topProducts.data]);
 
+  const { sort: sortAtt, toggle: toggleAtt, apply: applyAtt } = useSort<AttentionOrder>();
+  const sortedAttention = useMemo(
+    () =>
+      applyAtt(attention.data ?? [], {
+        order: (o) => o.order_number,
+        customer: (o) => o.customer_name,
+        city: (o) => o.city,
+        status: (o) => o.order_status,
+        amount: (o) => o.total_order_amount,
+        daysOpen: (o) => o.days_open,
+        reason: (o) => o.reason,
+      }),
+    [attention.data, applyAtt]
+  );
+
   const loading = kpis.loading || byCity.loading || customers.loading;
 
   return (
@@ -304,18 +319,18 @@ export default function InsightsPage() {
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>{t("orderNumber")}</th>
-                      <th>{t("customer")}</th>
-                      <th>{t("city")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("amount")}</th>
-                      <th>{t("daysOpen")}</th>
-                      <th>{t("reason")}</th>
+                      <SortTh label={t("orderNumber")} k="order" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("customer")} k="customer" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("city")} k="city" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("status")} k="status" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("amount")} k="amount" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("daysOpen")} k="daysOpen" sort={sortAtt} onToggle={toggleAtt} />
+                      <SortTh label={t("reason")} k="reason" sort={sortAtt} onToggle={toggleAtt} />
                       <th>{t("whatsappFollowUp")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(attention.data ?? []).map((o) => (
+                    {sortedAttention.map((o) => (
                       <tr key={o.order_number}>
                         <td className="font-bold text-brand-700" dir="ltr">#{o.order_number}</td>
                         <td>

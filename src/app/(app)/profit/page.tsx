@@ -5,7 +5,7 @@ import { Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
 import { TrendChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 
@@ -116,6 +116,17 @@ export default function ProfitPage() {
 function BookTable({ title, rows, icon }: { title: string; rows: BookRow[]; icon: "up" | "down" }) {
   const { t, lang } = useLang();
   const Icon = icon === "up" ? TrendingUp : TrendingDown;
+  const { sort, toggle, apply } = useSort<BookRow>();
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        name: (b) => b.product_name,
+        units: (b) => b.units,
+        profit: (b) => b.profit,
+        margin: (b) => b.margin_pct,
+      }),
+    [rows, apply]
+  );
   return (
     <div>
       <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
@@ -126,14 +137,14 @@ function BookTable({ title, rows, icon }: { title: string; rows: BookRow[]; icon
         <table className="table-base">
           <thead>
             <tr>
-              <th>{t("products")}</th>
-              <th>{t("vendorUnits")}</th>
-              <th>{t("grossProfit")}</th>
-              <th>{t("marginPct")}</th>
+              <SortTh label={t("products")} k="name" sort={sort} onToggle={toggle} />
+              <SortTh label={t("vendorUnits")} k="units" sort={sort} onToggle={toggle} />
+              <SortTh label={t("grossProfit")} k="profit" sort={sort} onToggle={toggle} />
+              <SortTh label={t("marginPct")} k="margin" sort={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((b, i) => (
+            {sortedRows.map((b, i) => (
               <tr key={i}>
                 <td className="!whitespace-normal max-w-xs font-medium">{b.product_name}</td>
                 <td>{formatNumber(b.units)}</td>

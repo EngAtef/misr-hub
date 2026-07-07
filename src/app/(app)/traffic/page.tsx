@@ -5,7 +5,7 @@ import Link from "next/link";
 import { UploadCloud, TrendingDown, TrendingUp, Radar, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge } from "@/components/ui";
+import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort } from "@/components/ui";
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
@@ -193,6 +193,56 @@ export default function TrafficPage() {
     };
   }, [txMap, monthOrders]);
 
+  const { sort: sortPay, toggle: togglePay, apply: applyPay } = useSort<{ payment_method: string; untracked: number; total: number }>();
+  const sortedByPayment = useMemo(
+    () =>
+      applyPay(tracking?.byPayment ?? [], {
+        method: (p) => p.payment_method,
+        untracked: (p) => p.untracked,
+        total: (p) => p.total,
+        pct: (p) => (p.total > 0 ? p.untracked / p.total : 0),
+      }),
+    [tracking, applyPay]
+  );
+
+  const { sort: sortUn, toggle: toggleUn, apply: applyUn } = useSort<OrderSlim>();
+  const sortedUntracked = useMemo(
+    () =>
+      applyUn(tracking?.untracked ?? [], {
+        order: (o) => o.order_number,
+        method: (o) => o.payment_method,
+        amount: (o) => o.total_order_amount,
+        status: (o) => o.order_status,
+      }),
+    [tracking, applyUn]
+  );
+
+  const { sort: sortGap, toggle: toggleGap, apply: applyGap } = useSort<ItemGap>();
+  const sortedGaps = useMemo(
+    () =>
+      applyGap(itemGaps, {
+        name: (g) => g.item_name,
+        ga4: (g) => g.ga4_purchased,
+        actual: (g) => g.actual_units,
+        gap: (g) => g.gap,
+      }),
+    [itemGaps, applyGap]
+  );
+
+  const { sort: sortPg, toggle: togglePg, apply: applyPg } = useSort<PageRow>();
+  const sortedPages = useMemo(
+    () =>
+      applyPg(pages, {
+        path: (p) => p.page_path,
+        views: (p) => p.views,
+        users: (p) => p.active_users,
+        atc: (p) => p.add_to_carts ?? 0,
+        atcRate: (p) => (p.views > 0 ? (p.add_to_carts ?? 0) / p.views : 0),
+        bounce: (p) => p.bounce_rate ?? 0,
+      }),
+    [pages, applyPg]
+  );
+
   if (loading) return <div><PageHeader title={t("traffic")} /><Spinner /></div>;
 
   if (!months.length) {
@@ -287,14 +337,14 @@ export default function TrafficPage() {
                       <table className="table-base">
                         <thead>
                           <tr>
-                            <th>{t("paymentMethod")}</th>
-                            <th>{t("untrackedOrders")}</th>
-                            <th>{t("of")}</th>
-                            <th>%</th>
+                            <SortTh label={t("paymentMethod")} k="method" sort={sortPay} onToggle={togglePay} />
+                            <SortTh label={t("untrackedOrders")} k="untracked" sort={sortPay} onToggle={togglePay} />
+                            <SortTh label={t("of")} k="total" sort={sortPay} onToggle={togglePay} />
+                            <SortTh label="%" k="pct" sort={sortPay} onToggle={togglePay} />
                           </tr>
                         </thead>
                         <tbody>
-                          {tracking.byPayment.map((p) => {
+                          {sortedByPayment.map((p) => {
                             const pct = p.total > 0 ? (p.untracked / p.total) * 100 : 0;
                             return (
                               <tr key={p.payment_method}>
@@ -332,14 +382,14 @@ export default function TrafficPage() {
                       <table className="table-base">
                         <thead>
                           <tr>
-                            <th>{t("orderNumber")}</th>
-                            <th>{t("paymentMethod")}</th>
-                            <th>{t("amount")}</th>
-                            <th>{t("status")}</th>
+                            <SortTh label={t("orderNumber")} k="order" sort={sortUn} onToggle={toggleUn} />
+                            <SortTh label={t("paymentMethod")} k="method" sort={sortUn} onToggle={toggleUn} />
+                            <SortTh label={t("amount")} k="amount" sort={sortUn} onToggle={toggleUn} />
+                            <SortTh label={t("status")} k="status" sort={sortUn} onToggle={toggleUn} />
                           </tr>
                         </thead>
                         <tbody>
-                          {tracking.untracked.slice(0, 50).map((o) => (
+                          {sortedUntracked.slice(0, 50).map((o) => (
                             <tr key={o.order_number}>
                               <td className="font-bold text-brand-700" dir="ltr">#{o.order_number}</td>
                               <td className="text-xs">{lang === "ar" ? (STATUS_AR[o.payment_method ?? ""] ?? o.payment_method) : o.payment_method}</td>
@@ -360,14 +410,14 @@ export default function TrafficPage() {
                       <table className="table-base">
                         <thead>
                           <tr>
-                            <th>{t("products")}</th>
-                            <th>{t("ga4Purchased")}</th>
-                            <th>{t("actualSold")}</th>
-                            <th>{t("gap")}</th>
+                            <SortTh label={t("products")} k="name" sort={sortGap} onToggle={toggleGap} />
+                            <SortTh label={t("ga4Purchased")} k="ga4" sort={sortGap} onToggle={toggleGap} />
+                            <SortTh label={t("actualSold")} k="actual" sort={sortGap} onToggle={toggleGap} />
+                            <SortTh label={t("gap")} k="gap" sort={sortGap} onToggle={toggleGap} />
                           </tr>
                         </thead>
                         <tbody>
-                          {itemGaps.map((g, i) => (
+                          {sortedGaps.map((g, i) => (
                             <tr key={i}>
                               <td className="!whitespace-normal max-w-md font-medium">{g.item_name}</td>
                               <td>{formatNumber(g.ga4_purchased)}</td>
@@ -411,16 +461,16 @@ export default function TrafficPage() {
               <table className="table-base">
                 <thead>
                   <tr>
-                    <th>{t("pagePath")}</th>
-                    <th>{t("views")}</th>
-                    <th>{t("activeUsers")}</th>
-                    <th>{t("addToCarts")}</th>
-                    <th>{t("atcRate")}</th>
-                    <th>{t("bounceRate")}</th>
+                    <SortTh label={t("pagePath")} k="path" sort={sortPg} onToggle={togglePg} />
+                    <SortTh label={t("views")} k="views" sort={sortPg} onToggle={togglePg} />
+                    <SortTh label={t("activeUsers")} k="users" sort={sortPg} onToggle={togglePg} />
+                    <SortTh label={t("addToCarts")} k="atc" sort={sortPg} onToggle={togglePg} />
+                    <SortTh label={t("atcRate")} k="atcRate" sort={sortPg} onToggle={togglePg} />
+                    <SortTh label={t("bounceRate")} k="bounce" sort={sortPg} onToggle={togglePg} />
                   </tr>
                 </thead>
                 <tbody>
-                  {pages.map((p) => {
+                  {sortedPages.map((p) => {
                     const atcRate = p.views > 0 ? (p.add_to_carts ?? 0) / p.views : 0;
                     const bounce = p.bounce_rate ?? 0;
                     return (
@@ -450,8 +500,53 @@ export default function TrafficPage() {
 
 interface FunnelRow { dimension: string; label: string; orders: number; delivered: number; cancelled: number; delivered_rate: number; aov: number; }
 
-function FunnelBreakdown({ month }: { month: string | null }) {
+function FunnelTable({ title, data }: { title: string; data: FunnelRow[] }) {
   const { t, lang } = useLang();
+  const { sort, toggle, apply } = useSort<FunnelRow>();
+  const sortedData = useMemo(
+    () =>
+      apply(data, {
+        label: (r) => r.label,
+        orders: (r) => r.orders,
+        delivered: (r) => r.delivered,
+        rate: (r) => r.delivered_rate,
+        aov: (r) => r.aov,
+      }),
+    [data, apply]
+  );
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-bold uppercase text-slate-500">{title}</h4>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="table-base">
+          <thead>
+            <tr>
+              <SortTh label={title} k="label" sort={sort} onToggle={toggle} />
+              <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggle} />
+              <SortTh label={t("delivered")} k="delivered" sort={sort} onToggle={toggle} />
+              <SortTh label={t("deliveryRate")} k="rate" sort={sort} onToggle={toggle} />
+              <SortTh label={t("avgOrderValue")} k="aov" sort={sort} onToggle={toggle} />
+            </tr>
+          </thead>
+          <tbody>
+            {sortedData.map((r) => (
+              <tr key={r.label}>
+                <td className="font-medium">{lang === "ar" ? (STATUS_AR[r.label] ?? r.label) : r.label}</td>
+                <td className="font-semibold">{formatNumber(r.orders)}</td>
+                <td>{formatNumber(r.delivered)}</td>
+                <td className={cn("font-bold", r.delivered_rate < 40 ? "text-red-600" : r.delivered_rate < 70 ? "text-amber-600" : "text-emerald-600")}>{r.delivered_rate}%</td>
+                <td>{formatMoney(r.aov, lang)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FunnelBreakdown({ month }: { month: string | null }) {
+  const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<FunnelRow[]>([]);
 
@@ -468,35 +563,13 @@ function FunnelBreakdown({ month }: { month: string | null }) {
   const pay = rows.filter((r) => r.dimension === "payment_method");
   const src = rows.filter((r) => r.dimension === "source");
 
-  const Table = ({ title, data }: { title: string; data: FunnelRow[] }) => (
-    <div>
-      <h4 className="mb-2 text-xs font-bold uppercase text-slate-500">{title}</h4>
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="table-base">
-          <thead><tr><th>{title}</th><th>{t("orders")}</th><th>{t("delivered")}</th><th>{t("deliveryRate")}</th><th>{t("avgOrderValue")}</th></tr></thead>
-          <tbody>
-            {data.map((r) => (
-              <tr key={r.label}>
-                <td className="font-medium">{lang === "ar" ? (STATUS_AR[r.label] ?? r.label) : r.label}</td>
-                <td className="font-semibold">{formatNumber(r.orders)}</td>
-                <td>{formatNumber(r.delivered)}</td>
-                <td className={cn("font-bold", r.delivered_rate < 40 ? "text-red-600" : r.delivered_rate < 70 ? "text-amber-600" : "text-emerald-600")}>{r.delivered_rate}%</td>
-                <td>{formatMoney(r.aov, lang)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
   return (
     <div className="card p-5">
       <h3 className="mb-1 text-sm font-bold text-slate-700">{t("funnelDrill")}</h3>
       <p className="mb-4 text-xs text-slate-500">{t("funnelDrillHint")}</p>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Table title={t("byPayment")} data={pay} />
-        <Table title={t("bySource")} data={src} />
+        <FunnelTable title={t("byPayment")} data={pay} />
+        <FunnelTable title={t("bySource")} data={src} />
       </div>
     </div>
   );

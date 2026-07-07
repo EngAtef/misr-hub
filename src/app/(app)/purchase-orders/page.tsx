@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Plus, X, Download, Send, PackageCheck, FileText, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface PO {
@@ -112,23 +112,7 @@ export default function PurchaseOrdersPage() {
                     <button className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => remove(po)}><Trash2 size={15} /></button>
                   </div>
                 </div>
-                {its.length > 0 && (
-                  <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 max-h-64 overflow-y-auto">
-                    <table className="table-base">
-                      <thead><tr><th>{t("sku")}</th><th>{t("products")}</th><th>{t("qty")}</th><th>{t("unitCost")}</th></tr></thead>
-                      <tbody>
-                        {its.map((i) => (
-                          <tr key={i.sku}>
-                            <td dir="ltr" className="font-mono text-xs">{i.sku}</td>
-                            <td className="!whitespace-normal max-w-md">{i.product_name}</td>
-                            <td className="font-semibold">{formatNumber(i.qty)}</td>
-                            <td>{i.unit_cost != null ? formatMoney(i.unit_cost, lang) : "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                {its.length > 0 && <PoItemsTable items={its} />}
               </div>
             );
           })}
@@ -136,6 +120,45 @@ export default function PurchaseOrdersPage() {
       )}
 
       {creating && <CreatePoModal onClose={() => setCreating(false)} onCreated={load} />}
+    </div>
+  );
+}
+
+function PoItemsTable({ items }: { items: POItem[] }) {
+  const { t, lang } = useLang();
+  const { sort, toggle, apply } = useSort<POItem>();
+  const sortedItems = useMemo(
+    () =>
+      apply(items, {
+        sku: (i) => i.sku,
+        name: (i) => i.product_name,
+        qty: (i) => i.qty,
+        cost: (i) => i.unit_cost,
+      }),
+    [items, apply]
+  );
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 max-h-64 overflow-y-auto">
+      <table className="table-base">
+        <thead>
+          <tr>
+            <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggle} />
+            <SortTh label={t("products")} k="name" sort={sort} onToggle={toggle} />
+            <SortTh label={t("qty")} k="qty" sort={sort} onToggle={toggle} />
+            <SortTh label={t("unitCost")} k="cost" sort={sort} onToggle={toggle} />
+          </tr>
+        </thead>
+        <tbody>
+          {sortedItems.map((i) => (
+            <tr key={i.sku}>
+              <td dir="ltr" className="font-mono text-xs">{i.sku}</td>
+              <td className="!whitespace-normal max-w-md">{i.product_name}</td>
+              <td className="font-semibold">{formatNumber(i.qty)}</td>
+              <td>{i.unit_cost != null ? formatMoney(i.unit_cost, lang) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -178,6 +201,18 @@ function CreatePoModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   }, [rows, vendor]);
 
   const effQty = (r: EngineRow) => qtyEdits[r.sku] ?? Math.max(Math.round(r.shortfall || r.move_qty || 0), 0);
+
+  const { sort, toggle, apply } = useSort<EngineRow>();
+  const sortedVendorRows = useMemo(
+    () =>
+      apply(vendorRows, {
+        sku: (r) => r.sku,
+        name: (r) => r.product_name,
+        cost: (r) => r.cost,
+        qty: (r) => qtyEdits[r.sku] ?? Math.max(Math.round(r.shortfall || r.move_qty || 0), 0),
+      }),
+    [vendorRows, apply, qtyEdits]
+  );
 
   async function save() {
     if (!vendor || !vendorRows.length) return;
@@ -226,9 +261,16 @@ function CreatePoModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             {vendor && (
               <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-80 overflow-y-auto mb-4">
                 <table className="table-base">
-                  <thead><tr><th>{t("sku")}</th><th>{t("products")}</th><th>{t("unitCost")}</th><th>{t("qty")}</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggle} />
+                      <SortTh label={t("products")} k="name" sort={sort} onToggle={toggle} />
+                      <SortTh label={t("unitCost")} k="cost" sort={sort} onToggle={toggle} />
+                      <SortTh label={t("qty")} k="qty" sort={sort} onToggle={toggle} />
+                    </tr>
+                  </thead>
                   <tbody>
-                    {vendorRows.map((r) => (
+                    {sortedVendorRows.map((r) => (
                       <tr key={r.sku}>
                         <td dir="ltr" className="font-mono text-xs">{r.sku}</td>
                         <td className="!whitespace-normal max-w-sm">{r.product_name}</td>

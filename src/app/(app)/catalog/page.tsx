@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { UploadCloud, Download, BookOpen, CheckCircle2, Warehouse } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner } from "@/components/ui";
+import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { parseCatalogFile, parseCatalogHtml, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
 
@@ -197,6 +197,7 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
   const supabase = useMemo(() => createClient(), []);
   const [sapRows, setSapRows] = useState<{ sku: string; product_name: string | null; sap_stock: number | null }[] | null>(null);
   const [siteNames, setSiteNames] = useState<Set<string> | null>(null);
+  const { sort, toggle, apply } = useSort<{ sku: string; product_name: string | null; sap_stock: number | null }>();
 
   useEffect(() => {
     (async () => {
@@ -236,6 +237,18 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
     });
     return { total: sapRows.length, missing, matched: sapRows.length - missing.length };
   }, [sapRows, siteNames, catalogBooks]);
+
+  const sortedMissing = useMemo(
+    () =>
+      result
+        ? apply(result.missing, {
+            sku: (r) => r.sku,
+            name: (r) => r.product_name,
+            sapQty: (r) => r.sap_stock,
+          })
+        : [],
+    [result, apply]
+  );
 
   if (sapRows !== null && sapRows.length === 0) {
     return (
@@ -290,13 +303,13 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>{t("sku")}</th>
-                  <th>{t("fldName")}</th>
-                  <th>{t("sapQty")}</th>
+                  <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("fldName")} k="name" sort={sort} onToggle={toggle} />
+                  <SortTh label={t("sapQty")} k="sapQty" sort={sort} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {result.missing.slice(0, 200).map((r) => (
+                {sortedMissing.slice(0, 200).map((r) => (
                   <tr key={r.sku}>
                     <td dir="ltr" className="font-mono text-xs">{r.sku}</td>
                     <td className="!whitespace-normal max-w-md font-medium">{r.product_name ?? "—"}</td>
@@ -360,6 +373,17 @@ export default function CatalogPage() {
     if (!filterField) return books.filter((b) => CATALOG_FIELDS.some((f) => !b[f]));
     return books.filter((b) => !b[filterField]);
   }, [books, filterField]);
+
+  const { sort, toggle, apply } = useSort<CatalogBook>();
+  const sortedFiltered = useMemo(
+    () =>
+      apply(filtered, {
+        sku: (b) => b.sku,
+        name: (b) => b.name,
+        missing: (b) => CATALOG_FIELDS.filter((f) => !b[f]).length,
+      }),
+    [filtered, apply]
+  );
 
   function exportMissing() {
     if (!filtered.length) return;
@@ -481,13 +505,13 @@ export default function CatalogPage() {
               <table className="table-base">
                 <thead>
                   <tr>
-                    <th>{t("sku")}</th>
-                    <th>{t("fldName")}</th>
-                    <th>{t("missingCount")}</th>
+                    <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggle} />
+                    <SortTh label={t("fldName")} k="name" sort={sort} onToggle={toggle} />
+                    <SortTh label={t("missingCount")} k="missing" sort={sort} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.slice(0, 300).map((b) => (
+                  {sortedFiltered.slice(0, 300).map((b) => (
                     <tr key={b.sku}>
                       <td dir="ltr" className="font-mono text-xs">{b.sku}</td>
                       <td className="!whitespace-normal max-w-sm font-medium">{b.name ?? <span className="text-red-500">—</span>}</td>

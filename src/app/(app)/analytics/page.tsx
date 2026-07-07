@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, ChartCard, KpiCard, Spinner } from "@/components/ui";
+import { PageHeader, ChartCard, KpiCard, Spinner, SortTh, useSort } from "@/components/ui";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, formatPercent, formatDateTime, cn } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
@@ -253,6 +253,17 @@ function ProductsTab({ range }: RangeProp) {
   const top = useRpc<{ product_name: string; sku: string; quantity: number; revenue: number }[]>(
     "fn_top_products", { ...params, p_limit: 30 }, deps
   );
+  const { sort, toggle, apply } = useSort<{ product_name: string; sku: string; quantity: number; revenue: number }>();
+  const sortedRows = useMemo(
+    () =>
+      apply(top.data ?? [], {
+        name: (r) => r.product_name,
+        sku: (r) => r.sku,
+        quantity: (r) => r.quantity,
+        revenue: (r) => r.revenue,
+      }),
+    [top.data, apply]
+  );
 
   if (top.loading) return <Spinner />;
   const rows = top.data ?? [];
@@ -276,14 +287,14 @@ function ProductsTab({ range }: RangeProp) {
           <thead>
             <tr>
               <th>#</th>
-              <th>{t("products")}</th>
-              <th>SKU</th>
-              <th>{t("quantity")}</th>
-              <th>{t("revenue")}</th>
+              <SortTh label={t("products")} k="name" sort={sort} onToggle={toggle} />
+              <SortTh label="SKU" k="sku" sort={sort} onToggle={toggle} />
+              <SortTh label={t("quantity")} k="quantity" sort={sort} onToggle={toggle} />
+              <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
+            {sortedRows.map((r, i) => (
               <tr key={i}>
                 <td className="text-slate-400">{i + 1}</td>
                 <td className="!whitespace-normal max-w-md">{r.product_name}</td>
@@ -347,6 +358,17 @@ function TeamTab({ range }: RangeProp) {
   const team = useRpc<{ admin_name: string; actions: number; orders_touched: number; last_action: string }[]>(
     "fn_team_activity", { ...params, p_limit: 40 }, deps
   );
+  const { sort, toggle, apply } = useSort<{ admin_name: string; actions: number; orders_touched: number; last_action: string }>();
+  const sortedRows = useMemo(
+    () =>
+      apply(team.data ?? [], {
+        user: (r) => r.admin_name,
+        actions: (r) => r.actions,
+        orders: (r) => r.orders_touched,
+        date: (r) => r.last_action,
+      }),
+    [team.data, apply]
+  );
 
   if (team.loading) return <Spinner />;
   const rows = team.data ?? [];
@@ -369,14 +391,14 @@ function TeamTab({ range }: RangeProp) {
         <table className="table-base">
           <thead>
             <tr>
-              <th>{t("user")}</th>
-              <th>{t("action")}</th>
-              <th>{t("orders")}</th>
-              <th>{t("date")}</th>
+              <SortTh label={t("user")} k="user" sort={sort} onToggle={toggle} />
+              <SortTh label={t("action")} k="actions" sort={sort} onToggle={toggle} />
+              <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggle} />
+              <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
+            {sortedRows.map((r, i) => (
               <tr key={i}>
                 <td className="font-semibold">{r.admin_name}</td>
                 <td>{formatNumber(r.actions)}</td>
@@ -393,20 +415,32 @@ function TeamTab({ range }: RangeProp) {
 
 function BreakdownTable({ rows, compact }: { rows: BreakdownRow[]; compact?: boolean }) {
   const { t, lang } = useLang();
+  const { sort, toggle, apply } = useSort<BreakdownRow>();
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        label: (r) => r.label,
+        orders: (r) => r.orders,
+        revenue: (r) => r.revenue,
+        delivered: (r) => r.delivered,
+        cancelled: (r) => r.cancelled_or_returned,
+      }),
+    [rows, apply]
+  );
   return (
     <div className={cn("overflow-x-auto", !compact && "card")}>
       <table className="table-base">
         <thead>
           <tr>
-            <th>{t("details")}</th>
-            <th>{t("orders")}</th>
-            <th>{t("revenue")}</th>
-            <th>{t("delivered")}</th>
-            <th>{t("returned")} / {t("cancelled")}</th>
+            <SortTh label={t("details")} k="label" sort={sort} onToggle={toggle} />
+            <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggle} />
+            <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggle} />
+            <SortTh label={t("delivered")} k="delivered" sort={sort} onToggle={toggle} />
+            <SortTh label={<>{t("returned")} / {t("cancelled")}</>} k="cancelled" sort={sort} onToggle={toggle} />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {sortedRows.map((r, i) => (
             <tr key={i}>
               <td className="font-semibold">{r.label}</td>
               <td>{formatNumber(r.orders)}</td>

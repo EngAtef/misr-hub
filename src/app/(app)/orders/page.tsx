@@ -5,7 +5,7 @@ import { Search, Download, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
-import { PageHeader, StatusBadge, Spinner } from "@/components/ui";
+import { PageHeader, StatusBadge, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
@@ -28,6 +28,7 @@ export default function OrdersPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Order | null>(null);
+  const { sort, toggle } = useSort<Order>();
   const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[] }>({
     statuses: [],
     payments: [],
@@ -72,13 +73,14 @@ export default function OrdersPage() {
         );
       }
     }
+    // sorting happens in the database so it covers all pages, not just the visible one
     const { data, count } = await query
-      .order("order_date", { ascending: false, nullsFirst: false })
+      .order(sort?.key ?? "order_date", { ascending: sort?.dir === "asc", nullsFirst: false })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
     setRows((data as Order[]) ?? []);
     setTotal(count ?? 0);
     setLoading(false);
-  }, [supabase, range.from, range.to, status, payment, city, source, search, page]);
+  }, [supabase, range.from, range.to, status, payment, city, source, search, page, sort]);
 
   useEffect(() => {
     fetchOrders();
@@ -105,6 +107,11 @@ export default function OrdersPage() {
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function onSort(key: string) {
+    toggle(key);
+    setPage(0);
+  }
 
   function exportCsv() {
     const params = new URLSearchParams();
@@ -180,14 +187,14 @@ export default function OrdersPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("orderNumber")}</th>
-                <th>{t("orderDate")}</th>
-                <th>{t("customer")}</th>
-                <th>{t("city")}</th>
-                <th>{t("status")}</th>
-                <th>{t("paymentMethod")}</th>
-                <th>{t("amount")}</th>
-                <th>{t("itemsCount")}</th>
+                <SortTh label={t("orderNumber")} k="order_number" sort={sort} onToggle={onSort} />
+                <SortTh label={t("orderDate")} k="order_date" sort={sort} onToggle={onSort} />
+                <SortTh label={t("customer")} k="customer_name" sort={sort} onToggle={onSort} />
+                <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
+                <SortTh label={t("status")} k="order_status" sort={sort} onToggle={onSort} />
+                <SortTh label={t("paymentMethod")} k="payment_method" sort={sort} onToggle={onSort} />
+                <SortTh label={t("amount")} k="total_order_amount" sort={sort} onToggle={onSort} />
+                <SortTh label={t("itemsCount")} k="items_count" sort={sort} onToggle={onSort} />
               </tr>
             </thead>
             <tbody>

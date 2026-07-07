@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { UserPlus, X, Pencil, Trash2, Crown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { PageHeader, Spinner } from "@/components/ui";
+import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 
@@ -55,6 +55,19 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<ProfileRow | null>(null);
   const [error, setError] = useState("");
+  const { sort, toggle, apply } = useSort<ProfileRow>();
+
+  const sortedUsers = useMemo(
+    () =>
+      apply(users, {
+        name: (r) => r.full_name,
+        email: (r) => r.email,
+        role: (r) => r.role,
+        status: (r) => (r.is_active ? 1 : 0),
+        date: (r) => r.created_at,
+      }),
+    [users, apply]
+  );
 
   const load = useCallback(async () => {
     const { data } = await supabase.from("profiles").select("*").order("created_at");
@@ -97,16 +110,16 @@ export default function UsersPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>{t("fullName")}</th>
-                <th>{t("email")}</th>
-                <th>{t("role")}</th>
-                <th>{t("status")}</th>
-                <th>{t("date")}</th>
+                <SortTh label={t("fullName")} k="name" sort={sort} onToggle={toggle} />
+                <SortTh label={t("email")} k="email" sort={sort} onToggle={toggle} />
+                <SortTh label={t("role")} k="role" sort={sort} onToggle={toggle} />
+                <SortTh label={t("status")} k="status" sort={sort} onToggle={toggle} />
+                <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {sortedUsers.map((u) => (
                 <tr key={u.id}>
                   <td className="font-semibold">
                     <span className="inline-flex items-center gap-2">

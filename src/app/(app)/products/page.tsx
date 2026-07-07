@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface ProductRow {
@@ -27,6 +27,19 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const { sort, toggle: toggleSort, apply } = useSort<ProductRow>();
+
+  const sortedRows = useMemo(
+    () =>
+      apply(rows, {
+        name: (r) => r.product_name,
+        sku: (r) => r.sku,
+        units: (r) => r.units,
+        orders: (r) => r.orders,
+        revenue: (r) => r.revenue,
+      }),
+    [rows, apply]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,16 +132,16 @@ export default function ProductsPage() {
             <thead>
               <tr>
                 <th className="w-10">{t("selectForList")}</th>
-                <th>{t("products")}</th>
-                <th>{t("sku")}</th>
-                <th>{t("units")}</th>
-                <th>{t("orders")}</th>
-                <th>{t("revenue")}</th>
+                <SortTh label={t("products")} k="name" sort={sort} onToggle={toggleSort} />
+                <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggleSort} />
+                <SortTh label={t("units")} k="units" sort={sort} onToggle={toggleSort} />
+                <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggleSort} />
+                <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggleSort} />
                 <th>{t("buyers")}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <tr key={r.sku}>
                   <td>
                     <input

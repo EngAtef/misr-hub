@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { toCsv, downloadCsv, formatNumber, cn } from "@/lib/utils";
 
 interface ReportDef {
@@ -57,6 +57,15 @@ export default function ReportsPage() {
   }
 
   const columns = rows?.length ? Object.keys(rows[0]) : [];
+  const { sort, toggle, apply } = useSort<Record<string, unknown>>();
+
+  const sortedRows = useMemo(() => {
+    if (!rows?.length) return rows ?? [];
+    const accessors = Object.fromEntries(
+      Object.keys(rows[0]).map((c) => [c, (r: Record<string, unknown>) => r[c]])
+    );
+    return apply(rows, accessors);
+  }, [rows, apply]);
 
   return (
     <div>
@@ -115,12 +124,12 @@ export default function ReportsPage() {
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c}>{c.replace(/_/g, " ")}</th>
+                  <SortTh key={c} label={c.replace(/_/g, " ")} k={c} sort={sort} onToggle={toggle} />
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {sortedRows.map((r, i) => (
                 <tr key={i}>
                   {columns.map((c) => {
                     const v = r[c];
