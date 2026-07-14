@@ -429,6 +429,7 @@ const dict = {
   vsLbl: { ar: "مقابل", en: "vs" },
   comparePickRange: { ar: "اختر فترة محددة أولاً (وليس كل الوقت)", en: "Pick a bounded period first (not all time)" },
   newLbl: { ar: "جديد", en: "New" },
+  noCompare: { ar: "بدون مقارنة", en: "No comparison" },
   lifetimeRevenue: { ar: "إيراد مُسلَّم (كل الفترات)", en: "Delivered Revenue (All-time)" },
   deliveredOrdersLbl: { ar: "طلب مُسلَّم", en: "delivered orders" },
   avgLtv: { ar: "متوسط قيمة العميل (LTV)", en: "Avg Customer Value (LTV)" },

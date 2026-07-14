@@ -5,7 +5,7 @@ import Link from "next/link";
 import { UploadCloud, TrendingDown, TrendingUp, Radar, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort } from "@/components/ui";
+import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
@@ -65,6 +65,8 @@ export default function TrafficPage() {
   const supabase = useMemo(() => createClient(), []);
   const [months, setMonths] = useState<MonthRow[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [compareMonth, setCompareMonth] = useState<string>("");
+  const [prevSummary, setPrevSummary] = useState<Summary | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [pages, setPages] = useState<PageRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,6 +170,21 @@ export default function TrafficPage() {
     if (selected) loadMonth(selected);
   }, [selected, loadMonth]);
 
+  // GA4 summary of the comparison month
+  useEffect(() => {
+    if (!compareMonth || compareMonth === selected) {
+      setPrevSummary(null);
+      return;
+    }
+    let cancelled = false;
+    supabase.rpc("fn_ga4_summary", { p_month: compareMonth }).then(({ data }) => {
+      if (!cancelled) setPrevSummary((data as Summary) ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, compareMonth, selected]);
+
   // transaction-id reconciliation: an order is tracked if its number exists
   // in ANY uploaded GA4 transactions file (all-time or monthly — merged)
   const tracking = useMemo(() => {
@@ -259,6 +276,7 @@ export default function TrafficPage() {
   }
 
   const s = summary;
+  const ps = compareMonth && compareMonth !== selected ? prevSummary : null;
   const overallCr = s && s.users > 0 ? s.orders / s.users : 0;
 
   return (
@@ -267,37 +285,107 @@ export default function TrafficPage() {
         title={t("traffic")}
         subtitle={t("trafficSubtitle")}
         actions={
-          <select className="input !w-auto" value={selected ?? ""} onChange={(e) => setSelected(e.target.value)}>
-            {months.map((m) => (
-              <option key={m.period_month} value={m.period_month}>
-                {monthLabel(m.period_month, lang)}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="input !w-auto" value={selected ?? ""} onChange={(e) => setSelected(e.target.value)}>
+              {months.map((m) => (
+                <option key={m.period_month} value={m.period_month}>
+                  {monthLabel(m.period_month, lang)}
+                </option>
+              ))}
+            </select>
+            {months.length > 1 && (
+              <select
+                className={cn("input !w-auto", compareMonth && "!border-violet-400 !text-violet-700")}
+                value={compareMonth}
+                onChange={(e) => setCompareMonth(e.target.value)}
+              >
+                <option value="">{t("noCompare")}</option>
+                {months
+                  .filter((m) => m.period_month !== selected)
+                  .map((m) => (
+                    <option key={m.period_month} value={m.period_month}>
+                      {t("vsLbl")} {monthLabel(m.period_month, lang)}
+                    </option>
+                  ))}
+              </select>
+            )}
+          </div>
         }
       />
 
       {s && (
         <div className="space-y-6">
+          {ps && compareMonth && (
+            <div className="flex items-center gap-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2 text-xs font-semibold text-violet-700">
+              {t("vsLbl")} {monthLabel(compareMonth, lang)}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <KpiCard label={t("views")} value={formatNumber(s.views)} />
-            <KpiCard label={t("activeUsers")} value={formatNumber(s.users)} accent="slate" />
-            <KpiCard label={t("addToCarts")} value={formatNumber(s.add_to_carts)} accent="amber" />
-            <KpiCard label={t("totalOrders")} value={formatNumber(s.orders)} accent="green" />
-            <KpiCard label={t("grossRevenue")} value={formatMoney(s.order_revenue, lang)} accent="green" />
+            <KpiCard
+              label={t("views")}
+              value={formatNumber(s.views)}
+              delta={ps && <DeltaBadge current={s.views} previous={ps.views} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("activeUsers")}
+              value={formatNumber(s.users)}
+              accent="slate"
+              delta={ps && <DeltaBadge current={s.users} previous={ps.users} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("addToCarts")}
+              value={formatNumber(s.add_to_carts)}
+              accent="amber"
+              delta={ps && <DeltaBadge current={s.add_to_carts} previous={ps.add_to_carts} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("totalOrders")}
+              value={formatNumber(s.orders)}
+              accent="green"
+              delta={ps && <DeltaBadge current={s.orders} previous={ps.orders} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("grossRevenue")}
+              value={formatMoney(s.order_revenue, lang)}
+              accent="green"
+              delta={ps && <DeltaBadge current={s.order_revenue} previous={ps.order_revenue} fmtPrev={(n) => formatMoney(n, lang)} />}
+            />
             <KpiCard
               label={t("bounceRate")}
               value={s.avg_bounce != null ? `${(s.avg_bounce * 100).toFixed(1)}%` : "—"}
               accent="red"
+              delta={
+                ps?.avg_bounce != null && s.avg_bounce != null ? (
+                  <DeltaBadge current={s.avg_bounce * 100} previous={ps.avg_bounce * 100} invert />
+                ) : undefined
+              }
             />
           </div>
 
           <div className="card p-5">
             <h3 className="mb-4 text-sm font-bold text-slate-700">{t("trafficGap")}</h3>
             <div className="grid gap-3 md:grid-cols-3">
-              <FunnelStep label={`${t("views")} → ${t("addToCarts")}`} value={s.views > 0 ? s.add_to_carts / s.views : 0} benchmark={0.05} lang={lang} />
-              <FunnelStep label={`${t("addToCarts")} → ${t("orders")}`} value={s.add_to_carts > 0 ? s.orders / s.add_to_carts : 0} benchmark={0.25} lang={lang} />
-              <FunnelStep label={`${t("activeUsers")} → ${t("orders")} (CR)`} value={overallCr} benchmark={0.015} lang={lang} />
+              <FunnelStep
+                label={`${t("views")} → ${t("addToCarts")}`}
+                value={s.views > 0 ? s.add_to_carts / s.views : 0}
+                prev={ps ? (ps.views > 0 ? ps.add_to_carts / ps.views : 0) : null}
+                benchmark={0.05}
+                lang={lang}
+              />
+              <FunnelStep
+                label={`${t("addToCarts")} → ${t("orders")}`}
+                value={s.add_to_carts > 0 ? s.orders / s.add_to_carts : 0}
+                prev={ps ? (ps.add_to_carts > 0 ? ps.orders / ps.add_to_carts : 0) : null}
+                benchmark={0.25}
+                lang={lang}
+              />
+              <FunnelStep
+                label={`${t("activeUsers")} → ${t("orders")} (CR)`}
+                value={overallCr}
+                prev={ps ? (ps.users > 0 ? ps.orders / ps.users : 0) : null}
+                benchmark={0.015}
+                lang={lang}
+              />
             </div>
           </div>
 
@@ -575,7 +663,7 @@ function FunnelBreakdown({ month }: { month: string | null }) {
   );
 }
 
-function FunnelStep({ label, value, benchmark, lang }: { label: string; value: number; benchmark: number; lang: "ar" | "en" }) {
+function FunnelStep({ label, value, prev, benchmark, lang }: { label: string; value: number; prev?: number | null; benchmark: number; lang: "ar" | "en" }) {
   const good = value >= benchmark;
   const Icon = good ? TrendingUp : TrendingDown;
   return (
@@ -586,6 +674,7 @@ function FunnelStep({ label, value, benchmark, lang }: { label: string; value: n
           {(value * 100).toFixed(2)}%
         </span>
         <Icon size={18} className={good ? "text-emerald-600" : "text-red-600"} />
+        {prev !== null && prev !== undefined && <DeltaBadge current={value * 100} previous={prev * 100} />}
       </div>
       <div className="mt-0.5 text-[11px] text-slate-500">
         {lang === "ar" ? "المعيار" : "Benchmark"}: {(benchmark * 100).toFixed(1)}%
