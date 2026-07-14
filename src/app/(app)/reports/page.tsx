@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { toCsv, downloadCsv, formatNumber, cn } from "@/lib/utils";
 
 interface ReportDef {
@@ -32,17 +32,31 @@ const REPORTS: ReportDef[] = [
 export default function ReportsPage() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [selected, setSelected] = useState<ReportDef>(REPORTS[0]);
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+  const [cmpRows, setCmpRows] = useState<Record<string, unknown>[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function generate() {
     setLoading(true);
     const { data } = await supabase.rpc(selected.rpc, { ...rangeParams(range), ...(selected.params ?? {}) });
     setRows((data as Record<string, unknown>[]) ?? []);
+    if (compare) {
+      const { data: d2 } = await supabase.rpc(selected.rpc, { ...rangeParams(compare), ...(selected.params ?? {}) });
+      setCmpRows((d2 as Record<string, unknown>[]) ?? []);
+    } else {
+      setCmpRows(null);
+    }
     setLoading(false);
   }
+
+  // comparison rows keyed by the first (label) column
+  const cmpMap = useMemo(() => {
+    if (!compare || !cmpRows?.length) return null;
+    const keyCol = Object.keys(cmpRows[0])[0];
+    return { keyCol, map: new Map(cmpRows.map((r) => [String(r[keyCol]), r])) };
+  }, [compare, cmpRows]);
 
   function exportReport() {
     if (!rows?.length) return;
@@ -80,7 +94,17 @@ export default function ReportsPage() {
       />
 
       <div className="card p-4 mb-6 space-y-4">
-        <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+        <DateRangeFilter
+          preset={preset}
+          setPreset={setPreset}
+          range={range}
+          setRange={setRange}
+          comparePreset={comparePreset}
+          setComparePreset={setComparePreset}
+          customCompare={customCompare}
+          setCustomCompare={setCustomCompare}
+          compare={compare}
+        />
         <div className="flex flex-wrap gap-2">
           {REPORTS.map((r) => (
             <button
@@ -129,18 +153,31 @@ export default function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((r, i) => (
-                <tr key={i}>
-                  {columns.map((c) => {
-                    const v = r[c];
-                    return (
-                      <td key={c} className={typeof v === "number" ? "font-medium" : ""}>
-                        {typeof v === "number" ? formatNumber(v) : v === null || v === "" ? "—" : String(v)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {sortedRows.map((r, i) => {
+                const cmpRow = cmpMap ? cmpMap.map.get(String(r[cmpMap.keyCol])) : undefined;
+                return (
+                  <tr key={i}>
+                    {columns.map((c) => {
+                      const v = r[c];
+                      const prev = cmpRow && c !== cmpMap!.keyCol ? cmpRow[c] : undefined;
+                      return (
+                        <td key={c} className={typeof v === "number" ? "font-medium" : ""}>
+                          {typeof v === "number" ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              {formatNumber(v)}
+                              {cmpRow && typeof prev === "number" && <DeltaBadge current={v} previous={prev} fmtPrev={formatNumber} />}
+                            </span>
+                          ) : v === null || v === "" ? (
+                            "—"
+                          ) : (
+                            String(v)
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

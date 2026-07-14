@@ -5,7 +5,7 @@ import { Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 
@@ -26,12 +26,20 @@ interface BookRow { product_name: string; sku: string; units: number; revenue: n
 
 export default function ProfitPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [margin, setMargin] = useState(30);
   const params = rangeParams(range);
   const deps = [range.from, range.to, margin];
 
   const summary = useRpc<ProfitSummary>("fn_profit_summary", { ...params, p_default_margin: margin / 100 }, deps);
+  const prevSummary = useRpc<ProfitSummary>(
+    "fn_profit_summary",
+    compare ? { ...rangeParams(compare), p_default_margin: margin / 100 } : {},
+    [compare?.from, compare?.to, margin],
+    !compare
+  );
+  const ps = compare ? prevSummary.data : null;
+  const money = (n: number) => formatMoney(n, lang);
   const byVendor = useRpc<VendorRow[]>("fn_profit_by_vendor", { ...params, p_limit: 20 }, deps);
   const byMonth = useRpc<{ month: string; revenue: number; est_profit: number }[]>("fn_profit_by_month", { ...params, p_default_margin: margin / 100 }, deps);
   const topBooks = useRpc<BookRow[]>("fn_profit_by_book", { ...params, p_dir: "desc", p_limit: 15 }, deps);
@@ -51,7 +59,17 @@ export default function ProfitPage() {
               <span className="text-slate-500">{t("defaultMargin")}</span>
               <input type="number" min={0} max={90} className="input !w-16 !py-1" dir="ltr" value={margin} onChange={(e) => setMargin(Number(e.target.value) || 0)} />
             </div>
-            <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+            <DateRangeFilter
+              preset={preset}
+              setPreset={setPreset}
+              range={range}
+              setRange={setRange}
+              comparePreset={comparePreset}
+              setComparePreset={setComparePreset}
+              customCompare={customCompare}
+              setCustomCompare={setCustomCompare}
+              compare={compare}
+            />
           </div>
         }
       />
@@ -63,10 +81,33 @@ export default function ProfitPage() {
       ) : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-            <KpiCard label={t("grossRevenue")} value={formatMoney(s.revenue, lang)} />
-            <KpiCard label={t("grossProfit")} value={formatMoney(s.est_total_profit, lang)} accent="green" />
-            <KpiCard label={t("marginPct")} value={s.revenue ? `${((s.est_total_profit / s.revenue) * 100).toFixed(1)}%` : "—"} accent="green" />
-            <KpiCard label={t("realProfit")} value={formatMoney(s.profit_covered, lang)} sub={s.margin_covered_pct != null ? `${s.margin_covered_pct}% ${t("marginPct")}` : undefined} />
+            <KpiCard
+              label={t("grossRevenue")}
+              value={formatMoney(s.revenue, lang)}
+              delta={ps && <DeltaBadge current={s.revenue} previous={ps.revenue} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("grossProfit")}
+              value={formatMoney(s.est_total_profit, lang)}
+              accent="green"
+              delta={ps && <DeltaBadge current={s.est_total_profit} previous={ps.est_total_profit} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("marginPct")}
+              value={s.revenue ? `${((s.est_total_profit / s.revenue) * 100).toFixed(1)}%` : "—"}
+              accent="green"
+              delta={
+                ps && s.revenue && ps.revenue ? (
+                  <DeltaBadge current={(s.est_total_profit / s.revenue) * 100} previous={(ps.est_total_profit / ps.revenue) * 100} />
+                ) : undefined
+              }
+            />
+            <KpiCard
+              label={t("realProfit")}
+              value={formatMoney(s.profit_covered, lang)}
+              sub={s.margin_covered_pct != null ? `${s.margin_covered_pct}% ${t("marginPct")}` : undefined}
+              delta={ps && <DeltaBadge current={s.profit_covered} previous={ps.profit_covered} fmtPrev={money} />}
+            />
             <KpiCard label={t("costCoverage")} value={`${s.coverage_pct}%`} sub={t("coverageNote")} accent={s.coverage_pct > 50 ? "green" : "amber"} />
           </div>
 

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface ProductRow {
@@ -20,10 +20,11 @@ interface ProductRow {
 export default function ProductsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [rows, setRows] = useState<ProductRow[]>([]);
+  const [compareRows, setCompareRows] = useState<ProductRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
@@ -55,6 +56,39 @@ export default function ProductsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // same search, comparison period -> per-SKU units/revenue to diff against
+  useEffect(() => {
+    if (!compare) {
+      setCompareRows(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.rpc("fn_product_stats", {
+        ...rangeParams(compare),
+        p_search: search || null,
+        p_limit: 500,
+      });
+      if (!cancelled) setCompareRows((data as ProductRow[]) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, compare, search]);
+
+  const cmpBySku = useMemo(() => {
+    if (!compare || !compareRows) return null;
+    return new Map(compareRows.map((r) => [r.sku, r]));
+  }, [compare, compareRows]);
+
+  const totals = useMemo(() => {
+    const sum = (list: ProductRow[]) => ({
+      units: list.reduce((s, r) => s + Number(r.units || 0), 0),
+      revenue: list.reduce((s, r) => s + Number(r.revenue || 0), 0),
+    });
+    return { cur: sum(rows), prev: compareRows ? sum(compareRows) : null };
+  }, [rows, compareRows]);
 
   function toggle(sku: string) {
     setSelected((prev) => {
@@ -104,7 +138,34 @@ export default function ProductsPage() {
       />
 
       <div className="card p-4 mb-4 space-y-3">
-        <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+        <DateRangeFilter
+          preset={preset}
+          setPreset={setPreset}
+          range={range}
+          setRange={setRange}
+          comparePreset={comparePreset}
+          setComparePreset={setComparePreset}
+          customCompare={customCompare}
+          setCustomCompare={setCustomCompare}
+          compare={compare}
+        />
+        {compare && totals.prev && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2.5 text-sm text-violet-900">
+            <span className="flex items-center gap-2">
+              <span className="font-semibold">{t("units")}:</span>
+              <span className="font-bold" dir="ltr">{formatNumber(totals.cur.units)}</span>
+              <DeltaBadge current={totals.cur.units} previous={totals.prev.units} fmtPrev={formatNumber} />
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="font-semibold">{t("revenue")}:</span>
+              <span className="font-bold" dir="ltr">{formatMoney(totals.cur.revenue, lang)}</span>
+              <DeltaBadge current={totals.cur.revenue} previous={totals.prev.revenue} fmtPrev={(n) => formatMoney(n, lang)} />
+            </span>
+            <span className="text-xs text-violet-500" dir="ltr">
+              {t("vsLbl")} {compare.from} → {compare.to}
+            </span>
+          </div>
+        )}
         <form
           className="relative max-w-md"
           onSubmit={(e) => {
@@ -154,9 +215,25 @@ export default function ProductsPage() {
                   </td>
                   <td className="!whitespace-normal max-w-md font-medium">{r.product_name}</td>
                   <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>
-                  <td className="font-semibold">{formatNumber(r.units)}</td>
+                  <td className="font-semibold">
+                    <span className="inline-flex items-center gap-1.5">
+                      {formatNumber(r.units)}
+                      {cmpBySku && <DeltaBadge current={Number(r.units)} previous={Number(cmpBySku.get(r.sku)?.units ?? 0)} fmtPrev={formatNumber} />}
+                    </span>
+                  </td>
                   <td>{formatNumber(r.orders)}</td>
-                  <td>{formatMoney(r.revenue, lang)}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-1.5">
+                      {formatMoney(r.revenue, lang)}
+                      {cmpBySku && (
+                        <DeltaBadge
+                          current={Number(r.revenue)}
+                          previous={Number(cmpBySku.get(r.sku)?.revenue ?? 0)}
+                          fmtPrev={(n) => formatMoney(n, lang)}
+                        />
+                      )}
+                    </span>
+                  </td>
                   <td>
                     <button
                       className={cn(

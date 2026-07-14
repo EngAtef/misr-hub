@@ -5,7 +5,7 @@ import { Search, Download, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
-import { PageHeader, StatusBadge, Spinner, SortTh, useSort } from "@/components/ui";
+import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
@@ -15,7 +15,8 @@ const PAGE_SIZE = 25;
 export default function OrdersPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
+  const [compareTotal, setCompareTotal] = useState<number | null>(null);
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -86,6 +87,37 @@ export default function OrdersPage() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // same filters, comparison period -> matching order count
+  useEffect(() => {
+    if (!compare) {
+      setCompareTotal(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      let query = supabase.from("orders").select("order_number", { count: "exact", head: true });
+      if (compare.from) query = query.gte("order_date", `${compare.from}T00:00:00Z`);
+      if (compare.to) query = query.lte("order_date", `${compare.to}T23:59:59Z`);
+      if (status) query = query.eq("order_status", status);
+      if (payment) query = query.eq("payment_method", payment);
+      if (city) query = query.eq("city", city);
+      if (source) query = query.eq("source", source);
+      if (search) {
+        const s = sanitizeSearch(search);
+        if (s) {
+          query = query.or(
+            `order_number.ilike.%${s}%,customer_name.ilike.%${s}%,customer_phone.ilike.%${s}%,awb_number.ilike.%${s}%`
+          );
+        }
+      }
+      const { count } = await query;
+      if (!cancelled) setCompareTotal(count ?? 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, compare, status, payment, city, source, search]);
+
   // changing the date range must restart pagination
   useEffect(() => {
     setPage(0);
@@ -139,7 +171,27 @@ export default function OrdersPage() {
       />
 
       <div className="card p-4 mb-4 space-y-3">
-        <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+        <DateRangeFilter
+          preset={preset}
+          setPreset={setPreset}
+          range={range}
+          setRange={setRange}
+          comparePreset={comparePreset}
+          setComparePreset={setComparePreset}
+          customCompare={customCompare}
+          setCustomCompare={setCustomCompare}
+          compare={compare}
+        />
+        {compare && compareTotal !== null && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2.5 text-sm text-violet-900">
+            <span className="font-semibold">{t("results")}:</span>
+            <span className="font-bold" dir="ltr">{formatNumber(total)}</span>
+            <DeltaBadge current={total} previous={compareTotal} fmtPrev={formatNumber} />
+            <span className="text-xs text-violet-500">
+              {t("vsLbl")} {formatNumber(compareTotal)} ({compare.from} → {compare.to})
+            </span>
+          </div>
+        )}
         <div className="grid gap-2 md:grid-cols-5">
           <form
             className="relative md:col-span-2"

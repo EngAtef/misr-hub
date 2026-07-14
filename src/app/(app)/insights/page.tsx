@@ -5,7 +5,7 @@ import { Megaphone, TrendingUp, Package, Share2, Truck, AlertTriangle } from "lu
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, Spinner, StatusBadge, EmptyState, SortTh, useSort } from "@/components/ui";
+import { PageHeader, Spinner, StatusBadge, EmptyState, SortTh, useSort, KpiCard, DeltaBadge } from "@/components/ui";
 import { formatMoney, formatNumber, formatPercent, cn } from "@/lib/utils";
 import { type FollowUpReason } from "@/lib/whatsapp";
 import { ContactActions } from "@/components/contact-actions";
@@ -47,11 +47,13 @@ const CATEGORY_META = {
 
 export default function InsightsPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange } = useDateRange("90d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("90d");
   const params = rangeParams(range);
   const deps = [range.from, range.to];
 
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
+  const prevKpis = useRpc<Kpis>("fn_kpis", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare);
+  const pk = compare ? prevKpis.data : null;
   const byCity = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "city", ...params, p_limit: 30 }, deps);
   const bySource = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "source", ...params, p_limit: 10 }, deps);
   const byPromo = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "applied_promotion", ...params, p_limit: 10 }, deps);
@@ -257,8 +259,47 @@ export default function InsightsPage() {
       <PageHeader
         title={t("insights")}
         subtitle={t("insightsSubtitle")}
-        actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />}
+        actions={
+          <DateRangeFilter
+            preset={preset}
+            setPreset={setPreset}
+            range={range}
+            setRange={setRange}
+            comparePreset={comparePreset}
+            setComparePreset={setComparePreset}
+            customCompare={customCompare}
+            setCustomCompare={setCustomCompare}
+            compare={compare}
+          />
+        }
       />
+
+      {pk && kpis.data && (
+        <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+          <KpiCard
+            label={t("totalOrders")}
+            value={formatNumber(kpis.data.total_orders)}
+            delta={<DeltaBadge current={kpis.data.total_orders} previous={pk.total_orders} fmtPrev={formatNumber} />}
+          />
+          <KpiCard
+            label={t("grossRevenue")}
+            value={formatMoney(kpis.data.gross_revenue, lang)}
+            delta={<DeltaBadge current={kpis.data.gross_revenue} previous={pk.gross_revenue} fmtPrev={(n) => formatMoney(n, lang)} />}
+          />
+          <KpiCard
+            label={t("avgOrderValue")}
+            value={formatMoney(kpis.data.avg_order_value, lang)}
+            accent="slate"
+            delta={<DeltaBadge current={kpis.data.avg_order_value} previous={pk.avg_order_value} fmtPrev={(n) => formatMoney(n, lang)} />}
+          />
+          <KpiCard
+            label={t("delivered")}
+            value={formatNumber(kpis.data.delivered_orders)}
+            accent="green"
+            delta={<DeltaBadge current={kpis.data.delivered_orders} previous={pk.delivered_orders} fmtPrev={formatNumber} />}
+          />
+        </div>
+      )}
 
       {loading ? (
         <Spinner />

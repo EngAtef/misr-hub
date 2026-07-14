@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, DeltaBadge } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
 import { formatMoney, cn } from "@/lib/utils";
 
@@ -16,16 +16,25 @@ interface MonthRow { month: string; revenue: number; cogs: number; ad_spend: num
 
 export default function PnlPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [margin, setMargin] = useState(30);
   const params = rangeParams(range);
   const deps = [range.from, range.to, margin];
   const pnl = useRpc<Pnl>("fn_pnl", { ...params, p_default_margin: margin / 100 }, deps);
   const byMonth = useRpc<MonthRow[]>("fn_pnl_by_month", { ...params, p_default_margin: margin / 100 }, deps);
+  const prevPnl = useRpc<Pnl>(
+    "fn_pnl",
+    compare ? { ...rangeParams(compare), p_default_margin: margin / 100 } : {},
+    [compare?.from, compare?.to, margin],
+    !compare
+  );
 
   const p = pnl.data;
   const net = p ? p.gross_profit - p.ad_spend - p.delivery_cost - p.returns_loss : 0;
   const netMargin = p && p.revenue ? (net / p.revenue) * 100 : 0;
+  const pp = compare ? prevPnl.data : null;
+  const prevNet = pp ? pp.gross_profit - pp.ad_spend - pp.delivery_cost - pp.returns_loss : 0;
+  const money = (n: number) => formatMoney(n, lang);
 
   const waterfall = p
     ? [
@@ -49,7 +58,17 @@ export default function PnlPage() {
               <span className="text-slate-500">{t("defaultMargin")}</span>
               <input type="number" min={0} max={90} className="input !w-16 !py-1" dir="ltr" value={margin} onChange={(e) => setMargin(Number(e.target.value) || 0)} />
             </div>
-            <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+            <DateRangeFilter
+              preset={preset}
+              setPreset={setPreset}
+              range={range}
+              setRange={setRange}
+              comparePreset={comparePreset}
+              setComparePreset={setComparePreset}
+              customCompare={customCompare}
+              setCustomCompare={setCustomCompare}
+              compare={compare}
+            />
           </div>
         }
       />
@@ -59,10 +78,30 @@ export default function PnlPage() {
       ) : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-            <KpiCard label={t("pnlRevenue")} value={formatMoney(p.revenue, lang)} />
-            <KpiCard label={t("pnlCogs")} value={formatMoney(p.cogs, lang)} accent="amber" />
-            <KpiCard label={t("pnlGross")} value={formatMoney(p.gross_profit, lang)} accent="green" />
-            <KpiCard label={t("pnlNet")} value={formatMoney(net, lang)} sub={`${t("pnlNetMargin")}: ${netMargin.toFixed(1)}%`} accent={net > 0 ? "green" : "red"} />
+            <KpiCard
+              label={t("pnlRevenue")}
+              value={formatMoney(p.revenue, lang)}
+              delta={pp && <DeltaBadge current={p.revenue} previous={pp.revenue} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("pnlCogs")}
+              value={formatMoney(p.cogs, lang)}
+              accent="amber"
+              delta={pp && <DeltaBadge current={p.cogs} previous={pp.cogs} invert fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("pnlGross")}
+              value={formatMoney(p.gross_profit, lang)}
+              accent="green"
+              delta={pp && <DeltaBadge current={p.gross_profit} previous={pp.gross_profit} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("pnlNet")}
+              value={formatMoney(net, lang)}
+              sub={`${t("pnlNetMargin")}: ${netMargin.toFixed(1)}%`}
+              accent={net > 0 ? "green" : "red"}
+              delta={pp && <DeltaBadge current={net} previous={prevNet} fmtPrev={money} />}
+            />
           </div>
 
           {p.cost_coverage < 50 && (
@@ -93,9 +132,24 @@ export default function PnlPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-            <KpiCard label={t("pnlAdSpend")} value={formatMoney(p.ad_spend, lang)} accent="red" />
-            <KpiCard label={t("pnlDelivery")} value={formatMoney(p.delivery_cost, lang)} accent="amber" />
-            <KpiCard label={t("pnlReturns")} value={formatMoney(p.returns_loss, lang)} accent="red" />
+            <KpiCard
+              label={t("pnlAdSpend")}
+              value={formatMoney(p.ad_spend, lang)}
+              accent="red"
+              delta={pp && <DeltaBadge current={p.ad_spend} previous={pp.ad_spend} invert fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("pnlDelivery")}
+              value={formatMoney(p.delivery_cost, lang)}
+              accent="amber"
+              delta={pp && <DeltaBadge current={p.delivery_cost} previous={pp.delivery_cost} invert fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("pnlReturns")}
+              value={formatMoney(p.returns_loss, lang)}
+              accent="red"
+              delta={pp && <DeltaBadge current={p.returns_loss} previous={pp.returns_loss} invert fmtPrev={money} />}
+            />
           </div>
 
           {byMonth.data && byMonth.data.length > 0 && (

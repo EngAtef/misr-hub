@@ -5,7 +5,7 @@ import { Download, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
-import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, StatusBadge, SortTh, useSort } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, StatusBadge, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
 import { formatMoney, formatNumber, formatDateTime, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
 
@@ -30,37 +30,62 @@ type Tab = "free" | "sameday" | "cancel";
 export default function DeliveryPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [tab, setTab] = useState<Tab>("free");
   const [rows, setRows] = useState<Row[]>([]);
+  const [compareRows, setCompareRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const all: Row[] = [];
-    const pageSize = 1000;
-    for (let offset = 0; offset < 60000; offset += pageSize) {
-      let q = supabase
-        .from("orders")
-        .select(
-          "order_number, order_date, delivery_date, order_status, city, payment_method, source, total_order_amount, actual_delivery_fees, original_delivery_fees, applied_promotion, cancellation_reason, cancellation_note"
-        )
-        .order("order_date", { ascending: false })
-        .range(offset, offset + pageSize - 1);
-      if (range.from) q = q.gte("order_date", `${range.from}T00:00:00Z`);
-      if (range.to) q = q.lte("order_date", `${range.to}T23:59:59Z`);
-      const { data } = await q;
-      const chunk = (data as Row[]) ?? [];
-      all.push(...chunk);
-      if (chunk.length < pageSize) break;
-    }
-    setRows(all);
-    setLoading(false);
-  }, [supabase, range.from, range.to]);
+  const fetchRows = useCallback(
+    async (from: string | null, to: string | null) => {
+      const all: Row[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; offset < 60000; offset += pageSize) {
+        let q = supabase
+          .from("orders")
+          .select(
+            "order_number, order_date, delivery_date, order_status, city, payment_method, source, total_order_amount, actual_delivery_fees, original_delivery_fees, applied_promotion, cancellation_reason, cancellation_note"
+          )
+          .order("order_date", { ascending: false })
+          .range(offset, offset + pageSize - 1);
+        if (from) q = q.gte("order_date", `${from}T00:00:00Z`);
+        if (to) q = q.lte("order_date", `${to}T23:59:59Z`);
+        const { data } = await q;
+        const chunk = (data as Row[]) ?? [];
+        all.push(...chunk);
+        if (chunk.length < pageSize) break;
+      }
+      return all;
+    },
+    [supabase]
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    setLoading(true);
+    fetchRows(range.from, range.to).then((all) => {
+      if (cancelled) return;
+      setRows(all);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchRows, range.from, range.to]);
+
+  useEffect(() => {
+    if (!compare) {
+      setCompareRows(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRows(compare.from, compare.to).then((all) => {
+      if (!cancelled) setCompareRows(all);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchRows, compare]);
 
   const TABS: { key: Tab; labelKey: DictKey }[] = [
     { key: "free", labelKey: "freeDeliveryTab" },
@@ -73,7 +98,19 @@ export default function DeliveryPage() {
       <PageHeader
         title={t("deliveryReports")}
         subtitle={t("deliverySubtitle")}
-        actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />}
+        actions={
+          <DateRangeFilter
+            preset={preset}
+            setPreset={setPreset}
+            range={range}
+            setRange={setRange}
+            comparePreset={comparePreset}
+            setComparePreset={setComparePreset}
+            customCompare={customCompare}
+            setCustomCompare={setCustomCompare}
+            compare={compare}
+          />
+        }
       />
 
       <div className="mb-5 flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1 w-fit">
@@ -96,11 +133,11 @@ export default function DeliveryPage() {
       ) : rows.length === 0 ? (
         <EmptyState message={t("noData")} />
       ) : tab === "free" ? (
-        <FreeDeliveryTab rows={rows} lang={lang} />
+        <FreeDeliveryTab rows={rows} compareRows={compare ? compareRows : null} lang={lang} />
       ) : tab === "sameday" ? (
-        <SameDayTab rows={rows} lang={lang} />
+        <SameDayTab rows={rows} compareRows={compare ? compareRows : null} lang={lang} />
       ) : (
-        <CancellationsTab rows={rows} lang={lang} />
+        <CancellationsTab rows={rows} compareRows={compare ? compareRows : null} lang={lang} />
       )}
     </div>
   );
@@ -122,10 +159,29 @@ interface FreeCityRow {
   costPct: number;
 }
 
-function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
+// headline free-delivery aggregates, reused for the comparison period
+function freeAgg(rows: Row[]) {
+  const valid = rows.filter(notCancelled);
+  const free = valid.filter(isFree);
+  const paid = valid.filter(isPaidDelivery);
+  const cost = free.reduce((s, r) => s + (r.original_delivery_fees ?? 0), 0);
+  const freeRevenue = free.reduce((s, r) => s + (r.total_order_amount ?? 0), 0);
+  return {
+    freeCount: free.length,
+    cost,
+    costPct: freeRevenue ? (cost / freeRevenue) * 100 : 0,
+    aovFree: free.length ? freeRevenue / free.length : 0,
+    aovPaid: paid.length ? paid.reduce((s, r) => s + (r.total_order_amount ?? 0), 0) / paid.length : 0,
+    costPerOrder: free.length ? cost / free.length : 0,
+  };
+}
+
+function FreeDeliveryTab({ rows, compareRows, lang }: { rows: Row[]; compareRows: Row[] | null; lang: "ar" | "en" }) {
   const { t } = useLang();
   const [threshold, setThreshold] = useState(500);
   const { sort, toggle, apply } = useSort<FreeCityRow>();
+  const prev = useMemo(() => (compareRows ? freeAgg(compareRows) : null), [compareRows]);
+  const money = (n: number) => formatMoney(n, lang);
 
   const d = useMemo(() => {
     const valid = rows.filter(notCancelled);
@@ -207,12 +263,41 @@ function FreeDeliveryTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <KpiCard label={t("freeDeliveryOrders")} value={formatNumber(d.free.length)} sub={`${t("freeDeliveryShare")}: ${d.valid.length ? ((d.free.length / d.valid.length) * 100).toFixed(1) : 0}%`} />
-        <KpiCard label={t("absorbedCost")} value={formatMoney(d.cost, lang)} accent="red" />
-        <KpiCard label={t("costPctRevenue")} value={d.freeRevenue ? `${((d.cost / d.freeRevenue) * 100).toFixed(1)}%` : "—"} accent="amber" />
-        <KpiCard label={t("aovFree")} value={formatMoney(d.aovFree, lang)} accent="green" />
-        <KpiCard label={t("aovPaid")} value={formatMoney(d.aovPaid, lang)} accent="slate" />
-        <KpiCard label={t("costPerFreeOrder")} value={formatMoney(costPerOrder, lang)} />
+        <KpiCard
+          label={t("freeDeliveryOrders")}
+          value={formatNumber(d.free.length)}
+          sub={`${t("freeDeliveryShare")}: ${d.valid.length ? ((d.free.length / d.valid.length) * 100).toFixed(1) : 0}%`}
+          delta={prev && <DeltaBadge current={d.free.length} previous={prev.freeCount} fmtPrev={formatNumber} />}
+        />
+        <KpiCard
+          label={t("absorbedCost")}
+          value={formatMoney(d.cost, lang)}
+          accent="red"
+          delta={prev && <DeltaBadge current={d.cost} previous={prev.cost} invert fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("costPctRevenue")}
+          value={d.freeRevenue ? `${((d.cost / d.freeRevenue) * 100).toFixed(1)}%` : "—"}
+          accent="amber"
+          delta={prev && <DeltaBadge current={d.freeRevenue ? (d.cost / d.freeRevenue) * 100 : 0} previous={prev.costPct} invert />}
+        />
+        <KpiCard
+          label={t("aovFree")}
+          value={formatMoney(d.aovFree, lang)}
+          accent="green"
+          delta={prev && <DeltaBadge current={d.aovFree} previous={prev.aovFree} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("aovPaid")}
+          value={formatMoney(d.aovPaid, lang)}
+          accent="slate"
+          delta={prev && <DeltaBadge current={d.aovPaid} previous={prev.aovPaid} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("costPerFreeOrder")}
+          value={formatMoney(costPerOrder, lang)}
+          delta={prev && <DeltaBadge current={costPerOrder} previous={prev.costPerOrder} invert fmtPrev={money} />}
+        />
       </div>
 
       <div
@@ -301,9 +386,24 @@ interface SpeedCityRow {
   avg: number;
 }
 
-function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
+function speedAgg(rows: Row[]) {
+  const delivered = rows.filter((r) => r.order_status === "Delivered" && r.order_date && r.delivery_date);
+  const withHours = delivered
+    .map((r) => ({ hours: (new Date(r.delivery_date!).getTime() - new Date(r.order_date!).getTime()) / 3600000 }))
+    .filter((r) => r.hours >= 0 && r.hours < 24 * 60);
+  const within24 = withHours.filter((r) => r.hours <= 24).length;
+  return {
+    total: withHours.length,
+    within24,
+    rate: withHours.length ? (within24 / withHours.length) * 100 : 0,
+    avgHours: withHours.length ? withHours.reduce((s, r) => s + r.hours, 0) / withHours.length : 0,
+  };
+}
+
+function SameDayTab({ rows, compareRows, lang }: { rows: Row[]; compareRows: Row[] | null; lang: "ar" | "en" }) {
   const { t } = useLang();
   const { sort, toggle, apply } = useSort<SpeedCityRow>();
+  const prev = useMemo(() => (compareRows ? speedAgg(compareRows) : null), [compareRows]);
 
   const d = useMemo(() => {
     const delivered = rows.filter((r) => r.order_status === "Delivered" && r.order_date && r.delivery_date);
@@ -355,10 +455,29 @@ function SameDayTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label={t("deliveredTotal")} value={formatNumber(d.withHours.length)} />
-        <KpiCard label={t("deliveredWithin24")} value={formatNumber(d.within24.length)} accent="green" />
-        <KpiCard label={t("within24Rate")} value={d.withHours.length ? `${((d.within24.length / d.withHours.length) * 100).toFixed(1)}%` : "—"} accent="green" />
-        <KpiCard label={t("avgDeliveryHours")} value={`${formatNumber(d.avgHours)} h`} accent="slate" />
+        <KpiCard
+          label={t("deliveredTotal")}
+          value={formatNumber(d.withHours.length)}
+          delta={prev && <DeltaBadge current={d.withHours.length} previous={prev.total} fmtPrev={formatNumber} />}
+        />
+        <KpiCard
+          label={t("deliveredWithin24")}
+          value={formatNumber(d.within24.length)}
+          accent="green"
+          delta={prev && <DeltaBadge current={d.within24.length} previous={prev.within24} fmtPrev={formatNumber} />}
+        />
+        <KpiCard
+          label={t("within24Rate")}
+          value={d.withHours.length ? `${((d.within24.length / d.withHours.length) * 100).toFixed(1)}%` : "—"}
+          accent="green"
+          delta={prev && <DeltaBadge current={d.withHours.length ? (d.within24.length / d.withHours.length) * 100 : 0} previous={prev.rate} />}
+        />
+        <KpiCard
+          label={t("avgDeliveryHours")}
+          value={`${formatNumber(d.avgHours)} h`}
+          accent="slate"
+          delta={prev && <DeltaBadge current={d.avgHours} previous={prev.avgHours} invert fmtPrev={formatNumber} />}
+        />
       </div>
 
       <ChartCard title={`${t("within24Rate")} — ${t("costTrend").split("—")[0]}`}>
@@ -401,8 +520,19 @@ interface ReasonRow {
   lost: number;
 }
 
-function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
+function cancelAgg(rows: Row[]) {
+  const cancelled = rows.filter((r) => r.order_status === "Cancelled");
+  return {
+    count: cancelled.length,
+    rate: rows.length ? (cancelled.length / rows.length) * 100 : 0,
+    lost: cancelled.reduce((s, r) => s + (r.total_order_amount ?? 0), 0),
+  };
+}
+
+function CancellationsTab({ rows, compareRows, lang }: { rows: Row[]; compareRows: Row[] | null; lang: "ar" | "en" }) {
   const { t } = useLang();
+  const prev = useMemo(() => (compareRows ? cancelAgg(compareRows) : null), [compareRows]);
+  const money = (n: number) => formatMoney(n, lang);
   const { sort: sortReason, toggle: toggleReason, apply: applyReason } = useSort<ReasonRow>();
   const { sort: sortPay, toggle: togglePay, apply: applyPay } = useSort<{ method: string; count: number }>();
   const { sort: sortCity, toggle: toggleCity, apply: applyCity } = useSort<{ city: string; count: number }>();
@@ -509,9 +639,24 @@ function CancellationsTab({ rows, lang }: { rows: Row[]; lang: "ar" | "en" }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label={t("cancelledOrdersKpi")} value={formatNumber(d.cancelled.length)} accent="red" />
-        <KpiCard label={t("cancellationRate")} value={rows.length ? `${((d.cancelled.length / rows.length) * 100).toFixed(1)}%` : "—"} accent="red" />
-        <KpiCard label={t("lostRevenue")} value={formatMoney(d.lost, lang)} accent="amber" />
+        <KpiCard
+          label={t("cancelledOrdersKpi")}
+          value={formatNumber(d.cancelled.length)}
+          accent="red"
+          delta={prev && <DeltaBadge current={d.cancelled.length} previous={prev.count} invert fmtPrev={formatNumber} />}
+        />
+        <KpiCard
+          label={t("cancellationRate")}
+          value={rows.length ? `${((d.cancelled.length / rows.length) * 100).toFixed(1)}%` : "—"}
+          accent="red"
+          delta={prev && <DeltaBadge current={rows.length ? (d.cancelled.length / rows.length) * 100 : 0} previous={prev.rate} invert />}
+        />
+        <KpiCard
+          label={t("lostRevenue")}
+          value={formatMoney(d.lost, lang)}
+          accent="amber"
+          delta={prev && <DeltaBadge current={d.lost} previous={prev.lost} invert fmtPrev={money} />}
+        />
         <KpiCard label={t("topCancelReasons")} value={formatNumber(reasonRows.filter((r) => r.reason !== t("noReason")).length)} accent="slate" />
       </div>
 

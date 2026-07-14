@@ -87,11 +87,13 @@ export function KpiCard({
   value,
   sub,
   accent = "brand",
+  delta,
 }: {
   label: string;
   value: string;
   sub?: string;
   accent?: "brand" | "green" | "red" | "amber" | "slate";
+  delta?: React.ReactNode;
 }) {
   const accents: Record<string, string> = {
     brand: "border-s-brand-500",
@@ -103,9 +105,59 @@ export function KpiCard({
   return (
     <div className={cn("card p-4 border-s-4", accents[accent])}>
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-slate-900">{value}</div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-2xl font-bold text-slate-900">{value}</span>
+        {delta}
+      </div>
       {sub && <div className="mt-0.5 text-xs text-slate-500">{sub}</div>}
     </div>
+  );
+}
+
+// % change vs a comparison period. `invert` = a drop is good news
+// (e.g. cancellation rate). `fmtPrev` renders the previous value in
+// the tooltip/subtitle line.
+export function DeltaBadge({
+  current,
+  previous,
+  invert = false,
+  fmtPrev,
+}: {
+  current: number;
+  previous: number | null | undefined;
+  invert?: boolean;
+  fmtPrev?: (n: number) => string;
+}) {
+  const { t } = useLang();
+  if (previous === null || previous === undefined) return null;
+  let node: React.ReactNode;
+  let tone: "good" | "bad" | "flat";
+  if (previous === 0) {
+    if (current === 0) {
+      tone = "flat";
+      node = "0%";
+    } else {
+      tone = invert ? "bad" : "good";
+      node = t("newLbl");
+    }
+  } else {
+    const pct = ((current - previous) / Math.abs(previous)) * 100;
+    const up = pct > 0.05;
+    const down = pct < -0.05;
+    tone = !up && !down ? "flat" : (up && !invert) || (down && invert) ? "good" : "bad";
+    node = `${up ? "▲" : down ? "▼" : ""} ${Math.abs(pct) >= 1000 ? Math.round(Math.abs(pct)) : Math.abs(pct).toFixed(1)}%`;
+  }
+  return (
+    <span
+      dir="ltr"
+      title={fmtPrev ? `${t("vsLbl")} ${fmtPrev(previous)}` : undefined}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-bold",
+        tone === "good" ? "bg-emerald-100 text-emerald-700" : tone === "bad" ? "bg-red-100 text-red-600" : "bg-slate-100 text-slate-500"
+      )}
+    >
+      {node}
+    </span>
   );
 }
 

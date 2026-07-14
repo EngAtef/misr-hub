@@ -11,13 +11,19 @@ export function rangeParams(range: DateRange) {
   };
 }
 
-export function useRpc<T>(fn: string, params: Record<string, unknown>, deps: unknown[]) {
+export function useRpc<T>(fn: string, params: Record<string, unknown>, deps: unknown[], skip = false) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
+    if (skip) {
+      setData(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     supabase
@@ -37,7 +43,7 @@ export function useRpc<T>(fn: string, params: Record<string, unknown>, deps: unk
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, skip]);
 
   return { data, loading, error };
 }

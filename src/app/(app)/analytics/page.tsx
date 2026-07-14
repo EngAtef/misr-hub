@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useLang, type DictKey } from "@/lib/i18n";
-import { useDateRange, DateRangeFilter } from "@/components/date-range";
+import { useDateRange, DateRangeFilter, type DateRange } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, ChartCard, KpiCard, Spinner, SortTh, useSort } from "@/components/ui";
+import { PageHeader, ChartCard, KpiCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, formatPercent, formatDateTime, cn } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
@@ -24,11 +24,26 @@ const TABS: { key: Tab; labelKey: DictKey }[] = [
 export default function AnalyticsPage() {
   const { t } = useLang();
   const [tab, setTab] = useState<Tab>("sales");
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
 
   return (
     <div>
-      <PageHeader title={t("analytics")} actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />} />
+      <PageHeader
+        title={t("analytics")}
+        actions={
+          <DateRangeFilter
+            preset={preset}
+            setPreset={setPreset}
+            range={range}
+            setRange={setRange}
+            comparePreset={comparePreset}
+            setComparePreset={setComparePreset}
+            customCompare={customCompare}
+            setCustomCompare={setCustomCompare}
+            compare={compare}
+          />
+        }
+      />
 
       <div className="mb-6 flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1 w-fit">
         {TABS.map((x) => (
@@ -45,20 +60,26 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {tab === "sales" && <SalesTab range={range} />}
-      {tab === "delivery" && <DeliveryTab range={range} />}
-      {tab === "payments" && <PaymentsTab range={range} />}
+      {tab === "sales" && <SalesTab range={range} compare={compare} />}
+      {tab === "delivery" && <DeliveryTab range={range} compare={compare} />}
+      {tab === "payments" && <PaymentsTab range={range} compare={compare} />}
       {tab === "geography" && <GeographyTab range={range} />}
       {tab === "products" && <ProductsTab range={range} />}
-      {tab === "returns" && <ReturnsTab range={range} />}
+      {tab === "returns" && <ReturnsTab range={range} compare={compare} />}
       {tab === "team" && <TeamTab range={range} />}
     </div>
   );
 }
 
-type RangeProp = { range: { from: string | null; to: string | null } };
+type RangeProp = { range: { from: string | null; to: string | null }; compare?: DateRange | null };
 
-function SalesTab({ range }: RangeProp) {
+// fn_kpis for the comparison period (null when compare is off)
+function useCompareKpis(compare: DateRange | null | undefined) {
+  const res = useRpc<Kpis>("fn_kpis", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare);
+  return compare ? res.data : null;
+}
+
+function SalesTab({ range, compare }: RangeProp) {
   const { t, lang } = useLang();
   const params = rangeParams(range);
   const deps = [range.from, range.to];
@@ -68,6 +89,12 @@ function SalesTab({ range }: RangeProp) {
   const customers = useRpc<{ total_customers: number; repeat_customers: number; avg_orders_per_customer: number; avg_spend_per_customer: number }>(
     "fn_customer_insights", params, deps
   );
+  const pk = useCompareKpis(compare);
+  const prevCustomers = useRpc<{ total_customers: number; repeat_customers: number }>(
+    "fn_customer_insights", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare
+  );
+  const pc = compare ? prevCustomers.data : null;
+  const money = (n: number) => formatMoney(n, lang);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -76,14 +103,29 @@ function SalesTab({ range }: RangeProp) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label={t("grossRevenue")} value={formatMoney(k?.gross_revenue ?? 0, lang)} />
-        <KpiCard label={t("netRevenue")} value={formatMoney(k?.net_revenue ?? 0, lang)} accent="green" />
-        <KpiCard label={t("avgOrderValue")} value={formatMoney(k?.avg_order_value ?? 0, lang)} accent="slate" />
+        <KpiCard
+          label={t("grossRevenue")}
+          value={formatMoney(k?.gross_revenue ?? 0, lang)}
+          delta={pk && k && <DeltaBadge current={k.gross_revenue} previous={pk.gross_revenue} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("netRevenue")}
+          value={formatMoney(k?.net_revenue ?? 0, lang)}
+          accent="green"
+          delta={pk && k && <DeltaBadge current={k.net_revenue} previous={pk.net_revenue} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("avgOrderValue")}
+          value={formatMoney(k?.avg_order_value ?? 0, lang)}
+          accent="slate"
+          delta={pk && k && <DeltaBadge current={k.avg_order_value} previous={pk.avg_order_value} fmtPrev={money} />}
+        />
         <KpiCard
           label={t("repeatCustomers")}
           value={c ? formatNumber(c.repeat_customers) : "—"}
           sub={c ? formatPercent(c.repeat_customers, c.total_customers) : undefined}
           accent="amber"
+          delta={pc && c && <DeltaBadge current={c.repeat_customers} previous={pc.repeat_customers} fmtPrev={formatNumber} />}
         />
       </div>
       <ChartCard title={t("revenuePerDay")}>
@@ -110,13 +152,14 @@ function SalesTab({ range }: RangeProp) {
   );
 }
 
-function DeliveryTab({ range }: RangeProp) {
+function DeliveryTab({ range, compare }: RangeProp) {
   const { t } = useLang();
   const params = rangeParams(range);
   const deps = [range.from, range.to];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const buckets = useRpc<{ bucket: string; bucket_order: number; orders: number }[]>("fn_delivery_buckets", params, deps);
   const byDeliveryStatus = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "delivery_status", ...params, p_limit: 12 }, deps);
+  const pk = useCompareKpis(compare);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -124,20 +167,43 @@ function DeliveryTab({ range }: RangeProp) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label={t("delivered")} value={formatNumber(k?.delivered_orders ?? 0)} accent="green" />
+        <KpiCard
+          label={t("delivered")}
+          value={formatNumber(k?.delivered_orders ?? 0)}
+          accent="green"
+          delta={pk && k && <DeltaBadge current={k.delivered_orders} previous={pk.delivered_orders} fmtPrev={formatNumber} />}
+        />
         <KpiCard
           label={t("deliveryRate")}
           value={k ? formatPercent(k.delivered_orders, k.total_orders) : "—"}
           accent="green"
+          delta={
+            pk && k && (
+              <DeltaBadge
+                current={k.total_orders ? (k.delivered_orders / k.total_orders) * 100 : 0}
+                previous={pk.total_orders ? (pk.delivered_orders / pk.total_orders) * 100 : 0}
+              />
+            )
+          }
         />
         <KpiCard
           label={t("avgDeliveryDays")}
           value={k?.avg_delivery_days != null ? `${formatNumber(k.avg_delivery_days)} ${t("days")}` : "—"}
+          delta={
+            pk?.avg_delivery_days != null && k?.avg_delivery_days != null ? (
+              <DeltaBadge current={k.avg_delivery_days} previous={pk.avg_delivery_days} invert fmtPrev={formatNumber} />
+            ) : undefined
+          }
         />
         <KpiCard
           label={t("driverRating")}
           value={k?.avg_driver_rating != null ? `${formatNumber(k.avg_driver_rating)} / 5` : "—"}
           accent="amber"
+          delta={
+            pk?.avg_driver_rating != null && k?.avg_driver_rating != null ? (
+              <DeltaBadge current={k.avg_driver_rating} previous={pk.avg_driver_rating} fmtPrev={formatNumber} />
+            ) : undefined
+          }
         />
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
@@ -162,12 +228,14 @@ function DeliveryTab({ range }: RangeProp) {
   );
 }
 
-function PaymentsTab({ range }: RangeProp) {
+function PaymentsTab({ range, compare }: RangeProp) {
   const { t, lang } = useLang();
   const params = rangeParams(range);
   const deps = [range.from, range.to];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const byPayment = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "payment_method", ...params, p_limit: 10 }, deps);
+  const pk = useCompareKpis(compare);
+  const money = (n: number) => formatMoney(n, lang);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -180,10 +248,25 @@ function PaymentsTab({ range }: RangeProp) {
           value={formatNumber(k?.cod_orders ?? 0)}
           sub={k ? formatPercent(k.cod_orders, k.total_orders) : undefined}
           accent="amber"
+          delta={pk && k && <DeltaBadge current={k.cod_orders} previous={pk.cod_orders} fmtPrev={formatNumber} />}
         />
-        <KpiCard label={t("codAmount")} value={formatMoney(k?.cod_amount ?? 0, lang)} accent="amber" />
-        <KpiCard label={t("onlinePaid")} value={formatMoney(k?.online_paid_amount ?? 0, lang)} />
-        <KpiCard label={t("grossRevenue")} value={formatMoney(k?.gross_revenue ?? 0, lang)} accent="green" />
+        <KpiCard
+          label={t("codAmount")}
+          value={formatMoney(k?.cod_amount ?? 0, lang)}
+          accent="amber"
+          delta={pk && k && <DeltaBadge current={k.cod_amount} previous={pk.cod_amount} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("onlinePaid")}
+          value={formatMoney(k?.online_paid_amount ?? 0, lang)}
+          delta={pk && k && <DeltaBadge current={k.online_paid_amount} previous={pk.online_paid_amount} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("grossRevenue")}
+          value={formatMoney(k?.gross_revenue ?? 0, lang)}
+          accent="green"
+          delta={pk && k && <DeltaBadge current={k.gross_revenue} previous={pk.gross_revenue} fmtPrev={money} />}
+        />
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard title={t("ordersByPayment")}>
@@ -310,12 +393,13 @@ function ProductsTab({ range }: RangeProp) {
   );
 }
 
-function ReturnsTab({ range }: RangeProp) {
+function ReturnsTab({ range, compare }: RangeProp) {
   const { t } = useLang();
   const params = rangeParams(range);
   const deps = [range.from, range.to];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const reasons = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "cancellation_reason", ...params, p_limit: 15 }, deps);
+  const pk = useCompareKpis(compare);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -328,15 +412,26 @@ function ReturnsTab({ range }: RangeProp) {
           value={formatNumber(k?.cancelled_orders ?? 0)}
           sub={k ? formatPercent(k.cancelled_orders, k.total_orders) : undefined}
           accent="red"
+          delta={pk && k && <DeltaBadge current={k.cancelled_orders} previous={pk.cancelled_orders} invert fmtPrev={formatNumber} />}
         />
         <KpiCard
           label={t("returned")}
           value={formatNumber(k?.returned_orders ?? 0)}
           sub={k ? formatPercent(k.returned_orders, k.total_orders) : undefined}
           accent="amber"
+          delta={pk && k && <DeltaBadge current={k.returned_orders} previous={pk.returned_orders} invert fmtPrev={formatNumber} />}
         />
-        <KpiCard label={t("inProgress")} value={formatNumber(k?.in_progress_orders ?? 0)} accent="slate" />
-        <KpiCard label={t("totalOrders")} value={formatNumber(k?.total_orders ?? 0)} />
+        <KpiCard
+          label={t("inProgress")}
+          value={formatNumber(k?.in_progress_orders ?? 0)}
+          accent="slate"
+          delta={pk && k && <DeltaBadge current={k.in_progress_orders} previous={pk.in_progress_orders} fmtPrev={formatNumber} />}
+        />
+        <KpiCard
+          label={t("totalOrders")}
+          value={formatNumber(k?.total_orders ?? 0)}
+          delta={pk && k && <DeltaBadge current={k.total_orders} previous={pk.total_orders} fmtPrev={formatNumber} />}
+        />
       </div>
       <ChartCard title={t("cancellationReasons")}>
         <BarsChart

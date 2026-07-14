@@ -3,7 +3,7 @@
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, DeltaBadge } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
 import { TrendChart, DonutChart } from "@/components/charts";
 
@@ -43,11 +43,14 @@ import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 export default function OverviewPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const params = rangeParams(range);
   const deps = [range.from, range.to];
 
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
+  const prevKpis = useRpc<Kpis>("fn_kpis", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare);
+  const pk = compare ? prevKpis.data : null;
+  const money = (n: number) => formatMoney(n, lang);
   const byDay = useRpc<DayRow[]>("fn_orders_by_day", params, deps);
   const byStatus = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "order_status", ...params, p_limit: 15 }, deps);
   const byPayment = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "payment_method", ...params, p_limit: 10 }, deps);
@@ -58,7 +61,22 @@ export default function OverviewPage() {
 
   return (
     <div>
-      <PageHeader title={t("overview")} actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />} />
+      <PageHeader
+        title={t("overview")}
+        actions={
+          <DateRangeFilter
+            preset={preset}
+            setPreset={setPreset}
+            range={range}
+            setRange={setRange}
+            comparePreset={comparePreset}
+            setComparePreset={setComparePreset}
+            customCompare={customCompare}
+            setCustomCompare={setCustomCompare}
+            compare={compare}
+          />
+        }
+      />
 
       <AlertsBar />
 
@@ -69,27 +87,43 @@ export default function OverviewPage() {
       ) : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <KpiCard label={t("totalOrders")} value={formatNumber(k.total_orders)} />
-            <KpiCard label={t("grossRevenue")} value={formatMoney(k.gross_revenue, lang)} />
+            <KpiCard
+              label={t("totalOrders")}
+              value={formatNumber(k.total_orders)}
+              delta={pk && <DeltaBadge current={k.total_orders} previous={pk.total_orders} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("grossRevenue")}
+              value={formatMoney(k.gross_revenue, lang)}
+              delta={pk && <DeltaBadge current={k.gross_revenue} previous={pk.gross_revenue} fmtPrev={money} />}
+            />
             <KpiCard
               label={t("delivered")}
               value={formatNumber(k.delivered_orders)}
               sub={`${t("deliveryRate")}: ${formatPercent(k.delivered_orders, k.total_orders)}`}
               accent="green"
+              delta={pk && <DeltaBadge current={k.delivered_orders} previous={pk.delivered_orders} fmtPrev={formatNumber} />}
             />
             <KpiCard
               label={t("cancelled")}
               value={formatNumber(k.cancelled_orders)}
               sub={`${t("cancellationRate")}: ${formatPercent(k.cancelled_orders, k.total_orders)}`}
               accent="red"
+              delta={pk && <DeltaBadge current={k.cancelled_orders} previous={pk.cancelled_orders} invert fmtPrev={formatNumber} />}
             />
             <KpiCard
               label={t("returned")}
               value={formatNumber(k.returned_orders)}
               sub={`${t("returnRate")}: ${formatPercent(k.returned_orders, k.total_orders)}`}
               accent="amber"
+              delta={pk && <DeltaBadge current={k.returned_orders} previous={pk.returned_orders} invert fmtPrev={formatNumber} />}
             />
-            <KpiCard label={t("avgOrderValue")} value={formatMoney(k.avg_order_value, lang)} accent="slate" />
+            <KpiCard
+              label={t("avgOrderValue")}
+              value={formatMoney(k.avg_order_value, lang)}
+              accent="slate"
+              delta={pk && <DeltaBadge current={k.avg_order_value} previous={pk.avg_order_value} fmtPrev={money} />}
+            />
           </div>
 
           <ChartCard title={t("ordersPerDay")}>
@@ -131,13 +165,32 @@ export default function OverviewPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <KpiCard label={t("codAmount")} value={formatMoney(k.cod_amount, lang)} accent="amber" />
-            <KpiCard label={t("onlinePaid")} value={formatMoney(k.online_paid_amount, lang)} />
-            <KpiCard label={t("uniqueCustomers")} value={formatNumber(k.unique_customers)} accent="slate" />
+            <KpiCard
+              label={t("codAmount")}
+              value={formatMoney(k.cod_amount, lang)}
+              accent="amber"
+              delta={pk && <DeltaBadge current={k.cod_amount} previous={pk.cod_amount} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("onlinePaid")}
+              value={formatMoney(k.online_paid_amount, lang)}
+              delta={pk && <DeltaBadge current={k.online_paid_amount} previous={pk.online_paid_amount} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("uniqueCustomers")}
+              value={formatNumber(k.unique_customers)}
+              accent="slate"
+              delta={pk && <DeltaBadge current={k.unique_customers} previous={pk.unique_customers} fmtPrev={formatNumber} />}
+            />
             <KpiCard
               label={t("avgDeliveryDays")}
               value={k.avg_delivery_days != null ? `${formatNumber(k.avg_delivery_days)} ${t("days")}` : "—"}
               accent="green"
+              delta={
+                pk && k.avg_delivery_days != null && pk.avg_delivery_days != null ? (
+                  <DeltaBadge current={k.avg_delivery_days} previous={pk.avg_delivery_days} invert fmtPrev={formatNumber} />
+                ) : undefined
+              }
             />
           </div>
         </div>

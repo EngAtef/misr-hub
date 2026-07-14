@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, BarsChart } from "@/components/charts";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 
@@ -103,7 +103,7 @@ function VendorScorecard() {
 export default function VendorsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
 
   const [mode, setMode] = useState<"adwaa" | "custom" | "tagged">("adwaa");
   const [custom, setCustom] = useState("");
@@ -111,6 +111,7 @@ export default function VendorsPage() {
   const [tagged, setTagged] = useState("");
 
   const [kpis, setKpis] = useState<VendorKpis | null>(null);
+  const [prevKpis, setPrevKpis] = useState<VendorKpis | null>(null);
   const [monthly, setMonthly] = useState<{ month: string; units: number; revenue: number; orders: number }[]>([]);
   const [books, setBooks] = useState<{ product_name: string; sku: string; units: number; revenue: number }[]>([]);
   const [cities, setCities] = useState<{ city: string; units: number; revenue: number }[]>([]);
@@ -154,6 +155,27 @@ export default function VendorsPage() {
     load();
   }, [load]);
 
+  // same vendor filter, comparison period
+  useEffect(() => {
+    if (!compare || (!pattern && !vendorTag)) {
+      setPrevKpis(null);
+      return;
+    }
+    let cancelled = false;
+    const p = rangeParams(compare);
+    supabase
+      .rpc("fn_vendor_kpis", { p_pattern: pattern, p_vendor: vendorTag, p_from: p.p_from, p_to: p.p_to })
+      .then(({ data }) => {
+        if (!cancelled) setPrevKpis((data as VendorKpis) ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, compare, pattern, vendorTag]);
+
+  const pk = compare ? prevKpis : null;
+  const money = (n: number) => formatMoney(n, lang);
+
   const { sort: sortBooks, toggle: toggleBooks, apply: applyBooks } = useSort<{ product_name: string; sku: string; units: number; revenue: number }>();
   const sortedBooks = useMemo(
     () =>
@@ -171,7 +193,19 @@ export default function VendorsPage() {
       <PageHeader
         title={t("vendors")}
         subtitle={t("vendorSubtitle")}
-        actions={<DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />}
+        actions={
+          <DateRangeFilter
+            preset={preset}
+            setPreset={setPreset}
+            range={range}
+            setRange={setRange}
+            comparePreset={comparePreset}
+            setComparePreset={setComparePreset}
+            customCompare={customCompare}
+            setCustomCompare={setCustomCompare}
+            compare={compare}
+          />
+        }
       />
 
       <div className="card p-4 mb-5 flex flex-wrap items-center gap-3">
@@ -217,12 +251,40 @@ export default function VendorsPage() {
       ) : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <KpiCard label={t("vendorUnits")} value={formatNumber(kpis.units)} />
-            <KpiCard label={t("vendorRevenue")} value={formatMoney(kpis.revenue, lang)} accent="green" />
-            <KpiCard label={t("vendorOrders")} value={formatNumber(kpis.orders)} accent="slate" />
-            <KpiCard label={t("vendorTitles")} value={formatNumber(kpis.unique_titles)} />
-            <KpiCard label={t("vendorAvgPrice")} value={formatMoney(kpis.avg_price, lang)} accent="slate" />
-            <KpiCard label={t("vendorCancelledUnits")} value={formatNumber(kpis.cancelled_units)} accent="red" />
+            <KpiCard
+              label={t("vendorUnits")}
+              value={formatNumber(kpis.units)}
+              delta={pk && <DeltaBadge current={kpis.units} previous={pk.units} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("vendorRevenue")}
+              value={formatMoney(kpis.revenue, lang)}
+              accent="green"
+              delta={pk && <DeltaBadge current={kpis.revenue} previous={pk.revenue} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("vendorOrders")}
+              value={formatNumber(kpis.orders)}
+              accent="slate"
+              delta={pk && <DeltaBadge current={kpis.orders} previous={pk.orders} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("vendorTitles")}
+              value={formatNumber(kpis.unique_titles)}
+              delta={pk && <DeltaBadge current={kpis.unique_titles} previous={pk.unique_titles} fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("vendorAvgPrice")}
+              value={formatMoney(kpis.avg_price, lang)}
+              accent="slate"
+              delta={pk && <DeltaBadge current={kpis.avg_price} previous={pk.avg_price} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("vendorCancelledUnits")}
+              value={formatNumber(kpis.cancelled_units)}
+              accent="red"
+              delta={pk && <DeltaBadge current={kpis.cancelled_units} previous={pk.cancelled_units} invert fmtPrev={formatNumber} />}
+            />
           </div>
 
           {monthly.length > 0 && (
