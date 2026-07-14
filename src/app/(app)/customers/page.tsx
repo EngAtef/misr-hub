@@ -7,6 +7,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
+import { CustomerDrawer } from "@/components/customer-drawer";
 
 interface WinbackRow {
   customer_id: string;
@@ -141,6 +142,7 @@ export default function CustomersPage() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [registered, setRegistered] = useState<number | null>(null);
   const [ltSummary, setLtSummary] = useState<ValueSummary | null>(null);
+  const [drawerId, setDrawerId] = useState<string | null>(null);
   const { sort, toggle, apply } = useSort<SegmentCustomer>();
 
   const sortedCustomers = useMemo(
@@ -300,7 +302,7 @@ export default function CustomersPage() {
                     </thead>
                     <tbody>
                       {sortedCustomers.map((c) => (
-                        <tr key={c.customer_id}>
+                        <tr key={c.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDrawerId(c.customer_id)}>
                           <td className="font-medium">{c.customer_name ?? c.customer_id}</td>
                           <td dir="ltr" className="text-slate-600">{c.customer_phone ?? "—"}</td>
                           <td>{c.city ?? "—"}</td>
@@ -308,7 +310,7 @@ export default function CustomersPage() {
                           <td>{formatMoney(c.total_spent, lang)}</td>
                           <td className="text-xs text-slate-500">{formatDate(c.last_order_date)}</td>
                           <td>{formatNumber(c.recency_days)}</td>
-                          <td>
+                          <td onClick={(e) => e.stopPropagation()}>
                             <ContactActions phone={c.customer_phone} name={c.customer_name} waReason="general" />
                           </td>
                         </tr>
@@ -321,7 +323,7 @@ export default function CustomersPage() {
           )}
 
           {ltSummary ? (
-            <LifetimeInsights />
+            <LifetimeInsights onOpenCustomer={setDrawerId} />
           ) : (
             <div className="mt-8 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
               <History size={16} className="shrink-0 mt-0.5" />
@@ -329,16 +331,18 @@ export default function CustomersPage() {
             </div>
           )}
 
-          <MarketingAudiences neverPurchased={registered !== null} />
+          <MarketingAudiences neverPurchased={registered !== null} onOpenCustomer={setDrawerId} />
 
-          <AllCustomersBrowser hasStats={!!ltSummary} />
+          <AllCustomersBrowser hasStats={!!ltSummary} onOpenCustomer={setDrawerId} />
+
+          <CustomerDrawer customerId={drawerId} onClose={() => setDrawerId(null)} />
         </>
       )}
     </div>
   );
 }
 
-function AllCustomersBrowser({ hasStats }: { hasStats: boolean }) {
+function AllCustomersBrowser({ hasStats, onOpenCustomer }: { hasStats: boolean; onOpenCustomer: (id: string) => void }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
@@ -472,7 +476,7 @@ function AllCustomersBrowser({ hasStats }: { hasStats: boolean }) {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <tr key={c.customer_id}>
+                <tr key={c.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpenCustomer(c.customer_id)}>
                   <td className="font-medium">{c.name ?? c.customer_id}</td>
                   <td dir="ltr" className="text-slate-600">{c.phone ?? "—"}</td>
                   <td dir="ltr" className="text-xs text-slate-500">{c.email ?? "—"}</td>
@@ -492,7 +496,7 @@ function AllCustomersBrowser({ hasStats }: { hasStats: boolean }) {
                   ) : (
                     <td className="font-semibold">{c.total_orders ?? 0}</td>
                   )}
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
                   </td>
                 </tr>
@@ -518,7 +522,7 @@ function AllCustomersBrowser({ hasStats }: { hasStats: boolean }) {
   );
 }
 
-function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
+function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased: boolean; onOpenCustomer: (id: string) => void }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [birthdays, setBirthdays] = useState<BirthdayRow[]>([]);
@@ -626,7 +630,7 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
               </thead>
               <tbody>
                 {sortedBirthdays.map((b) => (
-                  <tr key={b.customer_id}>
+                  <tr key={b.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpenCustomer(b.customer_id)}>
                     <td className="font-bold text-pink-600">{b.birth_day}</td>
                     <td className="text-xs text-slate-600" dir="ltr">{formatDate(b.birthdate)}</td>
                     <td className="font-medium">{b.name ?? b.customer_id}</td>
@@ -635,7 +639,7 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
                     <td>{formatNumber(b.orders)}</td>
                     <td>{formatMoney(b.total_spent, lang)}</td>
                     <td className="text-xs text-slate-500">{formatDate(b.last_order)}</td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <ContactActions phone={b.phone} email={b.email} name={b.name} waReason="birthday" />
                     </td>
                   </tr>
@@ -688,7 +692,7 @@ function LifetimeKpis({ s }: { s: ValueSummary }) {
   );
 }
 
-function LifetimeInsights() {
+function LifetimeInsights({ onOpenCustomer }: { onOpenCustomer: (id: string) => void }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [vips, setVips] = useState<TopCustomer[]>([]);
@@ -792,7 +796,7 @@ function LifetimeInsights() {
             </thead>
             <tbody>
               {sortedVips.map((c, i) => (
-                <tr key={c.customer_id}>
+                <tr key={c.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpenCustomer(c.customer_id)}>
                   <td className="font-medium">
                     {i < 3 && <span className="me-1">{["🥇", "🥈", "🥉"][i]}</span>}
                     {c.name ?? c.customer_id}
@@ -805,7 +809,7 @@ function LifetimeInsights() {
                   <td className="font-semibold">{formatMoney(c.lifetime_delivered_amount, lang)}</td>
                   <td className="text-xs text-slate-500" dir="ltr">{formatDate(c.last_order_at)}</td>
                   <td className="text-xs">{c.last_order_state ?? "—"}</td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
                   </td>
                 </tr>
@@ -906,7 +910,7 @@ function LifetimeInsights() {
                 </thead>
                 <tbody>
                   {sortedStuck.slice(0, 300).map((r) => (
-                    <tr key={r.customer_id}>
+                    <tr key={r.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpenCustomer(r.customer_id)}>
                       <td className="font-medium">{r.name ?? r.customer_id}</td>
                       <td dir="ltr" className="text-slate-600">{r.phone ?? "—"}</td>
                       <td>
@@ -916,7 +920,7 @@ function LifetimeInsights() {
                       </td>
                       <td className="text-xs text-slate-500" dir="ltr">{formatDate(r.last_order_at)}</td>
                       <td>{formatNumber(r.lifetime_orders)}</td>
-                      <td>
+                      <td onClick={(e) => e.stopPropagation()}>
                         <ContactActions phone={r.phone} email={r.email} name={r.name} waReason="general" />
                       </td>
                     </tr>

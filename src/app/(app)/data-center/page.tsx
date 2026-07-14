@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -13,6 +13,9 @@ import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
 import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
 import { parseCustomerStatsFile, type CustomerStatsRow } from "@/lib/import/parse-customer-stats";
+import { parseProductSalesFile, type ProductSaleRow } from "@/lib/import/parse-product-sales";
+import { parseCatalogFile, parseCatalogHtml, type CatalogBook } from "@/lib/import/parse-catalog";
+import { syncCatalogUpload } from "@/lib/import/catalog-sync";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
 
 const CHUNK_SIZE = 250;
@@ -28,7 +31,18 @@ interface UploadRecord {
   created_at: string;
 }
 
-type UploadType = "orders" | "customers" | "customer_stats" | "stock" | "costs" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
+type UploadType =
+  | "orders"
+  | "customers"
+  | "customer_stats"
+  | "products"
+  | "product_sales"
+  | "stock"
+  | "costs"
+  | "ga4_pages"
+  | "ga4_tx"
+  | "ga4_items"
+  | "ads";
 
 const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
   ga4_pages: "pages",
@@ -49,7 +63,11 @@ const TEMPLATES: Record<string, string> = {
   customer_stats:
     "ID,Name,Phone,Orders Count,Delivered Orders Count,Canceled Orders Count,Orders Amount,Delivered Orders Amount,Canceled Orders Amount,Last Order Date,Last Order State,Last Delivered Order Date,City,Area,Addresses\r\n" +
     "1017375,Ahmed Ali,01000000000,5,4,1,2500,2100,400,2026-07-01,Delivered,2026-07-01,Cairo,Nasr City,\"Building 1, Street 2, Cairo\"\r\n" +
-    "# This is the platform CustomerOrdersExport (bulk) — full lifetime history per customer.",
+    "# This is the platform CustomerOrdersExport — full lifetime history per customer.",
+  product_sales:
+    "Order ID,Status,Order Date,Month / Year,Payment Method,Product Sku,Product Name,Category,Sub Category,Group,Brand,Unit Price,Unit Price After Discount,Quantity,Price,Price After Discount,Total Amount,Branch Name,Promotion,Custom Discount\r\n" +
+    "21984,Confirmed,2026-07-14 09:01:35,Jul-26,Cash On Delivery,SKU001,Book A,Kids,Educational books,Non-Fiction,Publisher X,145.00,101.50,1,145,101.5,101.5,,,\r\n" +
+    "# This is the platform ProductSalesExport — one line per product in every order.",
   stock:
     "Sku,product name,ecom,sap,category\r\n" +
     "SKU001,Book A,50,120,Kids\r\n" +
@@ -94,6 +112,8 @@ interface Pending {
   orders?: ParsedOrder[];
   customers?: CustomerRow[];
   customerStats?: CustomerStatsRow[];
+  products?: CatalogBook[];
+  productSales?: ProductSaleRow[];
   stock?: StockRow[];
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
@@ -144,6 +164,8 @@ export default function DataCenterPage() {
     { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
     { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
     { key: "customer_stats", icon: History, title: t("uploadCustomerStats"), hint: t("uploadCustomerStatsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "products", icon: Package, title: t("uploadProducts"), hint: t("uploadProductsHint"), accept: ".xlsx,.xls,.csv,.html" },
+    { key: "product_sales", icon: Tags, title: t("uploadProductSales"), hint: t("uploadProductSalesHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
@@ -171,6 +193,17 @@ export default function DataCenterPage() {
         const rows = parseCustomerStatsFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "customer_stats", fileName: file.name, customerStats: rows, count: rows.length });
+      } else if (activeType === "products") {
+        const books = file.name.toLowerCase().endsWith(".html")
+          ? parseCatalogHtml(await file.text())
+          : parseCatalogFile(await file.arrayBuffer());
+        if (!books.length) throw new Error(t("invalidFile"));
+        setPending({ type: "products", fileName: file.name, products: books, count: books.length });
+      } else if (activeType === "product_sales") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseProductSalesFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "product_sales", fileName: file.name, productSales: rows, count: rows.length });
       } else if (activeType === "stock") {
         const buffer = await file.arrayBuffer();
         const rows = parseStockFile(buffer);
@@ -286,6 +319,28 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.customerStats.length) * 100));
         }
         await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
+      } else if (pending.type === "products" && pending.products) {
+        // same pipeline as the Catalog page: e-com stock sync + quality
+        // snapshot (score, per-book missing fields) saved for /catalog
+        const res = await syncCatalogUpload(supabase, pending.products, pending.fileName, (done, total) => {
+          setProcessed(done);
+          setProgress(total ? Math.round((done / total) * 100) : 100);
+        });
+        if (res.stockFailed) throw new Error(t("stockSyncFailed"));
+        setProcessed(pending.products.length);
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.products.length, pending.products.length, 0);
+      } else if (pending.type === "product_sales" && pending.productSales) {
+        let ok = 0;
+        for (let i = 0; i < pending.productSales.length; i += 2000) {
+          const chunk = pending.productSales.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_product_sales", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.productSales.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.productSales.length, ok, 0);
       } else if (pending.type === "stock" && pending.stock) {
         const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
         if (error) throw new Error(error.message);

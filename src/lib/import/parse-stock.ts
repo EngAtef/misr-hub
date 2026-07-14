@@ -6,6 +6,7 @@ export interface StockRow {
   ecom_stock: number | null;
   sap_stock: number | null;
   category: string | null;
+  vendor?: string | null;
 }
 
 function findKey(keys: string[], candidates: string[]): string | null {
@@ -66,6 +67,33 @@ export function parseStockFile(data: ArrayBuffer): StockRow[] {
   if (!rows.length) return [];
 
   const keys = Object.keys(rows[0]);
+
+  // Platform ProductStockExport: sku / stock / reserved_stock columns,
+  // names & category in "... exportOnly" columns. Available e-com stock
+  // = stock - reserved_stock.
+  if (keys.includes("sku") && keys.includes("stock") && keys.includes("reserved_stock")) {
+    const nameKey = keys.find((k) => k.startsWith("name") && k.includes("exportOnly")) ?? null;
+    const catKey = keys.find((k) => k.startsWith("category") && k.includes("exportOnly")) ?? null;
+    const brandKey = keys.find((k) => k.startsWith("brand") && k.includes("exportOnly")) ?? null;
+    const out: StockRow[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const sku = row["sku"] ? String(row["sku"]).trim() : "";
+      if (!sku || seen.has(sku)) continue;
+      seen.add(sku);
+      const stock = num(row["stock"]);
+      const reserved = num(row["reserved_stock"]) ?? 0;
+      out.push({
+        sku,
+        product_name: nameKey && row[nameKey] ? String(row[nameKey]).trim() : null,
+        ecom_stock: stock === null ? null : Math.max(0, stock - reserved),
+        sap_stock: null,
+        category: catKey && row[catKey] ? String(row[catKey]).trim() : null,
+        vendor: brandKey && row[brandKey] ? String(row[brandKey]).trim() : null,
+      });
+    }
+    return out;
+  }
   const skuKey = findKey(keys, ["sku", "code", "الكود"]);
   if (!skuKey) return [];
   const nameKey = findKey(keys, ["productname", "name", "product", "الاسم", "اسم"]);

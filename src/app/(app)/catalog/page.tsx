@@ -7,6 +7,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { parseCatalogFile, parseCatalogHtml, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
+import { syncCatalogUpload, type CatalogSnapshot, type CatalogCompare } from "@/lib/import/catalog-sync";
 
 // Arabic-aware title normalization for SAP <-> website matching
 function normTitle(s: string): string {
@@ -40,107 +41,28 @@ const FIELD_LABEL: Record<CatalogField, DictKey> = {
   barcode: "fldBarcode",
 };
 
-interface Snapshot {
-  date: string;
-  fileName: string;
-  total: number;
-  score: number;
-  fields: string[];
-  books: Record<string, number>; // sku -> bitmask of MISSING field indexes
-}
-
-function missMask(b: CatalogBook): number {
-  let mask = 0;
-  CATALOG_FIELDS.forEach((f, i) => {
-    if (!b[f]) mask |= 1 << i;
-  });
-  return mask;
-}
-
-function bitCount(n: number): number {
-  let c = 0;
-  while (n) {
-    n &= n - 1;
-    c++;
-  }
-  return c;
-}
-
 // Runs once per upload: pushes e-com stock into the stock engine and
-// saves/compares the catalog snapshot for version tracking.
+// saves/compares the catalog snapshot for version tracking (shared
+// with the Data Center products upload via catalog-sync).
 function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileName: string; score: number }) {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [stockMsg, setStockMsg] = useState<string | null>(null);
-  const [compare, setCompare] = useState<{ prev: Snapshot; added: number; removed: number; fixed: number; regressed: number } | null>(null);
+  const [compare, setCompare] = useState<CatalogCompare | null>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 1) e-commerce stock sync from the products file
       const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
-      if (withStock.length) {
-        setStockMsg(t("stockSyncing"));
-        let ok = 0;
-        let failed = false;
-        for (let i = 0; i < withStock.length; i += 2000) {
-          const chunk = withStock.slice(i, i + 2000).map((b) => ({
-            sku: b.sku,
-            product_name: b.name ?? b.english_name ?? "",
-            ecom_stock: String(b.stock_qty),
-            sap_stock: "",
-            category: b.section ?? "",
-            vendor: b.vendor ?? "",
-          }));
-          const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
-          if (error) {
-            failed = true;
-            break;
-          }
-          ok += chunk.length;
-        }
-        if (cancelled) return;
-        setStockMsg(failed ? t("stockSyncFailed") : `✅ ${t("stockSynced")} ${ok.toLocaleString("en-EG")} ${t("itemsWord")}`);
-      }
-
-      // 2) snapshot compare + save
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "catalog_snapshot").maybeSingle();
-      const prev = (data?.value ?? null) as Snapshot | null;
-      const current: Record<string, number> = {};
-      for (const b of books) current[b.sku] = missMask(b);
-
-      if (prev && prev.books) {
-        let added = 0;
-        let removed = 0;
-        let fixed = 0;
-        let regressed = 0;
-        for (const sku of Object.keys(current)) {
-          if (!(sku in prev.books)) added++;
-          else {
-            const was = prev.books[sku];
-            const now = current[sku];
-            fixed += bitCount(was & ~now);
-            regressed += bitCount(now & ~was);
-          }
-        }
-        for (const sku of Object.keys(prev.books)) if (!(sku in current)) removed++;
-        if (!cancelled) setCompare({ prev, added, removed, fixed, regressed });
-      }
-
-      const snapshot: Snapshot = {
-        date: new Date().toISOString(),
-        fileName,
-        total: books.length,
-        score,
-        fields: [...CATALOG_FIELDS],
-        books: current,
-      };
-      const { error: saveErr } = await supabase
-        .from("app_settings")
-        .upsert({ key: "catalog_snapshot", value: snapshot, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (withStock.length) setStockMsg(t("stockSyncing"));
+      const res = await syncCatalogUpload(supabase, books, fileName);
       if (cancelled) return;
-      setSnapMsg(saveErr ? t("snapshotSaveFailed") : prev ? t("snapshotSaved") : t("firstSnapshot"));
+      if (withStock.length) {
+        setStockMsg(res.stockFailed ? t("stockSyncFailed") : `✅ ${t("stockSynced")} ${res.syncedStock.toLocaleString("en-EG")} ${t("itemsWord")}`);
+      }
+      setCompare(res.compare);
+      setSnapMsg(res.compare ? t("snapshotSaved") : t("firstSnapshot"));
     })();
     return () => {
       cancelled = true;
@@ -227,8 +149,11 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
     const known = new Set(siteNames);
     if (catalogBooks) {
       for (const b of catalogBooks) {
-        if (b.name) known.add(normTitle(b.name));
-        if (b.english_name) known.add(normTitle(b.english_name));
+        // snapshot pseudo-books use "✓" placeholders — skip empty norms
+        const n1 = b.name ? normTitle(b.name) : "";
+        const n2 = b.english_name ? normTitle(b.english_name) : "";
+        if (n1) known.add(n1);
+        if (n2) known.add(n2);
       }
     }
     const missing = sapRows.filter((r) => {
@@ -327,12 +252,38 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
 
 export default function CatalogPage() {
   const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
   const fileRef = useRef<HTMLInputElement>(null);
   const [books, setBooks] = useState<CatalogBook[] | null>(null);
   const [fileName, setFileName] = useState("");
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
   const [filterField, setFilterField] = useState<CatalogField | null>(null);
+  const [snapBooks, setSnapBooks] = useState<CatalogBook[] | null>(null);
+  const [snapInfo, setSnapInfo] = useState<{ fileName: string; date: string } | null>(null);
+
+  // Quality persists between visits: rebuild the view from the stored
+  // snapshot (saved here or by the Data Center products upload).
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "catalog_snapshot").maybeSingle();
+      const snap = (data?.value ?? null) as CatalogSnapshot | null;
+      if (!snap?.books) return;
+      const flds = (snap.fields ?? [...CATALOG_FIELDS]) as CatalogField[];
+      const list: CatalogBook[] = Object.entries(snap.books).map(([sku, mask]) => {
+        const b = { sku } as CatalogBook;
+        flds.forEach((f, i) => {
+          b[f] = mask & (1 << i) ? null : "✓";
+        });
+        if (b.name) b.name = snap.names?.[sku] ?? "✓";
+        return b;
+      });
+      setSnapBooks(list);
+      setSnapInfo({ fileName: snap.fileName, date: snap.date });
+    })();
+  }, [supabase]);
+
+  const view = books ?? snapBooks;
 
   async function handleFile(file: File) {
     setParsing(true);
@@ -358,21 +309,21 @@ export default function CatalogPage() {
   }
 
   const stats = useMemo(() => {
-    if (!books) return null;
+    if (!view) return null;
     const perField = CATALOG_FIELDS.map((f) => {
-      const missing = books.filter((b) => !b[f]).length;
-      return { field: f, missing, filled: books.length - missing, pct: books.length ? ((books.length - missing) / books.length) * 100 : 0 };
+      const missing = view.filter((b) => !b[f]).length;
+      return { field: f, missing, filled: view.length - missing, pct: view.length ? ((view.length - missing) / view.length) * 100 : 0 };
     }).sort((a, b) => a.pct - b.pct);
-    const totalCells = books.length * CATALOG_FIELDS.length;
+    const totalCells = view.length * CATALOG_FIELDS.length;
     const filledCells = perField.reduce((s, f) => s + f.filled, 0);
     return { perField, score: totalCells ? (filledCells / totalCells) * 100 : 0 };
-  }, [books]);
+  }, [view]);
 
   const filtered = useMemo(() => {
-    if (!books) return [];
-    if (!filterField) return books.filter((b) => CATALOG_FIELDS.some((f) => !b[f]));
-    return books.filter((b) => !b[filterField]);
-  }, [books, filterField]);
+    if (!view) return [];
+    if (!filterField) return view.filter((b) => CATALOG_FIELDS.some((f) => !b[f]));
+    return view.filter((b) => !b[filterField]);
+  }, [view, filterField]);
 
   const { sort, toggle, apply } = useSort<CatalogBook>();
   const sortedFiltered = useMemo(
@@ -432,16 +383,23 @@ export default function CatalogPage() {
 
       {books && <UploadEffects books={books} fileName={fileName} score={stats?.score ?? 0} />}
 
-      <SapVsWebsite catalogBooks={books} />
+      {!books && snapInfo && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-2.5 text-sm text-brand-800">
+          <CheckCircle2 size={16} className="shrink-0" />
+          {t("snapshotSource")}: <span dir="ltr" className="font-semibold">{snapInfo.fileName}</span> — {new Date(snapInfo.date).toLocaleDateString("en-GB")}
+        </div>
+      )}
+
+      <SapVsWebsite catalogBooks={view} />
 
       {parsing ? (
         <Spinner />
-      ) : !books || !stats ? null : (
+      ) : !view || !stats ? null : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="card p-4 border-s-4 border-s-brand-500">
               <div className="text-xs font-semibold uppercase text-slate-500">{t("totalBooks")}</div>
-              <div className="mt-1 text-2xl font-bold">{formatNumber(books.length)}</div>
+              <div className="mt-1 text-2xl font-bold">{formatNumber(view.length)}</div>
             </div>
             <div className={cn("card p-4 border-s-4", stats.score >= 90 ? "border-s-emerald-500" : stats.score >= 70 ? "border-s-amber-500" : "border-s-red-500")}>
               <div className="text-xs font-semibold uppercase text-slate-500">{t("completenessScore")}</div>
@@ -453,7 +411,7 @@ export default function CatalogPage() {
             </div>
             <div className="card p-4 border-s-4 border-s-amber-500">
               <div className="text-xs font-semibold uppercase text-slate-500">{t("missingCount")}</div>
-              <div className="mt-1 text-2xl font-bold">{formatNumber(books.filter((b) => CATALOG_FIELDS.some((f) => !b[f])).length)}</div>
+              <div className="mt-1 text-2xl font-bold">{formatNumber(view.filter((b) => CATALOG_FIELDS.some((f) => !b[f])).length)}</div>
             </div>
           </div>
 
