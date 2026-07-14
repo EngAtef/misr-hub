@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX } from "lucide-react";
+import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX, Trophy, MapPin, PackageSearch, RotateCcw, History } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
@@ -51,6 +51,75 @@ interface SegmentCustomer {
   recency_days: number;
 }
 
+interface ValueSummary {
+  stats_customers: number;
+  buyers: number;
+  delivered_buyers: number;
+  never_ordered: number;
+  repeat_buyers: number;
+  one_timers: number;
+  lifetime_orders_total: number;
+  lifetime_delivered_total: number;
+  lifetime_canceled_total: number;
+  lifetime_amount_total: number;
+  delivered_amount_total: number;
+  canceled_amount_total: number;
+  avg_ltv: number;
+  stats_updated_at: string | null;
+}
+
+interface TopCustomer {
+  customer_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  lifetime_orders: number;
+  lifetime_delivered: number;
+  lifetime_canceled: number;
+  lifetime_amount: number;
+  lifetime_delivered_amount: number;
+  last_order_at: string | null;
+  last_order_state: string | null;
+  last_delivered_at: string | null;
+}
+
+interface CityStat {
+  city: string;
+  customers: number;
+  buyers: number;
+  delivered_orders: number;
+  delivered_amount: number;
+  canceled_orders: number;
+  canceled_amount: number;
+  avg_ltv: number;
+}
+
+interface StuckRow {
+  customer_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  last_order_at: string | null;
+  last_order_state: string | null;
+  lifetime_orders: number;
+  lifetime_delivered: number;
+  lifetime_amount: number;
+}
+
+interface ChurnedRow {
+  customer_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  lifetime_delivered: number;
+  lifetime_delivered_amount: number;
+  last_order_at: string | null;
+  last_order_state: string | null;
+}
+
 const SEGMENT_META: Record<string, { labelKey: DictKey; descKey: DictKey; icon: React.ElementType; color: string }> = {
   champions: { labelKey: "segChampions", descKey: "segChampionsDesc", icon: Crown, color: "text-amber-600 bg-amber-50 border-amber-200" },
   loyal: { labelKey: "segLoyal", descKey: "segLoyalDesc", icon: Heart, color: "text-rose-600 bg-rose-50 border-rose-200" },
@@ -71,6 +140,7 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<SegmentCustomer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [registered, setRegistered] = useState<number | null>(null);
+  const [ltSummary, setLtSummary] = useState<ValueSummary | null>(null);
   const { sort, toggle, apply } = useSort<SegmentCustomer>();
 
   const sortedCustomers = useMemo(
@@ -96,6 +166,10 @@ export default function CustomersPage() {
       .from("customers")
       .select("customer_id", { count: "exact", head: true })
       .then(({ count }) => setRegistered(count ?? null));
+    supabase.rpc("fn_customer_value_summary").then(({ data }) => {
+      const s = data as ValueSummary | null;
+      setLtSummary(s && Number(s.stats_customers) > 0 ? s : null);
+    });
   }, [supabase]);
 
   async function openSegment(segment: string) {
@@ -127,7 +201,10 @@ export default function CustomersPage() {
       ) : (
         <>
           {registered !== null && registered > 0 && (() => {
-            const buyers = summary.reduce((s, x) => s + Number(x.customers), 0);
+            // Lifetime stats (bulk CustomerOrdersExport) are exact; fall
+            // back to RFM-derived counts from uploaded order months.
+            const buyers = ltSummary ? Number(ltSummary.buyers) : summary.reduce((s, x) => s + Number(x.customers), 0);
+            const never = ltSummary ? Number(ltSummary.never_ordered) : Math.max(registered - buyers, 0);
             return (
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-6">
                 <div className="card p-4 border-s-4 border-s-brand-500">
@@ -144,11 +221,12 @@ export default function CustomersPage() {
                 </div>
                 <div className="card p-4 border-s-4 border-s-red-500">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("neverPurchased")}</div>
-                  <div className="mt-1 text-2xl font-bold">{formatNumber(Math.max(registered - buyers, 0))}</div>
+                  <div className="mt-1 text-2xl font-bold">{formatNumber(never)}</div>
                 </div>
               </div>
             );
           })()}
+          {ltSummary && <LifetimeKpis s={ltSummary} />}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
             {ordered.map((s) => {
               const meta = SEGMENT_META[s.segment];
@@ -242,24 +320,39 @@ export default function CustomersPage() {
             </div>
           )}
 
+          {ltSummary ? (
+            <LifetimeInsights />
+          ) : (
+            <div className="mt-8 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+              <History size={16} className="shrink-0 mt-0.5" />
+              {t("uploadStatsNudge")}
+            </div>
+          )}
+
           <MarketingAudiences neverPurchased={registered !== null} />
 
-          <AllCustomersBrowser />
+          <AllCustomersBrowser hasStats={!!ltSummary} />
         </>
       )}
     </div>
   );
 }
 
-function AllCustomersBrowser() {
-  const { t } = useLang();
+function AllCustomersBrowser({ hasStats }: { hasStats: boolean }) {
+  const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [filter, setFilter] = useState<"all" | "buyers" | "never">("all");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<
-    { customer_id: string; name: string | null; phone: string | null; email: string | null; city: string | null; birthdate: string | null; joined_at: string | null; total_orders: number | null }[]
+    {
+      customer_id: string; name: string | null; phone: string | null; email: string | null; city: string | null;
+      birthdate: string | null; joined_at: string | null; total_orders: number | null;
+      lifetime_orders: number | null; lifetime_delivered: number | null; lifetime_delivered_amount: number | null;
+      last_order_at: string | null; last_order_state: string | null;
+    }[]
   >([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -278,11 +371,16 @@ function AllCustomersBrowser() {
       setLoading(true);
       let q = supabase
         .from("customers")
-        .select("customer_id, name, phone, email, city, birthdate, joined_at, total_orders", { count: "exact" });
+        .select(
+          "customer_id, name, phone, email, city, birthdate, joined_at, total_orders, lifetime_orders, lifetime_delivered, lifetime_delivered_amount, last_order_at, last_order_state",
+          { count: "exact" }
+        );
       if (search) {
         const s = sanitizeSearch(search);
         if (s) q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
       }
+      if (filter === "buyers") q = q.gt("lifetime_orders", 0);
+      if (filter === "never") q = q.eq("lifetime_orders", 0);
       const { data, count } = await q
         .order(sort?.key ?? "joined_at", { ascending: sort?.dir === "asc", nullsFirst: false })
         .range(page * PAGE, page * PAGE + PAGE - 1);
@@ -294,7 +392,7 @@ function AllCustomersBrowser() {
     return () => {
       cancelled = true;
     };
-  }, [open, search, page, supabase, sort]);
+  }, [open, search, page, supabase, sort, filter]);
 
   if (!open) {
     return (
@@ -317,7 +415,7 @@ function AllCustomersBrowser() {
         <span className="text-[11px] text-slate-400">{t("lastActionNote")}</span>
       </div>
       <form
-        className="mb-3"
+        className="mb-3 flex flex-wrap items-center gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           setPage(0);
@@ -325,6 +423,26 @@ function AllCustomersBrowser() {
         }}
       >
         <input className="input max-w-md" placeholder={t("searchCustomersPh")} value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+        {hasStats && (
+          <div className="flex gap-1.5">
+            {(["all", "buyers", "never"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => {
+                  setFilter(f);
+                  setPage(0);
+                }}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                  filter === f ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500 hover:border-slate-300"
+                )}
+              >
+                {t(f === "all" ? "filterAll" : f === "buyers" ? "filterBuyers" : "filterNever")}
+              </button>
+            ))}
+          </div>
+        )}
       </form>
       <div className="card overflow-x-auto">
         {loading ? (
@@ -339,7 +457,16 @@ function AllCustomersBrowser() {
                 <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
                 <SortTh label={t("birthDate")} k="birthdate" sort={sort} onToggle={onSort} />
                 <SortTh label={t("registeredAt")} k="joined_at" sort={sort} onToggle={onSort} />
-                <SortTh label={t("orders")} k="total_orders" sort={sort} onToggle={onSort} />
+                {hasStats ? (
+                  <>
+                    <SortTh label={t("ltOrders")} k="lifetime_orders" sort={sort} onToggle={onSort} />
+                    <SortTh label={t("deliveredCol")} k="lifetime_delivered" sort={sort} onToggle={onSort} />
+                    <SortTh label={t("totalSpent")} k="lifetime_delivered_amount" sort={sort} onToggle={onSort} />
+                    <SortTh label={t("lastOrder")} k="last_order_at" sort={sort} onToggle={onSort} />
+                  </>
+                ) : (
+                  <SortTh label={t("orders")} k="total_orders" sort={sort} onToggle={onSort} />
+                )}
                 <th></th>
               </tr>
             </thead>
@@ -352,7 +479,19 @@ function AllCustomersBrowser() {
                   <td>{c.city ?? "—"}</td>
                   <td dir="ltr" className="text-xs">{formatDate(c.birthdate)}</td>
                   <td dir="ltr" className="text-xs text-slate-500">{formatDate(c.joined_at)}</td>
-                  <td className="font-semibold">{c.total_orders ?? 0}</td>
+                  {hasStats ? (
+                    <>
+                      <td className="font-semibold">{c.lifetime_orders ?? 0}</td>
+                      <td className="text-emerald-700">{c.lifetime_delivered ?? 0}</td>
+                      <td>{formatMoney(c.lifetime_delivered_amount ?? 0, lang)}</td>
+                      <td className="text-xs text-slate-500">
+                        {formatDate(c.last_order_at)}
+                        {c.last_order_state && <span className="ms-1 text-slate-400">· {c.last_order_state}</span>}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="font-semibold">{c.total_orders ?? 0}</td>
+                  )}
                   <td>
                     <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
                   </td>
@@ -505,6 +644,288 @@ function MarketingAudiences({ neverPurchased }: { neverPurchased: boolean }) {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function LifetimeKpis({ s }: { s: ValueSummary }) {
+  const { t, lang } = useLang();
+  const repeatRate = Number(s.delivered_buyers) > 0 ? (Number(s.repeat_buyers) / Number(s.delivered_buyers)) * 100 : 0;
+  const cancelRate = Number(s.lifetime_orders_total) > 0 ? (Number(s.lifetime_canceled_total) / Number(s.lifetime_orders_total)) * 100 : 0;
+  return (
+    <div className="mb-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="card p-4 border-s-4 border-s-emerald-600">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("lifetimeRevenue")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatMoney(s.delivered_amount_total, lang)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">{formatNumber(s.lifetime_delivered_total)} {t("deliveredOrdersLbl")}</div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-brand-600">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("avgLtv")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatMoney(s.avg_ltv, lang)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">{formatNumber(s.delivered_buyers)} {t("deliveredBuyersLbl")}</div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-violet-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("repeatRate")}</div>
+          <div className="mt-1 text-2xl font-bold">{repeatRate.toFixed(1)}%</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">{formatNumber(s.repeat_buyers)} {t("repeatBuyersLbl")}</div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-red-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("canceledRevenue")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatMoney(s.canceled_amount_total, lang)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">
+            {formatNumber(s.lifetime_canceled_total)} {t("canceledOrdersLbl")} · {cancelRate.toFixed(1)}%
+          </div>
+        </div>
+      </div>
+      {s.stats_updated_at && (
+        <div className="mt-2 text-[11px] text-slate-400">
+          {t("statsUpdatedAt")}: {formatDate(s.stats_updated_at)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LifetimeInsights() {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [vips, setVips] = useState<TopCustomer[]>([]);
+  const [cities, setCities] = useState<CityStat[]>([]);
+  const [stuck, setStuck] = useState<StuckRow[]>([]);
+  const [churned, setChurned] = useState<ChurnedRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const vipSort = useSort<TopCustomer>();
+  const stuckSort = useSort<StuckRow>();
+
+  useEffect(() => {
+    (async () => {
+      const [v, c, st, ch] = await Promise.all([
+        supabase.rpc("fn_top_lifetime_customers", { p_limit: 100 }),
+        supabase.rpc("fn_lifetime_city_stats", { p_limit: 40 }),
+        supabase.rpc("fn_stuck_last_orders", { p_limit: 2000 }),
+        supabase.rpc("fn_churned_vips", { p_months: 6, p_min_delivered: 2, p_limit: 5000 }),
+      ]);
+      setVips((v.data as TopCustomer[]) ?? []);
+      setCities((c.data as CityStat[]) ?? []);
+      setStuck((st.data as StuckRow[]) ?? []);
+      setChurned((ch.data as ChurnedRow[]) ?? []);
+      setLoading(false);
+    })();
+  }, [supabase]);
+
+  const sortedVips = useMemo(
+    () =>
+      vipSort.apply(vips, {
+        name: (r) => r.name,
+        city: (r) => r.city,
+        orders: (r) => r.lifetime_orders,
+        delivered: (r) => r.lifetime_delivered,
+        canceled: (r) => r.lifetime_canceled,
+        spent: (r) => r.lifetime_delivered_amount,
+        last: (r) => r.last_order_at,
+      }),
+    [vips, vipSort]
+  );
+
+  const sortedStuck = useMemo(
+    () =>
+      stuckSort.apply(stuck, {
+        name: (r) => r.name,
+        city: (r) => r.city,
+        state: (r) => r.last_order_state,
+        last: (r) => r.last_order_at,
+        orders: (r) => r.lifetime_orders,
+        amount: (r) => r.lifetime_amount,
+      }),
+    [stuck, stuckSort]
+  );
+
+  function exportRows(name: string, rows: unknown[]) {
+    if (!rows.length) return;
+    downloadCsv(`${name}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as Record<string, unknown>[]));
+  }
+
+  if (loading) {
+    return (
+      <div className="mt-8">
+        <Spinner />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 space-y-6">
+      {/* VIP top customers */}
+      <div className="card p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-amber-50 p-2 text-amber-600">
+              <Trophy size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold">{t("topCustomers")} ({formatNumber(vips.length)})</h3>
+              <p className="mt-0.5 text-xs text-slate-500">{t("topCustomersHint")}</p>
+            </div>
+          </div>
+          <button className="btn-secondary" onClick={() => exportRows("vip-customers", vips)} disabled={!vips.length}>
+            <Download size={16} />
+            {t("exportList")}
+          </button>
+        </div>
+        <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <SortTh label={t("customer")} k="name" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <th>{t("phone")}</th>
+                <SortTh label={t("city")} k="city" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <SortTh label={t("ltOrders")} k="orders" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <SortTh label={t("deliveredCol")} k="delivered" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <SortTh label={t("canceledCol")} k="canceled" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <SortTh label={t("totalSpent")} k="spent" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <SortTh label={t("lastOrder")} k="last" sort={vipSort.sort} onToggle={vipSort.toggle} />
+                <th>{t("lastState")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedVips.map((c, i) => (
+                <tr key={c.customer_id}>
+                  <td className="font-medium">
+                    {i < 3 && <span className="me-1">{["🥇", "🥈", "🥉"][i]}</span>}
+                    {c.name ?? c.customer_id}
+                  </td>
+                  <td dir="ltr" className="text-slate-600">{c.phone ?? "—"}</td>
+                  <td>{c.city ?? "—"}</td>
+                  <td className="font-semibold">{formatNumber(c.lifetime_orders)}</td>
+                  <td className="text-emerald-700">{formatNumber(c.lifetime_delivered)}</td>
+                  <td className="text-red-600">{formatNumber(c.lifetime_canceled)}</td>
+                  <td className="font-semibold">{formatMoney(c.lifetime_delivered_amount, lang)}</td>
+                  <td className="text-xs text-slate-500" dir="ltr">{formatDate(c.last_order_at)}</td>
+                  <td className="text-xs">{c.last_order_state ?? "—"}</td>
+                  <td>
+                    <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Cities + churned VIP winback */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="card p-5">
+          <div className="mb-4 flex items-start gap-3">
+            <div className="rounded-lg bg-sky-50 p-2 text-sky-600">
+              <MapPin size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold">{t("cityBreakdown")}</h3>
+              <p className="mt-0.5 text-xs text-slate-500">{t("cityBreakdownHint")}</p>
+            </div>
+          </div>
+          <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>{t("city")}</th>
+                  <th>{t("customers")}</th>
+                  <th>{t("deliveredCol")}</th>
+                  <th>{t("revenue")}</th>
+                  <th>{t("avgLtv")}</th>
+                  <th>{t("canceledCol")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cities.map((c) => (
+                  <tr key={c.city}>
+                    <td className="font-medium">{c.city}</td>
+                    <td>{formatNumber(c.customers)}</td>
+                    <td className="text-emerald-700">{formatNumber(c.delivered_orders)}</td>
+                    <td className="font-semibold">{formatMoney(c.delivered_amount, lang)}</td>
+                    <td>{formatMoney(c.avg_ltv, lang)}</td>
+                    <td className="text-red-600 text-xs">
+                      {formatNumber(c.canceled_orders)} · {formatMoney(c.canceled_amount, lang)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="card p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-violet-50 p-2 text-violet-600">
+                  <RotateCcw size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold">{t("churnedVips")} ({formatNumber(churned.length)})</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">{t("churnedVipsHint")}</p>
+                </div>
+              </div>
+              <button className="btn-primary" onClick={() => exportRows("churned-vips", churned)} disabled={!churned.length}>
+                <Download size={16} />
+                {t("exportList")}
+              </button>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-orange-50 p-2 text-orange-600">
+                  <PackageSearch size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold">{t("stuckOrders")} ({formatNumber(stuck.length)})</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">{t("stuckOrdersHint")}</p>
+                </div>
+              </div>
+              <button className="btn-secondary" onClick={() => exportRows("last-order-followups", stuck)} disabled={!stuck.length}>
+                <Download size={16} />
+                {t("exportList")}
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+              <table className="table-base">
+                <thead>
+                  <tr>
+                    <SortTh label={t("customer")} k="name" sort={stuckSort.sort} onToggle={stuckSort.toggle} />
+                    <th>{t("phone")}</th>
+                    <SortTh label={t("lastState")} k="state" sort={stuckSort.sort} onToggle={stuckSort.toggle} />
+                    <SortTh label={t("lastOrder")} k="last" sort={stuckSort.sort} onToggle={stuckSort.toggle} />
+                    <SortTh label={t("ltOrders")} k="orders" sort={stuckSort.sort} onToggle={stuckSort.toggle} />
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedStuck.slice(0, 300).map((r) => (
+                    <tr key={r.customer_id}>
+                      <td className="font-medium">{r.name ?? r.customer_id}</td>
+                      <td dir="ltr" className="text-slate-600">{r.phone ?? "—"}</td>
+                      <td>
+                        <span className="inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-800">
+                          {r.last_order_state}
+                        </span>
+                      </td>
+                      <td className="text-xs text-slate-500" dir="ltr">{formatDate(r.last_order_at)}</td>
+                      <td>{formatNumber(r.lifetime_orders)}</td>
+                      <td>
+                        <ContactActions phone={r.phone} email={r.email} name={r.name} waReason="general" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

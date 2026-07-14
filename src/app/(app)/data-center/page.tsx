@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -12,6 +12,7 @@ import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
 import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
 import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
+import { parseCustomerStatsFile, type CustomerStatsRow } from "@/lib/import/parse-customer-stats";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
 
 const CHUNK_SIZE = 250;
@@ -27,7 +28,7 @@ interface UploadRecord {
   created_at: string;
 }
 
-type UploadType = "orders" | "customers" | "stock" | "costs" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
+type UploadType = "orders" | "customers" | "customer_stats" | "stock" | "costs" | "ga4_pages" | "ga4_tx" | "ga4_items" | "ads";
 
 const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
   ga4_pages: "pages",
@@ -45,6 +46,10 @@ const TEMPLATES: Record<string, string> = {
   customers:
     "id,name,email,birthdate,contact,total_orders,language,active,Joined on,City,Area,addresses\r\n" +
     "1001,Ahmed Ali,ahmed@example.com,1990-05-12,01000000000,3,ar,1,2026-01-15 10:00:00,Cairo,Nasr City,\"12 Street, Cairo\"",
+  customer_stats:
+    "ID,Name,Phone,Orders Count,Delivered Orders Count,Canceled Orders Count,Orders Amount,Delivered Orders Amount,Canceled Orders Amount,Last Order Date,Last Order State,Last Delivered Order Date,City,Area,Addresses\r\n" +
+    "1017375,Ahmed Ali,01000000000,5,4,1,2500,2100,400,2026-07-01,Delivered,2026-07-01,Cairo,Nasr City,\"Building 1, Street 2, Cairo\"\r\n" +
+    "# This is the platform CustomerOrdersExport (bulk) — full lifetime history per customer.",
   stock:
     "Sku,product name,ecom,sap,category\r\n" +
     "SKU001,Book A,50,120,Kids\r\n" +
@@ -88,6 +93,7 @@ interface Pending {
   fileName: string;
   orders?: ParsedOrder[];
   customers?: CustomerRow[];
+  customerStats?: CustomerStatsRow[];
   stock?: StockRow[];
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
@@ -137,6 +143,7 @@ export default function DataCenterPage() {
   const TYPES: { key: UploadType; icon: React.ElementType; title: string; hint: string; accept: string }[] = [
     { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
     { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "customer_stats", icon: History, title: t("uploadCustomerStats"), hint: t("uploadCustomerStatsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
@@ -159,6 +166,11 @@ export default function DataCenterPage() {
         const rows = parseCustomersFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "customers", fileName: file.name, customers: rows, count: rows.length });
+      } else if (activeType === "customer_stats") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCustomerStatsFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "customer_stats", fileName: file.name, customerStats: rows, count: rows.length });
       } else if (activeType === "stock") {
         const buffer = await file.arrayBuffer();
         const rows = parseStockFile(buffer);
@@ -263,6 +275,17 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.customers.length) * 100));
         }
         await recordUpload(pending.fileName, pending.customers.length, ok, 0);
+      } else if (pending.type === "customer_stats" && pending.customerStats) {
+        let ok = 0;
+        for (let i = 0; i < pending.customerStats.length; i += 2000) {
+          const chunk = pending.customerStats.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_customer_stats", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.customerStats.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
       } else if (pending.type === "stock" && pending.stock) {
         const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
         if (error) throw new Error(error.message);
