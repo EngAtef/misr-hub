@@ -57,13 +57,37 @@ export async function addLabel(cfg: BotConfig, conversationId: number, label: st
     // If reading fails we still try to set the label on its own.
   }
   if (existing.includes(label)) return;
+
+  // Chatwoot silently drops labels that don't exist in the account, so
+  // verify the response actually contains ours; if not, create the account
+  // label and retry once.
+  if (await postLabels(url, cfg, [...existing, label], label)) return;
+  try {
+    await fetch(`${api(cfg)}/labels`, {
+      method: "POST",
+      headers: headers(cfg),
+      body: JSON.stringify({ title: label, color: "#F0B429", show_on_sidebar: true }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Creation may be forbidden for non-admin agents — the retry below tells us.
+  }
+  if (await postLabels(url, cfg, [...existing, label], label)) return;
+  throw new Error(
+    `label "${label}" was not applied — create it manually in Chatwoot (Settings → Labels)`
+  );
+}
+
+async function postLabels(url: string, cfg: BotConfig, labels: string[], mustInclude: string): Promise<boolean> {
   const res = await fetch(url, {
     method: "POST",
     headers: headers(cfg),
-    body: JSON.stringify({ labels: [...existing, label] }),
+    body: JSON.stringify({ labels }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`chatwoot labels failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { payload?: string[] };
+  return (body.payload ?? []).includes(mustInclude);
 }
 
 /** The bot agent's own profile — used to recognise self-assigned conversations. */

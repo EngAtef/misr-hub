@@ -132,8 +132,15 @@ test("English message gets English reply; Arabic gets Arabic", async () => {
   const { ctx, rec } = makeCtx();
   await handleWebhook("secret-token", incoming("how much is shipping to Aswan?"), ctx);
   await handleWebhook("secret-token", incoming("كام سعر الشحن؟"), ctx);
-  assert.ok(rec.sent[0].content.includes("Shipping & delivery"));
-  assert.ok(rec.sent[1].content.includes("الشحن والتوصيل"));
+  assert.ok(rec.sent[0].content.includes("Upper Egypt")); // variant answer, in English
+  assert.ok(rec.sent[1].content.includes("الشحن والتوصيل")); // generic list, in Arabic
+});
+
+test("every replied conversation gets the triage label (fallback included)", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("asdkjhasd"), ctx);
+  await handleWebhook("secret-token", incoming("1"), ctx);
+  assert.deepEqual(rec.labeled, [42, 42]);
 });
 
 test("gibberish -> fallback, no guessed intent", async () => {

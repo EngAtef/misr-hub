@@ -221,10 +221,34 @@ export function route(text: string, script: BotScript = DEFAULT_SCRIPT): string 
   return null;
 }
 
-export function replyFor(intent: string, arabic: boolean, script: BotScript = DEFAULT_SCRIPT): string {
+export function replyFor(
+  intent: string,
+  arabic: boolean,
+  script: BotScript = DEFAULT_SCRIPT,
+  messageText?: string
+): string {
   if (intent === "handoff") return arabic ? script.handoffAr : script.handoffEn;
   const cfg = script.intents[intent];
-  return (arabic ? cfg.ar : cfg.en) + (arabic ? script.footerAr : script.footerEn);
+  let body = arabic ? cfg.ar : cfg.en;
+  // Second stage: once the topic has won, pick the most specific answer for
+  // the question — "shipping to Giza?" gets the Greater Cairo rate, not the
+  // whole 27-governorate list. No variant matched = the generic answer.
+  if (messageText && cfg.variants) {
+    const n = norm(messageText);
+    const tokens = tokenize(n);
+    let bestScore = 0;
+    for (const v of Object.values(cfg.variants)) {
+      let score = 0;
+      for (const kw of [...v.keywords_ar, ...v.keywords_en]) {
+        score += matchScore(kw, n, tokens);
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        body = arabic ? v.ar : v.en;
+      }
+    }
+  }
+  return body + (arabic ? script.footerAr : script.footerEn);
 }
 
 // ── Business hours ───────────────────────────────────────────
@@ -347,6 +371,10 @@ export async function handleWebhook(
     const text = data.content ?? "";
     const arabic = isArabic(text) || !/[a-zA-Z]/.test(text);
 
+    // Every conversation the bot participates in gets the triage label
+    // (idempotent — the label helper skips if already present).
+    await ctx.labelConversation(convId);
+
     const intent = route(text, script);
     if (intent === null) {
       ctx.log(`conv=${convId} intent=fallback`);
@@ -355,12 +383,11 @@ export async function handleWebhook(
     }
 
     ctx.log(`conv=${convId} intent=${intent}`);
-    await ctx.send(convId, replyFor(intent, arabic, script));
+    await ctx.send(convId, replyFor(intent, arabic, script, text));
     // Handoff — and any intent flagged open (e.g. cancel) — goes to the
-    // human queue: label it, drop the bot's assignment so it shows as
-    // unassigned, and set the status to open.
+    // human queue: drop the bot's assignment so it shows as unassigned,
+    // and set the status to open.
     if (intent === "handoff" || script.intents[intent]?.open) {
-      await ctx.labelConversation(convId);
       await ctx.unassignConversation(convId);
       await ctx.openConversation(convId);
     }

@@ -102,6 +102,37 @@ test("MIN_SCORE guards weak matches", () => {
   assert.ok(MIN_SCORE >= 3);
 });
 
+test("variants: governorate questions get the specific zone, not the full list", () => {
+  const answer = (msg: string) => replyFor(route(msg)!, true, DEFAULT_SCRIPT, msg);
+  const answerEn = (msg: string) => replyFor(route(msg)!, false, DEFAULT_SCRIPT, msg);
+
+  const giza = answer("كام الشحن للجيزه؟");
+  assert.ok(giza.includes("85.56"), "Giza gets the Greater Cairo rate");
+  assert.ok(!giza.includes("199.64"), "…and not the Sinai rate");
+
+  const qalyubia = answer("الشحن مجاني للقليوبية؟");
+  assert.ok(qalyubia.includes("سعر الشحن العادي"), "Qalyubia is told free shipping doesn't apply");
+
+  const aswan = answerEn("How much is shipping to Aswan?");
+  assert.ok(aswan.includes("128.34") && aswan.includes("Upper Egypt"));
+
+  const matrouh = answer("كام الشحن لمرسى مطروح");
+  assert.ok(matrouh.includes("*0*"), "unlisted governorate offers the handoff");
+  assert.ok(!/\d+\.\d+/.test(matrouh), "…and quotes no rate at all");
+
+  const generic = answer("كام سعر الشحن؟");
+  assert.ok(generic.includes("85.56") && generic.includes("199.64"), "no governorate → full list");
+});
+
+test("variants: payment and returns sub-questions get targeted answers", () => {
+  const answer = (msg: string) => replyFor(route(msg)!, true, DEFAULT_SCRIPT, msg);
+  assert.ok(answer("هل تقبلوا فودافون كاش؟").includes("غير متاحة"), "wallet question → wallets answer");
+  assert.ok(answer("أقدر أقسط؟").includes("فاليو"), "installment question → ValU answer");
+  assert.ok(answer("عايز أستبدل كتاب").includes("الاستبدال غير متاح"), "exchange question → exchange answer");
+  assert.ok(answer("الكتاب وصل تالف").includes("بتتحمّل"), "damaged book → store-covers-shipping answer");
+  assert.ok(answer("عايز أرجع الكتاب وأخد فلوسي").includes("ردّ المبلغ"), "refund question → refund answer");
+});
+
 test("intent replies carry the footer; handoff does not", () => {
   assert.ok(replyFor("shipping", true).endsWith(FOOTER_AR));
   assert.equal(replyFor("handoff", true), HANDOFF_AR);

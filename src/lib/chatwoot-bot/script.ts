@@ -13,6 +13,19 @@ export const HOTLINE = "16766";
 export const TRACK_URL = "https://nahdetmisrbookstore.com/ar/account/track-your-order";
 export const FAQ_URL = "https://nahdetmisrbookstore.com/ar/pages/faq";
 
+/**
+ * A specific answer inside a topic. After a topic wins the routing, its
+ * variants are scored against the message and the best match replaces the
+ * generic (full-list) answer — e.g. "shipping to Giza?" gets the Greater
+ * Cairo rate only. No variant matched = the generic answer.
+ */
+export interface IntentVariant {
+  keywords_ar: string[];
+  keywords_en: string[];
+  ar: string;
+  en: string;
+}
+
 export interface Intent {
   menu: string;
   keywords_ar: string[];
@@ -21,6 +34,7 @@ export interface Intent {
   en: string;
   /** After replying, also move the conversation to the human queue. */
   open?: boolean;
+  variants?: Record<string, IntentVariant>;
 }
 
 export const GREETING_AR =
@@ -95,6 +109,92 @@ export const INTENTS: Record<string, Intent> = {
       "*Courier:* Aramex. *Minimum order:* 150 EGP.\n" +
       "International delivery is not available.\n\n" +
       "If your governorate isn't listed, reply *0* to leave your details.",
+    variants: {
+      greater_cairo: {
+        keywords_ar: ["القاهره", "الجيزه", "القليوبيه", "جيزه", "قليوبيه", "قاهره"],
+        keywords_en: ["cairo", "giza", "qalyubia"],
+        ar:
+          "🚚 *الشحن للقاهرة الكبرى (القاهرة، الجيزة، القليوبية)*\n\n" +
+          "السعر يبدأ من *85.56 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
+          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "🎁 *الشحن المجاني* للطلبات من 999 ج.م متاح *للقاهرة والجيزة فقط* — " +
+          "القليوبية يُطبَّق عليها سعر الشحن العادي.",
+        en:
+          "🚚 *Shipping to Greater Cairo (Cairo, Giza, Qalyubia)*\n\n" +
+          "Rate starts from *85.56 EGP* — the final price shows at checkout.\n" +
+          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "🎁 *Free shipping* on orders of 999 EGP+ applies to *Cairo and Giza only* — " +
+          "Qalyubia pays the standard rate.",
+      },
+      alexandria: {
+        keywords_ar: ["اسكندريه", "الاسكندريه", "اسكندريا"],
+        keywords_en: ["alexandria", "alex"],
+        ar:
+          "🚚 *الشحن للإسكندرية*\n\n" +
+          "السعر يبدأ من *99.83 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
+          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "🎁 *الشحن المجاني* متاح للإسكندرية على الطلبات من 999 ج.م فأكثر.",
+        en:
+          "🚚 *Shipping to Alexandria*\n\n" +
+          "Rate starts from *99.83 EGP* — the final price shows at checkout.\n" +
+          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "🎁 *Free shipping* applies to Alexandria on orders of 999 EGP or more.",
+      },
+      delta_canal: {
+        keywords_ar: ["بورسعيد", "الاسماعيليه", "السويس", "الدقهليه", "المنصوره", "طنطا",
+          "المحله", "الزقازيق", "الشرقيه", "الغربيه", "المنوفيه", "البحيره", "كفر الشيخ", "دمياط"],
+        keywords_en: ["port said", "ismailia", "suez", "dakahlia", "mansoura", "tanta",
+          "sharqia", "gharbia", "monufia", "beheira", "kafr", "damietta", "zagazig"],
+        ar:
+          "🚚 *الشحن للوجه البحري والقناة*\n\n" +
+          "السعر لمحافظتك يبدأ من *99.83 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
+          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "*ملحوظة:* الشحن المجاني (999 ج.م+) متاح للقاهرة والجيزة والإسكندرية فقط.",
+        en:
+          "🚚 *Shipping to the Delta & Canal region*\n\n" +
+          "Your governorate's rate starts from *99.83 EGP* — the final price shows at checkout.\n" +
+          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "*Note:* free shipping (999 EGP+) applies to Cairo, Giza, and Alexandria only.",
+      },
+      upper_egypt: {
+        keywords_ar: ["الفيوم", "بني سويف", "المنيا", "اسيوط", "سوهاج", "قنا", "الاقصر", "اسوان"],
+        keywords_en: ["fayoum", "beni suef", "minya", "asyut", "sohag", "qena", "luxor", "aswan"],
+        ar:
+          "🚚 *الشحن للوجه القبلي*\n\n" +
+          "السعر لمحافظتك يبدأ من *128.34 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
+          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "*ملحوظة:* الشحن المجاني (999 ج.م+) متاح للقاهرة والجيزة والإسكندرية فقط.",
+        en:
+          "🚚 *Shipping to Upper Egypt*\n\n" +
+          "Your governorate's rate starts from *128.34 EGP* — the final price shows at checkout.\n" +
+          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "*Note:* free shipping (999 EGP+) applies to Cairo, Giza, and Alexandria only.",
+      },
+      sinai: {
+        keywords_ar: ["سيناء", "العريش", "شرم الشيخ", "دهب", "نويبع"],
+        keywords_en: ["sinai", "arish", "sharm", "dahab", "nuweiba"],
+        ar:
+          "🚚 *الشحن لسيناء*\n\n" +
+          "السعر يبدأ من *199.64 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
+          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.",
+        en:
+          "🚚 *Shipping to Sinai*\n\n" +
+          "Rate starts from *199.64 EGP* — the final price shows at checkout.\n" +
+          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.",
+      },
+      unlisted: {
+        keywords_ar: ["مطروح", "مرسي مطروح", "الوادي الجديد", "البحر الاحمر", "الغردقه"],
+        keywords_en: ["matrouh", "new valley", "red sea", "hurghada"],
+        ar:
+          "🚚 معلش، محافظتك مش ضمن القائمة المعلنة وأنا مش هخمّن سعر 🙏\n" +
+          "اكتب *0* واترك (الاسم • المحافظة • رقم الهاتف) والفريق هيأكدلك سعر الشحن " +
+          "أول ما الدوام يبدأ (الأحد – الخميس، 9 ص – 6 م).",
+        en:
+          "🚚 Sorry — your governorate isn't on the published list and I won't guess a price 🙏\n" +
+          "Reply *0* with your name, governorate, and phone number, and the team will confirm " +
+          "the exact rate first thing in the morning (Sun–Thu, 9 AM – 6 PM).",
+      },
+    },
   },
   payment: {
     menu: "2",
@@ -116,6 +216,44 @@ export const INTENTS: Record<string, Intent> = {
       "• Installments via ValU: ✅ available\n" +
       "• E-wallets (Vodafone Cash etc.): ❌ not available\n\n" +
       "🔒 We will never ask for your card details or OTP in this chat.",
+    variants: {
+      wallets: {
+        keywords_ar: ["فودافون", "فودافون كاش", "محفظه", "محافظ", "انستاباي", "اورانج كاش", "اتصالات كاش"],
+        keywords_en: ["wallet", "vodafone", "instapay", "orange cash"],
+        ar:
+          "💳 المحافظ الإلكترونية (فودافون كاش وغيرها): ❌ *غير متاحة حاليًا*.\n\n" +
+          "المتاح للدفع:\n" +
+          "• الدفع عند الاستلام ✅\n" +
+          "• بطاقات Visa / Mastercard ✅\n" +
+          "• التقسيط عن طريق «فاليو» ✅",
+        en:
+          "💳 E-wallets (Vodafone Cash etc.): ❌ *not available at the moment*.\n\n" +
+          "You can pay with:\n" +
+          "• Cash on delivery ✅\n" +
+          "• Visa / Mastercard ✅\n" +
+          "• Installments via ValU ✅",
+      },
+      installments: {
+        keywords_ar: ["تقسيط", "اقسط", "قسط", "اقساط", "فاليو"],
+        keywords_en: ["installment", "instalment", "valu"],
+        ar:
+          "💳 *التقسيط متاح* ✅ عن طريق «فاليو» (ValU) — اختاره كطريقة دفع عند إتمام الطلب.\n" +
+          "ومتاح كمان: الدفع عند الاستلام وبطاقات Visa / Mastercard.",
+        en:
+          "💳 *Installments are available* ✅ via ValU — pick it as the payment method at checkout.\n" +
+          "Also available: cash on delivery and Visa / Mastercard.",
+      },
+      cod: {
+        keywords_ar: ["الاستلام", "عند الاستلام", "كاش"],
+        keywords_en: ["cash on delivery", "cod", "accept cash"],
+        ar:
+          "💳 *الدفع عند الاستلام متاح* ✅ في كل المحافظات.\n" +
+          "ومتاح كمان: بطاقات Visa / Mastercard والتقسيط عن طريق «فاليو».",
+        en:
+          "💳 *Cash on delivery is available* ✅ across all governorates.\n" +
+          "Also available: Visa / Mastercard and installments via ValU.",
+      },
+    },
   },
   returns: {
     menu: "3",
@@ -147,6 +285,48 @@ export const INTENTS: Record<string, Intent> = {
       `${TRACK_URL}\n\n` +
       "For a damaged or wrong item, reply *0* and leave your details with a description " +
       "(and a photo if possible).",
+    variants: {
+      damaged: {
+        keywords_ar: ["تالف", "مكسور", "معيوب", "ناقص", "مقطوع", "غلط", "خطا"],
+        keywords_en: ["damaged", "wrong item", "faulty", "broken"],
+        ar:
+          "↩️ لو الكتاب وصل *تالفًا* أو وصلك *كتاب خاطئ* — المكتبة هي اللي بتتحمّل مصاريف " +
+          "شحن الإرجاع بالكامل ✅ (خلال 14 يومًا من الاستلام).\n\n" +
+          "اكتب *0* واترك بياناتك مع وصف المشكلة (وصورة لو أمكن) والفريق هيظبطها معاك.",
+        en:
+          "↩️ If the book arrived *damaged* or you received the *wrong item* — we cover the " +
+          "return shipping in full ✅ (within 14 days of receipt).\n\n" +
+          "Reply *0* and leave your details with a description (and a photo if possible).",
+      },
+      exchange: {
+        keywords_ar: ["استبدال", "استبدل", "ابدل", "بدل"],
+        keywords_en: ["exchange", "swap"],
+        ar:
+          "↩️ *الاستبدال غير متاح حاليًا* ❌ — لكن تقدر ترجع الكتاب خلال 14 يومًا من الاستلام " +
+          "(بحالته الأصلية ومعاه الفاتورة) وتطلب اللي تحبه بدل منه.\n" +
+          "مصاريف شحن الإرجاع على العميل — إلا لو المنتج تالف أو خاطئ فالمكتبة بتتحمّلها.\n\n" +
+          "*خطوات الإرجاع:* حسابك → «سجل الطلبات» → حدّد الطلب → اختر خيار الإرجاع.",
+        en:
+          "↩️ *Exchanges aren't available* ❌ — but you can return the book within 14 days of " +
+          "receipt (original condition, with the invoice) and order the one you want instead.\n" +
+          "Return shipping is on the customer — unless the item is faulty or wrong, then we cover it.\n\n" +
+          "*How:* your account → \"My Orders\" → select the order → choose return.",
+      },
+      refund: {
+        keywords_ar: ["فلوسي", "استرداد", "المبلغ"],
+        keywords_en: ["refund", "money back"],
+        ar:
+          "↩️ *ردّ المبلغ* بيتم خلال 14 يوم عمل من استلام المرتجع — بنفس طريقة الدفع " +
+          "أو بالطريقة اللي تختارها.\n" +
+          "شرط الإرجاع: خلال 14 يومًا من الاستلام والكتاب بحالته الأصلية ومعاه الفاتورة.\n\n" +
+          "*خطوات الإرجاع:* حسابك → «سجل الطلبات» → حدّد الطلب → اختر خيار الإرجاع.",
+        en:
+          "↩️ *Refunds* are issued within 14 business days of us receiving the return — to your " +
+          "original payment method or one you choose.\n" +
+          "Condition: return within 14 days of receipt, book in original condition with the invoice.\n\n" +
+          "*How:* your account → \"My Orders\" → select the order → choose return.",
+      },
+    },
   },
   track: {
     menu: "4",
