@@ -57,27 +57,31 @@ outside the script gets a "here's the menu" fallback or a handoff.
 | `POST /api/chatwoot/<WEBHOOK_TOKEN>` | Chatwoot Agent Bot webhook (403 on wrong token, 503 until configured) |
 | `GET /api/chatwoot/health` | `{ok, within_hours, configured}` — no auth |
 
-### Environment variables (Vercel → Settings → Environment Variables)
+### Configuration — Settings → Chatwoot After-Hours Bot (in the app)
 
-| Var | Example / default |
-|---|---|
-| `CHATWOOT_URL` | `https://support-nmgdp.tech` (default) |
-| `CHATWOOT_ACCOUNT_ID` | `5` (default) |
-| `CHATWOOT_BOT_TOKEN` | the Agent Bot's access token — **required** |
-| `WEBHOOK_TOKEN` | random secret (`openssl rand -hex 16`) — **required**, also goes in the bot's webhook URL |
-| `AFTER_HOURS_ONLY` | `true` (default) — inside working hours the bot stays silent and routes to humans |
-| `WORK_TIMEZONE` / `WORK_DAYS` / `WORK_START` / `WORK_END` | `Africa/Cairo` / `sun,mon,tue,wed,thu` / `9` / `18` |
+Everything is managed from the app (admin only), no env vars or redeploys needed:
+connection (Chatwoot URL, account ID, bot agent access token), a webhook-URL generator,
+enabled / after-hours-only toggles, working days & hours, and the full reply script.
+Settings are stored in `app_settings` (`chatwoot_bot` + `chatwoot_bot_script`); the
+unauthenticated webhook reads them through `fn_chatwoot_bot_config`, a token-gated
+SECURITY DEFINER function (migration 025), so no service-role key is involved.
 
-Chatwoot-side setup (create the Agent Bot, connect the inbox, business hours, pre-chat form)
-is documented in the ops guide `CHATWOOT_SETUP.md` — point the bot's `outgoing_url` at
-`https://<your-vercel-domain>/api/chatwoot/<WEBHOOK_TOKEN>`.
+Setup: create a dedicated agent in Chatwoot (e.g. "Nahdet Misr Bot"), paste its access
+token in the card, Generate the webhook URL, Save, Test connection — then add that URL in
+Chatwoot under Settings → Integrations → Webhooks with events **Conversation Created** +
+**Message Created**.
+
+Env vars (`CHATWOOT_URL`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BOT_TOKEN`, `WEBHOOK_TOKEN`,
+`AFTER_HOURS_ONLY`, `WORK_TIMEZONE/DAYS/START/END`) still work as a fallback when no
+in-app settings are saved.
 
 ### Editing the reply script (support team)
 
-All customer-facing text and keywords live in **one file**:
-[`src/lib/chatwoot-bot/script.ts`](./src/lib/chatwoot-bot/script.ts). Fix wording or add a
-keyword there, commit, deploy — routing code never needs to change. Adding a new question
-type = adding one entry to `INTENTS` with a unique menu digit, keywords, and ar/en text.
+Settings → Chatwoot After-Hours Bot → **Reply script**: edit the greeting, fallback,
+handoff, footer, keywords, and per-topic answers, or add a whole new topic — changes apply
+on Save, no deploy. Only differences from the defaults are stored; "Reset script to
+defaults" clears them. The built-in defaults live in
+[`src/lib/chatwoot-bot/script.ts`](./src/lib/chatwoot-bot/script.ts).
 
 Rules baked into the design: no live order/stock lookups, never guess a shipping price,
 never ask for card details or OTP, and logs contain conversation ids + intent names only
