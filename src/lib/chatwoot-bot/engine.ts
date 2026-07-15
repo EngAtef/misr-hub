@@ -189,7 +189,7 @@ export function route(text: string, script: BotScript = DEFAULT_SCRIPT): string 
   const stripped = n.replace(/^[ .\-]+|[ .\-]+$/g, "");
   if (stripped === "0") return "handoff";
   for (const [key, cfg] of Object.entries(script.intents)) {
-    if (stripped === cfg.menu) return key;
+    if (cfg.menu && stripped === cfg.menu) return key;
   }
 
   // Explicit handoff request
@@ -210,7 +210,15 @@ export function route(text: string, script: BotScript = DEFAULT_SCRIPT): string 
       bestScore = score;
     }
   }
-  return bestScore >= MIN_SCORE ? best : null;
+  if (bestScore >= MIN_SCORE) return best;
+
+  // No keyword matched, but the message contains a 3+ digit number — almost
+  // certainly an order number (customers often paste just the number). Route
+  // to tracking, which explains the bot can't see live status and how to
+  // leave details, instead of a blunt "I don't understand".
+  if ("track" in script.intents && /\d{3,}/.test(n)) return "track";
+
+  return null;
 }
 
 export function replyFor(intent: string, arabic: boolean, script: BotScript = DEFAULT_SCRIPT): string {
@@ -320,7 +328,11 @@ export async function handleWebhook(
 
     ctx.log(`conv=${convId} intent=${intent}`);
     await ctx.send(convId, replyFor(intent, arabic, script));
-    if (intent === "handoff") await ctx.openConversation(convId);
+    // Handoff — and any intent flagged open (e.g. cancel) — goes to the
+    // human queue so the team follows up in the morning.
+    if (intent === "handoff" || script.intents[intent]?.open) {
+      await ctx.openConversation(convId);
+    }
     return { status: 200, body: { ok: true, intent } };
   } catch (e) {
     // Log the error type only — never message content (PII).

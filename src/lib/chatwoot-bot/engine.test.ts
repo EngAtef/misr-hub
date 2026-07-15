@@ -52,10 +52,26 @@ const CASES: Array<[string, string | null]> = [
   ["do you accept cash on delivery", "payment"], // must beat shipping on "delivery"
   ["what are your working hours", "hours"],
   ["how do I return a book", "returns"],
+  // Cancel / modify (menu 8)
+  ["8", "cancel"],
+  ["عايزه الغي", "cancel"],       // real customer message that used to hit fallback
+  ["عايز الغي الاوردر", "cancel"], // must beat track on "الاوردر"
+  ["cancel my order please", "cancel"],
+  // Bare order number → tracking, not "I don't understand"
+  ["٢٢٠٠٢", "track"],              // real customer message (Arabic-Indic digits)
+  ["22002", "track"],
+  ["الاوردر اتأخر", "track"],
+  // Social niceties get a warm reply instead of the fallback
+  ["مرحبا", "greet"],
+  ["السلام عليكم", "greet"],
+  ["hello", "greet"],
+  ["شكرا", "thanks"],
+  ["thanks a lot", "thanks"],
+  // Governorate coverage
+  ["انا من سوهاج كام سعر الشحن؟", "shipping"],
   // Must fall back — never guess
   ["إيه أحسن مطعم في القاهرة؟", null], // the سن/أحسن substring trap
   ["ما هي عاصمة فرنسا", null],
-  ["مرحبا", null],
   ["asdkjhasd", null],
 ];
 
@@ -91,11 +107,13 @@ test("intent replies carry the footer; handoff does not", () => {
   assert.equal(replyFor("handoff", true), HANDOFF_AR);
 });
 
-test("every intent has a unique menu digit and both languages", () => {
+test("menu digits are unique and every intent has both languages", () => {
   const digits = new Set<string>();
   for (const [key, cfg] of Object.entries(INTENTS)) {
-    assert.ok(cfg.menu && !digits.has(cfg.menu), `duplicate menu digit on ${key}`);
-    digits.add(cfg.menu);
+    if (cfg.menu) {
+      assert.ok(!digits.has(cfg.menu), `duplicate menu digit on ${key}`);
+      digits.add(cfg.menu);
+    }
     assert.ok(cfg.ar.length > 0 && cfg.en.length > 0, `missing reply text on ${key}`);
   }
 });
@@ -127,7 +145,7 @@ test("mergeScript: a brand-new intent routes by menu digit and keywords", () => 
   const merged = mergeScript({
     intents: {
       giftwrap: {
-        menu: "8",
+        menu: "9",
         keywords_ar: ["تغليف هدايا"],
         keywords_en: ["gift wrap"],
         ar: "التغليف متاح",
@@ -135,11 +153,11 @@ test("mergeScript: a brand-new intent routes by menu digit and keywords", () => 
       },
     },
   });
-  assert.equal(route("8", merged), "giftwrap");
+  assert.equal(route("9", merged), "giftwrap");
   assert.equal(route("do you offer gift wrap?", merged), "giftwrap");
   assert.ok(replyFor("giftwrap", false, merged).startsWith("Gift wrapping is available"));
   // Incomplete new intents (no reply text) are ignored rather than crash.
-  const bad = mergeScript({ intents: { broken: { menu: "9" } } });
+  const bad = mergeScript({ intents: { broken: { menu: "6" } } });
   assert.ok(!("broken" in bad.intents));
 });
 

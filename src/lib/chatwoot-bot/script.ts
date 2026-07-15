@@ -19,6 +19,8 @@ export interface Intent {
   keywords_en: string[];
   ar: string;
   en: string;
+  /** After replying, also move the conversation to the human queue. */
+  open?: boolean;
 }
 
 export const GREETING_AR =
@@ -33,6 +35,7 @@ export const GREETING_AR =
   "5️⃣ الأقسام واللغات\n" +
   "6️⃣ مواعيد العمل والتواصل\n" +
   "7️⃣ الطلبات بالجملة والمدارس\n" +
+  "8️⃣ إلغاء أو تعديل طلب\n" +
   "0️⃣ أترك بياناتي ليتواصل معي موظف";
 
 export const GREETING_EN =
@@ -47,6 +50,7 @@ export const GREETING_EN =
   "5️⃣ Categories & languages\n" +
   "6️⃣ Working hours & contact\n" +
   "7️⃣ Bulk & school orders\n" +
+  "8️⃣ Cancel or change an order\n" +
   "0️⃣ Leave my details for an agent";
 
 // Key order matters: when two intents tie on score, the earlier one wins
@@ -55,8 +59,14 @@ export const INTENTS: Record<string, Intent> = {
   shipping: {
     menu: "1",
     keywords_ar: ["شحن", "توصيل", "دليفري", "التوصيل", "سعر الشحن", "مصاريف", "يوصل",
-      "مجاني", "محافظه", "المنصوره", "طنطا", "اسكندريه", "اسوان", "القليوبيه"],
-    keywords_en: ["shipping", "delivery", "deliver", "ship", "postage", "free shipping"],
+      "مجاني", "محافظه", "المنصوره", "طنطا", "اسكندريه", "اسوان", "القليوبيه",
+      "بورسعيد", "الاسماعيليه", "السويس", "الدقهليه", "الشرقيه", "الغربيه", "المنوفيه",
+      "البحيره", "كفر الشيخ", "دمياط", "الفيوم", "بني سويف", "المنيا", "اسيوط",
+      "سوهاج", "قنا", "الاقصر", "مطروح", "سيناء", "الوادي الجديد", "البحر الاحمر",
+      "الغردقه", "شرم الشيخ", "الزقازيق", "المحله", "توصلوا", "بتوصلوا", "الشحن كام"],
+    keywords_en: ["shipping", "delivery", "deliver", "ship", "postage", "free shipping",
+      "aswan", "luxor", "sohag", "minya", "asyut", "qena", "fayoum", "suez", "ismailia",
+      "port said", "damietta", "tanta", "mansoura", "matrouh", "sinai", "hurghada"],
     ar:
       "🚚 *الشحن والتوصيل*\n\n" +
       "*الشحن المجاني:* للطلبات من 999 جنيهًا فأكثر — للقاهرة والجيزة والإسكندرية فقط. " +
@@ -89,7 +99,7 @@ export const INTENTS: Record<string, Intent> = {
   payment: {
     menu: "2",
     keywords_ar: ["دفع", "الدفع", "ادفع", "فيزا", "كارت", "بطاقه", "تقسيط", "اقسط", "قسط",
-      "فاليو", "فودافون كاش", "محفظه", "كاش", "الاستلام", "انستاباي", "ماستر كارد"],
+      "اقساط", "فاليو", "فودافون كاش", "محفظه", "كاش", "الاستلام", "انستاباي", "ماستر كارد"],
     keywords_en: ["pay", "payment", "card", "visa", "mastercard", "installment", "instalment",
       "valu", "wallet", "cash on delivery", "cod", "accept cash"],
     ar:
@@ -110,8 +120,9 @@ export const INTENTS: Record<string, Intent> = {
   returns: {
     menu: "3",
     keywords_ar: ["ارجاع", "استرجاع", "ارجع", "ارجعه", "استبدال", "استبدل", "ابدل",
-      "بدل", "فلوسي", "استرداد", "مرتجع", "تالف", "مكسور", "غلط", "خطا"],
-    keywords_en: ["return", "refund", "exchange", "damaged", "wrong item", "money back"],
+      "بدل", "فلوسي", "استرداد", "مرتجع", "تالف", "مكسور", "غلط", "خطا",
+      "معيوب", "ناقص", "مقطوع", "مش عاجبني"],
+    keywords_en: ["return", "refund", "exchange", "damaged", "wrong item", "money back", "faulty"],
     ar:
       "↩️ *الاسترجاع*\n\n" +
       "• *المدة:* خلال 14 يومًا من تاريخ الاستلام.\n" +
@@ -140,8 +151,10 @@ export const INTENTS: Record<string, Intent> = {
   track: {
     menu: "4",
     keywords_ar: ["فين طلبي", "طلبي", "تتبع", "اتتبع", "شحنتي", "وصل", "الاوردر", "اوردر",
-      "حاله الطلب", "امتي يوصل"],
-    keywords_en: ["where is my order", "track", "tracking", "my order", "order status"],
+      "حاله الطلب", "امتي يوصل", "اتاخر", "متاخر", "تاخر", "تاخير", "موصلش", "وصلش",
+      "مستني", "رقم الطلب", "رقم الاوردر"],
+    keywords_en: ["where is my order", "track", "tracking", "my order", "order status",
+      "delayed", "late", "not arrived", "hasn't arrived", "didn't arrive"],
     ar:
       "📦 *تتبّع الطلب*\n\n" +
       "تقدر تتابع حالة طلبك في أي وقت من هنا:\n" +
@@ -188,8 +201,9 @@ export const INTENTS: Record<string, Intent> = {
   hours: {
     menu: "6",
     keywords_ar: ["مواعيد", "ميعاد", "شغالين", "فاتحين", "تليفون", "رقم", "ايميل",
-      "تواصل", "الخط الساخن", "امتي"],
-    keywords_en: ["hours", "open", "closed", "contact", "phone", "email", "hotline"],
+      "تواصل", "الخط الساخن", "امتي", "الجمعه", "السبت", "اجازه", "عطله", "بتفتحوا", "بتقفلوا"],
+    keywords_en: ["hours", "open", "closed", "contact", "phone", "email", "hotline",
+      "friday", "saturday", "weekend"],
     ar:
       "🕘 *مواعيد العمل والتواصل*\n\n" +
       "• *المواعيد:* من الأحد إلى الخميس، 9 صباحًا – 6 مساءً\n" +
@@ -230,6 +244,63 @@ export const INTENTS: Record<string, Intent> = {
       "*Coupons:* enter your code in the discount-code field at checkout. " +
       "I can't confirm whether a specific code is valid.",
   },
+  cancel: {
+    menu: "8",
+    open: true,
+    keywords_ar: ["الغي", "الغاء", "يلغي", "تلغي", "الغيه", "كنسل", "الغي الاوردر",
+      "الغي الطلب", "الغاء الطلب", "الغاء الاوردر", "اعدل", "تعديل", "اغير"],
+    keywords_en: ["cancel", "cancellation", "cancel my order", "cancel order", "modify", "change my order"],
+    ar:
+      "🚫 *إلغاء أو تعديل طلب*\n\n" +
+      "تمام، هسجّل طلبك للفريق. علشان نظبطها بسرعة، من فضلك اكتب في رسالة واحدة:\n" +
+      "• *رقم الطلب*\n" +
+      "• *رقم الهاتف*\n" +
+      "• التعديل المطلوب أو سبب الإلغاء (اختياري)\n\n" +
+      "الفريق هيتواصل معاك أول ما الدوام يبدأ (الأحد – الخميس، 9 ص – 6 م). " +
+      `وللأمور العاجلة: الخط الساخن ${HOTLINE}.\n\n` +
+      "ملحوظة: لو الطلب وصلك بالفعل، تقدر تسترجعه خلال 14 يوم — اكتب *3* للتفاصيل.",
+    en:
+      "🚫 *Cancel or change an order*\n\n" +
+      "Got it — I'm flagging this for the team. To sort it quickly, please send in one message:\n" +
+      "• *Order number*\n" +
+      "• *Phone number*\n" +
+      "• The change you need, or the reason (optional)\n\n" +
+      "The team will contact you as soon as we're back (Sun–Thu, 9 AM – 6 PM). " +
+      `Urgent? Hotline ${HOTLINE}.\n\n` +
+      "Note: if the order already arrived, you can return it within 14 days — reply *3* for details.",
+  },
+  // greet/thanks have no menu digit and sit last so real topics win score ties.
+  greet: {
+    menu: "",
+    keywords_ar: ["مرحبا", "اهلا", "هاي", "السلام عليكم", "صباح الخير", "مساء الخير",
+      "ازيك", "ازيكم", "سلام"],
+    keywords_en: ["hello", "hi", "hey", "good morning", "good evening"],
+    ar:
+      "أهلاً بيك في مكتبة نهضة مصر! 👋\n" +
+      "أنا المساعد الآلي — أقدر أساعدك فورًا في الأسئلة الشائعة.\n\n" +
+      "اكتب رقم الموضوع:\n" +
+      "1️⃣ الشحن • 2️⃣ الدفع • 3️⃣ الاسترجاع • 4️⃣ تتبّع طلبي\n" +
+      "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة • 8️⃣ إلغاء طلب\n" +
+      "0️⃣ التحدث مع موظف",
+    en:
+      "Welcome to Nahdet Misr Bookstore! 👋\n" +
+      "I'm the automated assistant — I can help right away with common questions.\n\n" +
+      "Pick a topic:\n" +
+      "1️⃣ Shipping • 2️⃣ Payment • 3️⃣ Returns • 4️⃣ Track order\n" +
+      "5️⃣ Categories • 6️⃣ Hours & contact • 7️⃣ Bulk orders • 8️⃣ Cancel an order\n" +
+      "0️⃣ Talk to a human",
+  },
+  thanks: {
+    menu: "",
+    keywords_ar: ["شكرا", "متشكر", "متشكره", "تسلم", "تسلموا", "الف شكر"],
+    keywords_en: ["thanks", "thank", "thx"],
+    ar:
+      "العفو يا فندم! 🙏 تحت أمرك في أي وقت.\n" +
+      "لو احتجت حاجة تانية، اكتب رقم من القائمة أو *0* للتواصل مع موظف.",
+    en:
+      "You're welcome! 🙏 Happy to help.\n" +
+      "If you need anything else, pick a menu number or reply *0* to reach the team.",
+  },
 };
 
 export const HANDOFF_KEYWORDS_AR = ["موظف", "انسان", "بشري", "مندوب", "مدير", "شكوي", "حد يكلمني",
@@ -258,18 +329,18 @@ export const HANDOFF_EN =
   `For anything urgent: hotline ${HOTLINE}. Thanks for your patience! 🙏`;
 
 export const FALLBACK_AR =
-  "معلش، مش فاهم سؤالك بالظبط 🤔\n\n" +
-  "جرّب تكتب رقم من دول:\n" +
+  "معلش يا فندم، أنا مساعد آلي وبساعد في أسئلة المكتبة الشائعة بس 🙏\n" +
+  "ممكن تكتب سؤالك بكلمات تانية، أو تختار رقم الموضوع:\n\n" +
   "1️⃣ الشحن • 2️⃣ الدفع • 3️⃣ الاسترجاع • 4️⃣ تتبّع طلبي\n" +
-  "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة\n" +
-  "0️⃣ أترك بياناتي ليتواصل معي موظف";
+  "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة • 8️⃣ إلغاء طلب\n" +
+  "0️⃣ أترك بياناتي ليتواصل معي موظف — وهيرد عليك أول ما الدوام يبدأ";
 
 export const FALLBACK_EN =
-  "Sorry, I didn't quite catch that 🤔\n\n" +
-  "Try one of these numbers:\n" +
+  "Sorry — I'm an automated assistant and can only help with common bookstore questions 🙏\n" +
+  "Try rephrasing, or pick a topic number:\n\n" +
   "1️⃣ Shipping • 2️⃣ Payment • 3️⃣ Returns • 4️⃣ Track order\n" +
-  "5️⃣ Categories • 6️⃣ Working hours • 7️⃣ Bulk orders\n" +
-  "0️⃣ Leave my details for an agent";
+  "5️⃣ Categories • 6️⃣ Working hours • 7️⃣ Bulk orders • 8️⃣ Cancel an order\n" +
+  "0️⃣ Leave my details for an agent — the team replies first thing in the morning";
 
 export const FOOTER_AR = "\n\n———\nمحتاج حاجة تانية؟ اكتب رقم من القائمة، أو *0* للتحدث مع موظف.";
 export const FOOTER_EN = "\n\n———\nAnything else? Reply with a menu number, or *0* to reach an agent.";

@@ -154,6 +154,14 @@ test("malformed payload -> 200, nothing sent", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
+test("cancel intent replies and moves the conversation to the human queue", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook("secret-token", incoming("عايزه الغي"), ctx);
+  assert.equal(res.body.intent, "cancel");
+  assert.equal(rec.sent.length, 1);
+  assert.deepEqual(rec.opened, [42]);
+});
+
 test("custom script from settings is used for greeting and replies", async () => {
   const script = mergeScript({
     greeting_ar: "أهلا مخصص",
