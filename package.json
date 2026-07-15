@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:bot": "node --experimental-strip-types --test src/lib/chatwoot-bot/engine.test.ts src/lib/chatwoot-bot/webhook.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

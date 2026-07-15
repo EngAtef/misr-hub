@@ -1,0 +1,165 @@
+// Behavioural tests for the webhook handler: auth, loop protection,
+// business-hours gate, handoff, and error containment.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { handleWebhook, type WebhookContext } from "./engine.ts";
+import { GREETING_AR, HANDOFF_EN } from "./script.ts";
+
+interface Recorded {
+  sent: Array<{ convId: number; content: string }>;
+  opened: number[];
+  logs: string[];
+}
+
+function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext; rec: Recorded } {
+  const rec: Recorded = { sent: [], opened: [], logs: [] };
+  const ctx: WebhookContext = {
+    webhookToken: "secret-token",
+    afterHoursOnly: true,
+    withinHours: () => false, // default: after hours, bot active
+    send: async (convId, content) => {
+      rec.sent.push({ convId, content });
+    },
+    openConversation: async (convId) => {
+      rec.opened.push(convId);
+    },
+    log: (m) => rec.logs.push(m),
+    ...overrides,
+  };
+  return { ctx, rec };
+}
+
+const incoming = (content: string) => ({
+  event: "message_created",
+  message_type: "incoming",
+  content,
+  conversation: { id: 42 },
+});
+
+test("wrong webhook token -> 403, nothing sent", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook("wrong", incoming("1"), ctx);
+  assert.equal(res.status, 403);
+  assert.equal(rec.sent.length, 0);
+});
+
+test("missing configured token -> 403 even if caller token matches empty", async () => {
+  const { ctx } = makeCtx({ webhookToken: undefined });
+  const res = await handleWebhook("", incoming("1"), ctx);
+  assert.equal(res.status, 403);
+});
+
+test("outgoing message -> no reply (loop protection)", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook(
+    "secret-token",
+    { ...incoming("hello"), message_type: "outgoing" },
+    ctx
+  );
+  assert.equal(res.status, 200);
+  assert.equal(rec.sent.length, 0);
+});
+
+test("agent_bot sender -> no reply (loop protection)", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook(
+    "secret-token",
+    { ...incoming("hello"), sender: { type: "agent_bot" } },
+    ctx
+  );
+  assert.equal(res.status, 200);
+  assert.equal(rec.sent.length, 0);
+});
+
+test("within working hours + AFTER_HOURS_ONLY -> silent, conversation opened", async () => {
+  const { ctx, rec } = makeCtx({ withinHours: () => true });
+  const res = await handleWebhook("secret-token", incoming("كام الشحن؟"), ctx);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.skipped, "working_hours");
+  assert.equal(rec.sent.length, 0);
+  assert.deepEqual(rec.opened, [42]);
+});
+
+test("AFTER_HOURS_ONLY=false -> replies even within working hours", async () => {
+  const { ctx, rec } = makeCtx({ afterHoursOnly: false, withinHours: () => true });
+  await handleWebhook("secret-token", incoming("1"), ctx);
+  assert.equal(rec.sent.length, 1);
+});
+
+test("conversation_created -> bilingual greeting", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook(
+    "secret-token",
+    { event: "conversation_created", id: 7 },
+    ctx
+  );
+  assert.equal(res.status, 200);
+  assert.equal(rec.sent.length, 1);
+  assert.equal(rec.sent[0].convId, 7);
+  assert.ok(rec.sent[0].content.startsWith(GREETING_AR));
+});
+
+test("unknown event -> 200, nothing sent", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook(
+    "secret-token",
+    { event: "conversation_updated", conversation: { id: 9 } },
+    ctx
+  );
+  assert.equal(res.status, 200);
+  assert.equal(rec.sent.length, 0);
+});
+
+test("handoff intent -> handoff message + conversation opened", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook("secret-token", incoming("I want to speak to a human"), ctx);
+  assert.equal(res.body.intent, "handoff");
+  assert.equal(rec.sent[0].content, HANDOFF_EN);
+  assert.deepEqual(rec.opened, [42]);
+});
+
+test("English message gets English reply; Arabic gets Arabic", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("how much is shipping to Aswan?"), ctx);
+  await handleWebhook("secret-token", incoming("كام سعر الشحن؟"), ctx);
+  assert.ok(rec.sent[0].content.includes("Shipping & delivery"));
+  assert.ok(rec.sent[1].content.includes("الشحن والتوصيل"));
+});
+
+test("gibberish -> fallback, no guessed intent", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook("secret-token", incoming("asdkjhasd"), ctx);
+  assert.equal(res.body.intent, "fallback");
+  assert.equal(rec.sent.length, 1);
+});
+
+test("Chatwoot API error -> logged, still returns 200", async () => {
+  const { ctx, rec } = makeCtx({
+    send: async () => {
+      throw new Error("HTTP 500");
+    },
+  });
+  const res = await handleWebhook("secret-token", incoming("1"), ctx);
+  assert.equal(res.status, 200);
+  assert.ok(rec.logs.some((l) => l.includes("HTTP 500") || l.includes("error")));
+});
+
+test("malformed payload -> 200, nothing sent", async () => {
+  const { ctx, rec } = makeCtx();
+  for (const payload of [null, {}, { event: "message_created" }, "junk"]) {
+    const res = await handleWebhook("secret-token", payload, ctx);
+    assert.equal(res.status, 200);
+  }
+  assert.equal(rec.sent.length, 0);
+});
+
+test("logs never contain message content (PII rule)", async () => {
+  const { ctx, rec } = makeCtx();
+  const secretText = "انا محمد رقمي 01000000000 عايز اكلم موظف";
+  await handleWebhook("secret-token", incoming(secretText), ctx);
+  for (const line of rec.logs) {
+    assert.ok(!line.includes("محمد"), "log line leaked a name");
+    assert.ok(!line.includes("01000000000"), "log line leaked a phone number");
+  }
+});
