@@ -5,6 +5,7 @@ import { Save, Plug, CheckCircle2, XCircle, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
+import { ChatwootBotSettings } from "@/components/chatwoot-bot-settings";
 
 export default function SettingsPage() {
   const { t } = useLang();
@@ -138,6 +139,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <ChatwootBotSettings />
 
       <div className="mt-8 mb-3">
         <h2 className="text-lg font-bold">{t("integrations")}</h2>

@@ -1,9 +1,10 @@
 // ─────────────────────────────────────────────────────────────
 // Chatwoot After-Hours Bot — routing engine
 //
-// Pure rules, no AI, no guessing. All reply text lives in script.ts —
-// nothing here should need editing to change what the bot says.
-// Ported from the tested nm_bot.py reference (39/39 routing tests).
+// Pure rules, no AI, no guessing. Default reply text lives in script.ts;
+// admins can override any of it from Settings → Chatwoot Bot (stored in
+// app_settings key "chatwoot_bot_script", merged over the defaults by
+// mergeScript below). Ported from the tested nm_bot.py reference.
 // ─────────────────────────────────────────────────────────────
 
 import {
@@ -18,7 +19,95 @@ import {
   FOOTER_EN,
   GREETING_AR,
   GREETING_EN,
+  type Intent,
 } from "./script.ts";
+
+// ── The script object the engine routes against ─────────────
+
+export interface BotScript {
+  greetingAr: string;
+  greetingEn: string;
+  fallbackAr: string;
+  fallbackEn: string;
+  handoffAr: string;
+  handoffEn: string;
+  footerAr: string;
+  footerEn: string;
+  handoffKeywordsAr: string[];
+  handoffKeywordsEn: string[];
+  intents: Record<string, Intent>;
+}
+
+export const DEFAULT_SCRIPT: BotScript = {
+  greetingAr: GREETING_AR,
+  greetingEn: GREETING_EN,
+  fallbackAr: FALLBACK_AR,
+  fallbackEn: FALLBACK_EN,
+  handoffAr: HANDOFF_AR,
+  handoffEn: HANDOFF_EN,
+  footerAr: FOOTER_AR,
+  footerEn: FOOTER_EN,
+  handoffKeywordsAr: HANDOFF_KEYWORDS_AR,
+  handoffKeywordsEn: HANDOFF_KEYWORDS_EN,
+  intents: INTENTS,
+};
+
+/**
+ * Shape of the overrides JSON stored in app_settings key
+ * "chatwoot_bot_script" (snake_case, edited from the Settings UI).
+ * Any field left out falls back to the built-in default.
+ */
+export interface ScriptOverrides {
+  greeting_ar?: string;
+  greeting_en?: string;
+  fallback_ar?: string;
+  fallback_en?: string;
+  handoff_ar?: string;
+  handoff_en?: string;
+  footer_ar?: string;
+  footer_en?: string;
+  handoff_keywords_ar?: string[];
+  handoff_keywords_en?: string[];
+  intents?: Record<string, Partial<Intent>>;
+}
+
+export function mergeScript(overrides?: ScriptOverrides | null): BotScript {
+  if (!overrides) return DEFAULT_SCRIPT;
+  const intents: Record<string, Intent> = {};
+  // Default intents first (preserving their order — score ties keep it),
+  // each patched by its override; then any brand-new intents appended.
+  for (const [key, cfg] of Object.entries(DEFAULT_SCRIPT.intents)) {
+    intents[key] = { ...cfg, ...(overrides.intents?.[key] ?? {}) };
+  }
+  for (const [key, cfg] of Object.entries(overrides.intents ?? {})) {
+    if (!(key in intents) && cfg.menu && cfg.ar && cfg.en) {
+      intents[key] = {
+        menu: cfg.menu,
+        keywords_ar: cfg.keywords_ar ?? [],
+        keywords_en: cfg.keywords_en ?? [],
+        ar: cfg.ar,
+        en: cfg.en,
+      };
+    }
+  }
+  return {
+    greetingAr: overrides.greeting_ar || DEFAULT_SCRIPT.greetingAr,
+    greetingEn: overrides.greeting_en || DEFAULT_SCRIPT.greetingEn,
+    fallbackAr: overrides.fallback_ar || DEFAULT_SCRIPT.fallbackAr,
+    fallbackEn: overrides.fallback_en || DEFAULT_SCRIPT.fallbackEn,
+    handoffAr: overrides.handoff_ar || DEFAULT_SCRIPT.handoffAr,
+    handoffEn: overrides.handoff_en || DEFAULT_SCRIPT.handoffEn,
+    footerAr: overrides.footer_ar ?? DEFAULT_SCRIPT.footerAr,
+    footerEn: overrides.footer_en ?? DEFAULT_SCRIPT.footerEn,
+    handoffKeywordsAr: overrides.handoff_keywords_ar?.length
+      ? overrides.handoff_keywords_ar
+      : DEFAULT_SCRIPT.handoffKeywordsAr,
+    handoffKeywordsEn: overrides.handoff_keywords_en?.length
+      ? overrides.handoff_keywords_en
+      : DEFAULT_SCRIPT.handoffKeywordsEn,
+    intents,
+  };
+}
 
 // ── Arabic normalisation ─────────────────────────────────────
 // Without this, "الاسكندريه" never matches "الإسكندرية" and keyword
@@ -74,10 +163,6 @@ export function isArabic(text: string): boolean {
 /** Below this score we'd rather admit we don't know than guess. */
 export const MIN_SCORE = 3;
 
-const MENU_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(INTENTS).map(([key, cfg]) => [cfg.menu, key])
-);
-
 /**
  * Score one keyword against the message. 0 = no match.
  *
@@ -95,7 +180,7 @@ function matchScore(kw: string, text: string, tokens: Set<string>): number {
 }
 
 /** Returns an intent key, "handoff", or null (= fallback). Never guesses. */
-export function route(text: string): string | null {
+export function route(text: string, script: BotScript = DEFAULT_SCRIPT): string | null {
   const n = norm(text);
   if (!n) return null;
   const tokens = tokenize(n);
@@ -103,17 +188,19 @@ export function route(text: string): string | null {
   // Menu selection wins — a bare "0" or "3"
   const stripped = n.replace(/^[ .\-]+|[ .\-]+$/g, "");
   if (stripped === "0") return "handoff";
-  if (stripped in MENU_MAP) return MENU_MAP[stripped];
+  for (const [key, cfg] of Object.entries(script.intents)) {
+    if (stripped === cfg.menu) return key;
+  }
 
   // Explicit handoff request
-  for (const kw of [...HANDOFF_KEYWORDS_AR, ...HANDOFF_KEYWORDS_EN]) {
+  for (const kw of [...script.handoffKeywordsAr, ...script.handoffKeywordsEn]) {
     if (matchScore(kw, n, tokens)) return "handoff";
   }
 
-  // Keyword match — highest-scoring intent wins; ties keep INTENTS order
+  // Keyword match — highest-scoring intent wins; ties keep intent order
   let best: string | null = null;
   let bestScore = 0;
-  for (const [key, cfg] of Object.entries(INTENTS)) {
+  for (const [key, cfg] of Object.entries(script.intents)) {
     let score = 0;
     for (const kw of [...cfg.keywords_ar, ...cfg.keywords_en]) {
       score += matchScore(kw, n, tokens);
@@ -126,10 +213,10 @@ export function route(text: string): string | null {
   return bestScore >= MIN_SCORE ? best : null;
 }
 
-export function replyFor(intent: string, arabic: boolean): string {
-  if (intent === "handoff") return arabic ? HANDOFF_AR : HANDOFF_EN;
-  const cfg = INTENTS[intent];
-  return (arabic ? cfg.ar : cfg.en) + (arabic ? FOOTER_AR : FOOTER_EN);
+export function replyFor(intent: string, arabic: boolean, script: BotScript = DEFAULT_SCRIPT): string {
+  if (intent === "handoff") return arabic ? script.handoffAr : script.handoffEn;
+  const cfg = script.intents[intent];
+  return (arabic ? cfg.ar : cfg.en) + (arabic ? script.footerAr : script.footerEn);
 }
 
 // ── Business hours ───────────────────────────────────────────
@@ -161,6 +248,8 @@ export interface WebhookContext {
   webhookToken: string | undefined;
   afterHoursOnly: boolean;
   withinHours: () => boolean;
+  /** The (possibly admin-edited) reply script. Defaults to the built-in. */
+  script?: BotScript;
   /** Post a bot reply to the conversation. */
   send: (conversationId: number, content: string) => Promise<void>;
   /** Move the conversation to the human queue (status: open). */
@@ -194,6 +283,7 @@ export async function handleWebhook(
 
   // Chatwoot retries on non-200, so from here on nothing may throw.
   try {
+    const script = ctx.script ?? DEFAULT_SCRIPT;
     const data = (payload ?? {}) as ChatwootPayload;
     const event = data.event;
     const convId =
@@ -208,7 +298,7 @@ export async function handleWebhook(
 
     // Greet once, when the conversation opens
     if (event === "conversation_created") {
-      await ctx.send(convId, GREETING_AR + "\n\n———\n" + GREETING_EN);
+      await ctx.send(convId, script.greetingAr + "\n\n———\n" + script.greetingEn);
       return { status: 200, body: { ok: true } };
     }
 
@@ -221,15 +311,15 @@ export async function handleWebhook(
     const text = data.content ?? "";
     const arabic = isArabic(text) || !/[a-zA-Z]/.test(text);
 
-    const intent = route(text);
+    const intent = route(text, script);
     if (intent === null) {
       ctx.log(`conv=${convId} intent=fallback`);
-      await ctx.send(convId, arabic ? FALLBACK_AR : FALLBACK_EN);
+      await ctx.send(convId, arabic ? script.fallbackAr : script.fallbackEn);
       return { status: 200, body: { ok: true, intent: "fallback" } };
     }
 
     ctx.log(`conv=${convId} intent=${intent}`);
-    await ctx.send(convId, replyFor(intent, arabic));
+    await ctx.send(convId, replyFor(intent, arabic, script));
     if (intent === "handoff") await ctx.openConversation(convId);
     return { status: 200, body: { ok: true, intent } };
   } catch (e) {

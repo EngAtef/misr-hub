@@ -1,24 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleWebhook, withinHours } from "@/lib/chatwoot-bot/engine";
-import { getBotConfig, isConfigured } from "@/lib/chatwoot-bot/config";
+import { resolveBotConfig } from "@/lib/chatwoot-bot/config";
 import { sendMessage, openConversation } from "@/lib/chatwoot-bot/chatwoot";
 
 export const maxDuration = 30;
 
-// Chatwoot Agent Bot webhook — the after-hours support bot.
+// Chatwoot webhook — the after-hours support bot.
 // Scripted replies only: no AI, no order lookups, no invented numbers.
-// The URL path token is the shared secret (see WEBHOOK_TOKEN env var).
+// Config + reply script come from Settings → Chatwoot Bot in the app
+// (env vars as fallback). The URL path token is the shared secret.
 // PII rule: log conversation ids and intent names only — never message
 // content, phone numbers, or names.
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const cfg = getBotConfig();
+  const cfg = await resolveBotConfig(token);
 
-  if (!isConfigured(cfg)) {
-    // Without CHATWOOT_BOT_TOKEN / WEBHOOK_TOKEN the bot cannot validate or
-    // reply. 503 (not 200) so misconfiguration is visible in Chatwoot logs.
+  if (!cfg) {
+    // Neither in-app settings nor env vars are set. 503 (not 200) so
+    // misconfiguration is visible in Chatwoot's webhook logs.
     return NextResponse.json({ error: "bot not configured" }, { status: 503 });
+  }
+
+  if (token === cfg.webhookToken && !cfg.enabled) {
+    return NextResponse.json({ ok: true, skipped: "disabled" });
   }
 
   let payload: unknown = {};
@@ -34,6 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     webhookToken: cfg.webhookToken,
     afterHoursOnly: cfg.afterHoursOnly,
     withinHours: () => withinHours(cfg.hours),
+    script: cfg.script,
     // Chatwoot API failures are logged but never fail the webhook —
     // Chatwoot retries on non-200 and we don't want duplicate replies.
     send: async (convId, content) => {

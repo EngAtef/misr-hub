@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { route, norm, tokenize, withinHours, replyFor, MIN_SCORE } from "./engine.ts";
+import { route, norm, tokenize, withinHours, replyFor, mergeScript, DEFAULT_SCRIPT, MIN_SCORE } from "./engine.ts";
 import { HANDOFF_AR, FOOTER_AR, INTENTS } from "./script.ts";
 
 // [input, expected intent] — null means fallback ("I don't understand").
@@ -98,6 +98,49 @@ test("every intent has a unique menu digit and both languages", () => {
     digits.add(cfg.menu);
     assert.ok(cfg.ar.length > 0 && cfg.en.length > 0, `missing reply text on ${key}`);
   }
+});
+
+test("mergeScript: null/empty overrides keep the defaults intact", () => {
+  assert.deepEqual(mergeScript(null), DEFAULT_SCRIPT);
+  const merged = mergeScript({});
+  assert.equal(merged.greetingAr, DEFAULT_SCRIPT.greetingAr);
+  assert.deepEqual(Object.keys(merged.intents), Object.keys(DEFAULT_SCRIPT.intents));
+  // Routing through a merged-empty script matches the default behaviour.
+  assert.equal(route("كام سعر الشحن للاسكندرية؟", merged), "shipping");
+  assert.equal(route("إيه أحسن مطعم في القاهرة؟", merged), null);
+});
+
+test("mergeScript: edited keyword routes; edited text is used in reply", () => {
+  const merged = mergeScript({
+    intents: {
+      track: { keywords_ar: [...DEFAULT_SCRIPT.intents.track.keywords_ar, "الاوردر بتاعي"] },
+      shipping: { ar: "نص شحن معدل" },
+    },
+  });
+  assert.equal(route("الاوردر بتاعي فين", merged), "track");
+  assert.ok(replyFor("shipping", true, merged).startsWith("نص شحن معدل"));
+  // Untouched intents stay default.
+  assert.equal(merged.intents.payment.ar, DEFAULT_SCRIPT.intents.payment.ar);
+});
+
+test("mergeScript: a brand-new intent routes by menu digit and keywords", () => {
+  const merged = mergeScript({
+    intents: {
+      giftwrap: {
+        menu: "8",
+        keywords_ar: ["تغليف هدايا"],
+        keywords_en: ["gift wrap"],
+        ar: "التغليف متاح",
+        en: "Gift wrapping is available",
+      },
+    },
+  });
+  assert.equal(route("8", merged), "giftwrap");
+  assert.equal(route("do you offer gift wrap?", merged), "giftwrap");
+  assert.ok(replyFor("giftwrap", false, merged).startsWith("Gift wrapping is available"));
+  // Incomplete new intents (no reply text) are ignored rather than crash.
+  const bad = mergeScript({ intents: { broken: { menu: "9" } } });
+  assert.ok(!("broken" in bad.intents));
 });
 
 test("withinHours: Sunday 10:00 Cairo is inside, Friday and 20:00 are outside", () => {

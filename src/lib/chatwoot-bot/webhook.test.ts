@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handleWebhook, type WebhookContext } from "./engine.ts";
+import { handleWebhook, mergeScript, type WebhookContext } from "./engine.ts";
 import { GREETING_AR, HANDOFF_EN } from "./script.ts";
 
 interface Recorded {
@@ -152,6 +152,19 @@ test("malformed payload -> 200, nothing sent", async () => {
     assert.equal(res.status, 200);
   }
   assert.equal(rec.sent.length, 0);
+});
+
+test("custom script from settings is used for greeting and replies", async () => {
+  const script = mergeScript({
+    greeting_ar: "أهلا مخصص",
+    greeting_en: "Custom hello",
+    intents: { shipping: { en: "Custom shipping answer" } },
+  });
+  const { ctx, rec } = makeCtx({ script });
+  await handleWebhook("secret-token", { event: "conversation_created", id: 3 }, ctx);
+  assert.ok(rec.sent[0].content.startsWith("أهلا مخصص"));
+  await handleWebhook("secret-token", incoming("how much is shipping?"), ctx);
+  assert.ok(rec.sent[1].content.startsWith("Custom shipping answer"));
 });
 
 test("logs never contain message content (PII rule)", async () => {
