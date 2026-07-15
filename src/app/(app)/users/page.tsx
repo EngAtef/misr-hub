@@ -45,6 +45,7 @@ const PAGE_LABELS: Record<string, DictKey> = {
   "data-center": "dataCenter",
   studio: "studio",
   assistant: "assistant",
+  bot: "afterHoursBot",
 };
 
 export default function UsersPage() {

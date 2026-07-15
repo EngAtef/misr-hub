@@ -306,6 +306,8 @@ const dict = {
   sendWhatsapp: { ar: "واتساب", en: "WhatsApp" },
   // Assistant
   assistant: { ar: "المساعد الذكي", en: "Assistant" },
+  afterHoursBot: { ar: "بوت خدمة العملاء", en: "After-Hours Bot" },
+  afterHoursBotSubtitle: { ar: "بوت الرد الآلي خارج مواعيد العمل — المواضيع والردود والكلمات المفتاحية", en: "Scripted support bot for outside working hours — topics, replies & keywords" },
   assistantSubtitle: { ar: "اسأل عن بياناتك بلغتك", en: "Ask about your data in plain language" },
   askPlaceholder: { ar: "اكتب سؤالك... مثال: أعلى الكتب مبيعاً هذا الشهر", en: "Type your question... e.g. top selling books this month" },
   send: { ar: "إرسال", en: "Send" },

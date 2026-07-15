@@ -16,7 +16,7 @@
 // WORK_END              default 18  (exclusive, 24h clock)
 
 import { createClient } from "@supabase/supabase-js";
-import { mergeScript, type BotScript, type ScriptOverrides, type WorkingHours } from "./engine.ts";
+import { mergeScript, type BotScript, type DayHours, type ScriptOverrides, type WorkingHours } from "./engine.ts";
 
 export interface BotConfig {
   enabled: boolean;
@@ -46,26 +46,40 @@ interface StoredBotSettings {
   work_days?: string;
   work_start?: number | string;
   work_end?: number | string;
+  /** Per-day hours, e.g. {"sun":{"start":9,"end":18},...}. Wins over the legacy fields. */
+  work_schedule?: Record<string, { start?: number | string; end?: number | string } | null>;
   label?: string;
   bot_agent_id?: number;
 }
 
-function parseDays(csv: string): Set<string> {
-  return new Set(
-    csv
-      .split(",")
-      .map((d) => d.trim().toLowerCase().slice(0, 3))
-      .filter(Boolean)
-  );
+function parseDays(csv: string): string[] {
+  return csv
+    .split(",")
+    .map((d) => d.trim().toLowerCase().slice(0, 3))
+    .filter(Boolean);
 }
 
-function hoursFrom(timezone?: string, days?: string, start?: number | string, end?: number | string): WorkingHours {
-  return {
-    timezone: timezone || "Africa/Cairo",
-    days: parseDays(days || "sun,mon,tue,wed,thu"),
-    startHour: Number(start ?? 9),
-    endHour: Number(end ?? 18),
-  };
+function hoursFrom(
+  timezone?: string,
+  days?: string,
+  start?: number | string,
+  end?: number | string,
+  schedule?: StoredBotSettings["work_schedule"]
+): WorkingHours {
+  const out: Partial<Record<string, DayHours>> = {};
+  const entries = Object.entries(schedule ?? {});
+  if (entries.length) {
+    for (const [d, r] of entries) {
+      if (!r || r.start === undefined || r.end === undefined) continue;
+      out[d.trim().toLowerCase().slice(0, 3)] = { start: Number(r.start), end: Number(r.end) };
+    }
+  } else {
+    // Legacy shape: one shared range applied to every listed day.
+    for (const d of parseDays(days || "sun,mon,tue,wed,thu")) {
+      out[d] = { start: Number(start ?? 9), end: Number(end ?? 18) };
+    }
+  }
+  return { timezone: timezone || "Africa/Cairo", schedule: out };
 }
 
 export function getEnvBotConfig(): BotConfig {
@@ -117,7 +131,7 @@ export async function resolveBotConfig(token: string): Promise<BotConfig | null>
           botToken: stored.bot_token,
           webhookToken: stored.webhook_token,
           afterHoursOnly: stored.after_hours_only !== false,
-          hours: hoursFrom(stored.work_timezone, stored.work_days, stored.work_start, stored.work_end),
+          hours: hoursFrom(stored.work_timezone, stored.work_days, stored.work_start, stored.work_end, stored.work_schedule),
           script: mergeScript(overrides),
           label: stored.label || "after-hours",
           botAgentId: stored.bot_agent_id ?? null,
@@ -151,13 +165,14 @@ export async function getBotHealth(): Promise<{
         work_days: string;
         work_start: number;
         work_end: number;
+        work_schedule?: StoredBotSettings["work_schedule"];
       };
       if (h.configured) {
         return {
           configured: true,
           enabled: h.enabled,
           afterHoursOnly: h.after_hours_only,
-          hours: hoursFrom(h.work_timezone, h.work_days, h.work_start, h.work_end),
+          hours: hoursFrom(h.work_timezone, h.work_days, h.work_start, h.work_end, h.work_schedule),
           source: "app_settings",
         };
       }

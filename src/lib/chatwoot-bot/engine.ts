@@ -229,11 +229,15 @@ export function replyFor(intent: string, arabic: boolean, script: BotScript = DE
 
 // ── Business hours ───────────────────────────────────────────
 
+export interface DayHours {
+  start: number; // inclusive, 24h clock
+  end: number;   // exclusive, 24h clock
+}
+
 export interface WorkingHours {
-  timezone: string;      // IANA name, e.g. "Africa/Cairo"
-  days: Set<string>;     // lowercase 3-letter day names, e.g. "sun"
-  startHour: number;     // inclusive
-  endHour: number;       // exclusive
+  timezone: string; // IANA name, e.g. "Africa/Cairo"
+  /** lowercase 3-letter day → active hours; a day missing here is off. */
+  schedule: Partial<Record<string, DayHours>>;
 }
 
 export function withinHours(cfg: WorkingHours, now: Date = new Date()): boolean {
@@ -245,7 +249,8 @@ export function withinHours(cfg: WorkingHours, now: Date = new Date()): boolean 
   }).formatToParts(now);
   const day = parts.find((p) => p.type === "weekday")?.value.toLowerCase() ?? "";
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
-  return cfg.days.has(day) && hour >= cfg.startHour && hour < cfg.endHour;
+  const range = cfg.schedule[day];
+  return Boolean(range) && hour >= range!.start && hour < range!.end;
 }
 
 // ── Webhook handler ──────────────────────────────────────────

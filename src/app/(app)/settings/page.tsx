@@ -5,10 +5,11 @@ import { Save, Plug, CheckCircle2, XCircle, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
-import { ChatwootBotSettings } from "@/components/chatwoot-bot-settings";
+import { useMyRole } from "@/lib/use-role";
 
 export default function SettingsPage() {
   const { t } = useLang();
+  const role = useMyRole();
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
   const [platform, setPlatform] = useState("super_commerce");
@@ -64,7 +65,20 @@ export default function SettingsPage() {
     setTesting(false);
   }
 
-  if (loading) return <div><PageHeader title={t("settings")} /><Spinner /></div>;
+  if (loading || role === null) return <div><PageHeader title={t("settings")} /><Spinner /></div>;
+
+  // Connection settings and API keys are for admins only — even though RLS
+  // already blocks non-admin reads/writes, don't render the fields at all.
+  if (role !== "admin") {
+    return (
+      <div className="max-w-2xl">
+        <PageHeader title={t("settings")} subtitle={t("settingsSubtitle")} />
+        <div className="card p-6 text-sm text-slate-500">
+          Integration settings and API keys are managed by administrators only.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl">
@@ -139,8 +153,6 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
-
-      <ChatwootBotSettings />
 
       <div className="mt-8 mb-3">
         <h2 className="text-lg font-bold">{t("integrations")}</h2>

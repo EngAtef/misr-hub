@@ -162,11 +162,10 @@ test("mergeScript: a brand-new intent routes by menu digit and keywords", () => 
 });
 
 test("withinHours: Sunday 10:00 Cairo is inside, Friday and 20:00 are outside", () => {
+  const range = { start: 9, end: 18 };
   const cfg = {
     timezone: "Africa/Cairo",
-    days: new Set(["sun", "mon", "tue", "wed", "thu"]),
-    startHour: 9,
-    endHour: 18,
+    schedule: { sun: range, mon: range, tue: range, wed: range, thu: range },
   };
   // 2026-07-12 is a Sunday. Cairo is UTC+3 in July (EEST).
   assert.equal(withinHours(cfg, new Date("2026-07-12T07:00:00Z")), true);  // 10:00 Cairo
@@ -174,4 +173,21 @@ test("withinHours: Sunday 10:00 Cairo is inside, Friday and 20:00 are outside", 
   assert.equal(withinHours(cfg, new Date("2026-07-17T07:00:00Z")), false); // Friday
   assert.equal(withinHours(cfg, new Date("2026-07-12T06:00:00Z")), true);  // 09:00 boundary
   assert.equal(withinHours(cfg, new Date("2026-07-12T15:00:00Z")), false); // 18:00 boundary
+});
+
+test("withinHours: per-day schedules differ (short Thursday, Saturday shift)", () => {
+  const cfg = {
+    timezone: "Africa/Cairo",
+    schedule: {
+      sun: { start: 9, end: 18 },
+      thu: { start: 9, end: 14 },  // short day
+      sat: { start: 12, end: 16 }, // weekend shift
+    },
+  };
+  // 2026-07-16 is a Thursday; 2026-07-18 a Saturday. Cairo is UTC+3.
+  assert.equal(withinHours(cfg, new Date("2026-07-16T08:00:00Z")), true);  // Thu 11:00 — inside short day
+  assert.equal(withinHours(cfg, new Date("2026-07-16T12:00:00Z")), false); // Thu 15:00 — after 14:00
+  assert.equal(withinHours(cfg, new Date("2026-07-18T10:00:00Z")), true);  // Sat 13:00 — inside shift
+  assert.equal(withinHours(cfg, new Date("2026-07-18T07:00:00Z")), false); // Sat 10:00 — before shift
+  assert.equal(withinHours(cfg, new Date("2026-07-13T07:00:00Z")), false); // Monday — day off entirely
 });
