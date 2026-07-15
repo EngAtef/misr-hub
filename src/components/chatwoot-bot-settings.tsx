@@ -25,6 +25,7 @@ interface BotSettingsForm {
   work_days: string;
   work_start: number;
   work_end: number;
+  label: string;
 }
 
 const DEFAULT_FORM: BotSettingsForm = {
@@ -37,6 +38,7 @@ const DEFAULT_FORM: BotSettingsForm = {
   work_days: "sun,mon,tue,wed,thu",
   work_start: 9,
   work_end: 18,
+  label: "after-hours",
 };
 
 function randomToken(): string {
@@ -323,6 +325,18 @@ export function ChatwootBotSettings() {
             onChange={(e) => setForm((f) => ({ ...f, after_hours_only: e.target.checked }))} />
           Reply outside working hours only
         </label>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold mb-1">Conversation label</label>
+        <input className="input !w-56" dir="ltr" value={form.label}
+          onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+        <p className="mt-1 text-xs text-slate-400">
+          Added to every conversation the bot handles, and on handoffs — create the same label in
+          Chatwoot (Settings → Labels) so agents can filter the overnight queue in one click.
+          Tip: also remove the bot agent from the inbox&apos;s auto-assignment so Chatwoot never
+          routes customers to it.
+        </p>
       </div>
 
       <div>

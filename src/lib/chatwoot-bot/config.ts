@@ -27,6 +27,10 @@ export interface BotConfig {
   afterHoursOnly: boolean;
   hours: WorkingHours;
   script: BotScript;
+  /** Label added to conversations the bot handles (morning triage filter). */
+  label: string;
+  /** The bot agent's Chatwoot id, saved by Test connection; null until known. */
+  botAgentId: number | null;
   source: "app_settings" | "env";
 }
 
@@ -42,6 +46,8 @@ interface StoredBotSettings {
   work_days?: string;
   work_start?: number | string;
   work_end?: number | string;
+  label?: string;
+  bot_agent_id?: number;
 }
 
 function parseDays(csv: string): Set<string> {
@@ -77,6 +83,8 @@ export function getEnvBotConfig(): BotConfig {
       process.env.WORK_END
     ),
     script: mergeScript(null),
+    label: process.env.BOT_LABEL ?? "after-hours",
+    botAgentId: null,
     source: "env",
   };
 }
@@ -111,6 +119,8 @@ export async function resolveBotConfig(token: string): Promise<BotConfig | null>
           afterHoursOnly: stored.after_hours_only !== false,
           hours: hoursFrom(stored.work_timezone, stored.work_days, stored.work_start, stored.work_end),
           script: mergeScript(overrides),
+          label: stored.label || "after-hours",
+          botAgentId: stored.bot_agent_id ?? null,
           source: "app_settings",
         };
       }

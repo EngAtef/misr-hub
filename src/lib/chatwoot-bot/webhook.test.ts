@@ -9,11 +9,13 @@ import { GREETING_AR, HANDOFF_EN } from "./script.ts";
 interface Recorded {
   sent: Array<{ convId: number; content: string }>;
   opened: number[];
+  labeled: number[];
+  unassigned: number[];
   logs: string[];
 }
 
 function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext; rec: Recorded } {
-  const rec: Recorded = { sent: [], opened: [], logs: [] };
+  const rec: Recorded = { sent: [], opened: [], labeled: [], unassigned: [], logs: [] };
   const ctx: WebhookContext = {
     webhookToken: "secret-token",
     afterHoursOnly: true,
@@ -24,6 +26,13 @@ function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext
     openConversation: async (convId) => {
       rec.opened.push(convId);
     },
+    labelConversation: async (convId) => {
+      rec.labeled.push(convId);
+    },
+    unassignConversation: async (convId) => {
+      rec.unassigned.push(convId);
+    },
+    getBotAgentId: async () => 55, // the bot's own agent id in these tests
     log: (m) => rec.logs.push(m),
     ...overrides,
   };
@@ -154,12 +163,62 @@ test("malformed payload -> 200, nothing sent", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
-test("cancel intent replies and moves the conversation to the human queue", async () => {
+test("cancel intent replies, labels, unassigns, and opens the conversation", async () => {
   const { ctx, rec } = makeCtx();
   const res = await handleWebhook("secret-token", incoming("عايزه الغي"), ctx);
   assert.equal(res.body.intent, "cancel");
   assert.equal(rec.sent.length, 1);
   assert.deepEqual(rec.opened, [42]);
+  assert.deepEqual(rec.labeled, [42]);
+  assert.deepEqual(rec.unassigned, [42]);
+});
+
+test("handoff labels and unassigns so the conversation shows in the unassigned queue", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("عايز أكلم موظف"), ctx);
+  assert.deepEqual(rec.opened, [42]);
+  assert.deepEqual(rec.labeled, [42]);
+  assert.deepEqual(rec.unassigned, [42]);
+});
+
+test("greeting labels the conversation for morning triage", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", { event: "conversation_created", id: 7 }, ctx);
+  assert.deepEqual(rec.labeled, [7]);
+});
+
+test("conversation assigned to a human agent -> bot stays silent", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("كام الشحن؟"),
+    conversation: { id: 42, meta: { assignee: { id: 77 } } }, // human agent 77
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.skipped, "assigned_to_agent");
+  assert.equal(rec.sent.length, 0);
+});
+
+test("conversation self-assigned to the bot -> bot keeps replying", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("كام الشحن؟"),
+    conversation: { id: 42, meta: { assignee: { id: 55 } } }, // the bot itself
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.intent, "shipping");
+  assert.equal(rec.sent.length, 1);
+});
+
+test("agent's outgoing message during working hours is not touched at all", async () => {
+  const { ctx, rec } = makeCtx({ withinHours: () => true });
+  const res = await handleWebhook(
+    "secret-token",
+    { ...incoming("reply to customer"), message_type: "outgoing" },
+    ctx
+  );
+  assert.equal(res.status, 200);
+  assert.equal(rec.sent.length, 0);
+  assert.equal(rec.opened.length, 0); // must NOT reopen agents' conversations
 });
 
 test("custom script from settings is used for greeting and replies", async () => {

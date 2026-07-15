@@ -42,7 +42,22 @@ export async function POST(request: NextRequest) {
           message: `Token rejected by ${baseUrl} (HTTP ${profileRes.status}). Check the access token.`,
         });
       }
-      const profile = (await profileRes.json()) as { name?: string; email?: string };
+      const profile = (await profileRes.json()) as { id?: number; name?: string; email?: string };
+
+      // Remember the bot agent's id so the webhook can tell self-assigned
+      // conversations apart from ones a human agent owns.
+      if (profile.id) {
+        await user.supabase
+          .from("app_settings")
+          .upsert(
+            {
+              key: "chatwoot_bot",
+              value: { ...(data?.value as Record<string, unknown>), bot_agent_id: profile.id },
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "key" }
+          );
+      }
 
       const accountRes = await fetch(`${baseUrl}/api/v1/accounts/${accountId}/labels`, {
         headers: { api_access_token: cfg.bot_token },

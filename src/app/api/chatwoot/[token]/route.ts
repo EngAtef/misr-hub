@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleWebhook, withinHours } from "@/lib/chatwoot-bot/engine";
 import { resolveBotConfig } from "@/lib/chatwoot-bot/config";
-import { sendMessage, openConversation } from "@/lib/chatwoot-bot/chatwoot";
+import { sendMessage, openConversation, assignConversation, addLabel, getProfile } from "@/lib/chatwoot-bot/chatwoot";
 
 export const maxDuration = 30;
 
@@ -54,6 +54,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         await openConversation(cfg, convId);
       } catch (e) {
         log(`open failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
+    labelConversation: async (convId) => {
+      try {
+        await addLabel(cfg, convId, cfg.label);
+      } catch (e) {
+        log(`label failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
+    unassignConversation: async (convId) => {
+      try {
+        await assignConversation(cfg, convId, 0);
+      } catch (e) {
+        log(`unassign failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
+    getBotAgentId: async () => {
+      if (cfg.botAgentId) return cfg.botAgentId;
+      try {
+        return (await getProfile(cfg))?.id ?? null;
+      } catch {
+        return null;
       }
     },
     log,

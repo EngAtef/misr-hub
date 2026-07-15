@@ -262,6 +262,12 @@ export interface WebhookContext {
   send: (conversationId: number, content: string) => Promise<void>;
   /** Move the conversation to the human queue (status: open). */
   openConversation: (conversationId: number) => Promise<void>;
+  /** Tag the conversation for morning triage (e.g. "after-hours"). */
+  labelConversation: (conversationId: number) => Promise<void>;
+  /** Remove the bot as assignee so the conversation shows as unassigned. */
+  unassignConversation: (conversationId: number) => Promise<void>;
+  /** The bot agent's Chatwoot id — used to recognise self-assignments. */
+  getBotAgentId: () => Promise<number | null>;
   /** PII-safe logger — receives conversation ids and intent names only. */
   log: (message: string) => void;
 }
@@ -277,7 +283,8 @@ interface ChatwootPayload {
   content?: string;
   message_type?: string;
   sender?: { type?: string };
-  conversation?: { id?: number };
+  conversation?: { id?: number; meta?: { assignee?: { id?: number } | null } };
+  meta?: { assignee?: { id?: number } | null };
 }
 
 export async function handleWebhook(
@@ -298,23 +305,39 @@ export async function handleWebhook(
       data.conversation?.id ?? (event === "conversation_created" ? data.id : undefined);
     if (!convId) return { status: 200, body: { ok: true } };
 
-    // During working hours, stay out of the way — humans are on.
-    if (ctx.afterHoursOnly && ctx.withinHours()) {
-      await ctx.openConversation(convId);
-      return { status: 200, body: { ok: true, skipped: "working_hours" } };
-    }
+    const withinHours = ctx.afterHoursOnly && ctx.withinHours();
 
-    // Greet once, when the conversation opens
+    // Greet once, when the conversation opens (and label it for triage)
     if (event === "conversation_created") {
+      if (withinHours) return { status: 200, body: { ok: true, skipped: "working_hours" } };
+      await ctx.labelConversation(convId);
       await ctx.send(convId, script.greetingAr + "\n\n———\n" + script.greetingEn);
       return { status: 200, body: { ok: true } };
     }
 
     if (event !== "message_created") return { status: 200, body: { ok: true } };
 
-    // Only react to the customer. Ignore our own messages or we loop forever.
+    // Only react to the customer. Ignore our own messages or we loop
+    // forever — and never touch conversations because an agent replied.
     if (data.message_type !== "incoming") return { status: 200, body: { ok: true } };
     if (data.sender?.type === "agent_bot") return { status: 200, body: { ok: true } };
+
+    // During working hours, stay out of the way — humans are on. Make sure
+    // the customer's message sits in the open queue and say nothing.
+    if (withinHours) {
+      await ctx.openConversation(convId);
+      return { status: 200, body: { ok: true, skipped: "working_hours" } };
+    }
+
+    // A human agent owns this conversation — the bot must not butt in.
+    // (Self-assignments happen when Chatwoot credits the bot's own replies.)
+    const assigneeId = data.conversation?.meta?.assignee?.id ?? data.meta?.assignee?.id;
+    if (assigneeId) {
+      const botId = await ctx.getBotAgentId();
+      if (!botId || assigneeId !== botId) {
+        return { status: 200, body: { ok: true, skipped: "assigned_to_agent" } };
+      }
+    }
 
     const text = data.content ?? "";
     const arabic = isArabic(text) || !/[a-zA-Z]/.test(text);
@@ -329,8 +352,11 @@ export async function handleWebhook(
     ctx.log(`conv=${convId} intent=${intent}`);
     await ctx.send(convId, replyFor(intent, arabic, script));
     // Handoff — and any intent flagged open (e.g. cancel) — goes to the
-    // human queue so the team follows up in the morning.
+    // human queue: label it, drop the bot's assignment so it shows as
+    // unassigned, and set the status to open.
     if (intent === "handoff" || script.intents[intent]?.open) {
+      await ctx.labelConversation(convId);
+      await ctx.unassignConversation(convId);
       await ctx.openConversation(convId);
     }
     return { status: 200, body: { ok: true, intent } };
