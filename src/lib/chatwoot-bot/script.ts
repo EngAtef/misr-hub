@@ -35,6 +35,16 @@ export interface Intent {
   /** After replying, also move the conversation to the human queue. */
   open?: boolean;
   variants?: Record<string, IntentVariant>;
+  /** Short labels for the tappable menu buttons (topics without them are text-only). */
+  title_ar?: string;
+  title_en?: string;
+  /**
+   * When set and no variant matched, the bot asks this instead of sending
+   * the generic answer, and remembers the topic — the customer's next
+   * message is matched against this topic's variants directly.
+   */
+  ask_ar?: string;
+  ask_en?: string;
 }
 
 export const GREETING_AR =
@@ -72,6 +82,16 @@ export const GREETING_EN =
 export const INTENTS: Record<string, Intent> = {
   shipping: {
     menu: "1",
+    title_ar: "🚚 الشحن والتوصيل",
+    title_en: "Shipping",
+    ask_ar:
+      "🚚 تمام! لأي محافظة حابب توصيل؟ ✍️\n" +
+      "اكتب اسم المحافظة (مثلاً: الجيزة، الإسكندرية، أسوان…) وهقولك السعر فورًا.\n" +
+      "أو اكتب *كل المحافظات* لعرض القائمة كاملة.",
+    ask_en:
+      "🚚 Sure! Which governorate should we deliver to? ✍️\n" +
+      "Type its name (e.g. Giza, Alexandria, Aswan…) and I'll give you the rate right away.\n" +
+      "Or type *all* to see the full list.",
     keywords_ar: ["شحن", "توصيل", "دليفري", "التوصيل", "سعر الشحن", "مصاريف", "يوصل",
       "مجاني", "محافظه", "المنصوره", "طنطا", "اسكندريه", "اسوان", "القليوبيه",
       "بورسعيد", "الاسماعيليه", "السويس", "الدقهليه", "الشرقيه", "الغربيه", "المنوفيه",
@@ -198,6 +218,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   payment: {
     menu: "2",
+    title_ar: "💳 طرق الدفع",
+    title_en: "Payment",
     keywords_ar: ["دفع", "الدفع", "ادفع", "فيزا", "كارت", "بطاقه", "تقسيط", "اقسط", "قسط",
       "اقساط", "فاليو", "فودافون كاش", "محفظه", "كاش", "الاستلام", "انستاباي", "ماستر كارد"],
     keywords_en: ["pay", "payment", "card", "visa", "mastercard", "installment", "instalment",
@@ -257,6 +279,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   returns: {
     menu: "3",
+    title_ar: "↩️ الاسترجاع",
+    title_en: "Returns",
     keywords_ar: ["ارجاع", "استرجاع", "ارجع", "ارجعه", "استبدال", "استبدل", "ابدل",
       "بدل", "فلوسي", "استرداد", "مرتجع", "تالف", "مكسور", "غلط", "خطا",
       "معيوب", "ناقص", "مقطوع", "مش عاجبني"],
@@ -330,6 +354,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   track: {
     menu: "4",
+    title_ar: "📦 تتبّع طلبي",
+    title_en: "Track order",
     keywords_ar: ["فين طلبي", "طلبي", "تتبع", "اتتبع", "شحنتي", "وصل", "الاوردر", "اوردر",
       "حاله الطلب", "امتي يوصل", "اتاخر", "متاخر", "تاخر", "تاخير", "موصلش", "وصلش",
       "مستني", "رقم الطلب", "رقم الاوردر"],
@@ -354,6 +380,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   categories: {
     menu: "5",
+    title_ar: "📚 الأقسام واللغات",
+    title_en: "Categories",
     keywords_ar: ["كتب", "كتاب", "اقسام", "قسم", "انجليزي", "فرنساوي", "فرنسي", "اطفال",
       "كوميكس", "ديزني", "مارفل", "روايات", "ترشيح", "اقترح", "سن", "سنه", "سنين"],
     keywords_en: ["books", "category", "categories", "english", "french", "kids", "children",
@@ -380,6 +408,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   hours: {
     menu: "6",
+    title_ar: "🕘 مواعيد العمل",
+    title_en: "Hours & contact",
     keywords_ar: ["مواعيد", "ميعاد", "شغالين", "فاتحين", "تليفون", "رقم", "ايميل",
       "تواصل", "الخط الساخن", "امتي", "الجمعه", "السبت", "اجازه", "عطله", "بتفتحوا", "بتقفلوا"],
     keywords_en: ["hours", "open", "closed", "contact", "phone", "email", "hotline",
@@ -405,6 +435,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   bulk: {
     menu: "7",
+    title_ar: "🏫 طلبات الجملة",
+    title_en: "Bulk orders",
     keywords_ar: ["جمله", "بالجمله", "مدرسه", "مدارس", "شركه", "كميه", "كميات",
       "خصم", "عرض سعر", "كوبون", "كود"],
     keywords_en: ["bulk", "wholesale", "school", "corporate", "quantity", "discount",
@@ -426,6 +458,8 @@ export const INTENTS: Record<string, Intent> = {
   },
   cancel: {
     menu: "8",
+    title_ar: "🚫 إلغاء أو تعديل طلب",
+    title_en: "Cancel order",
     open: true,
     keywords_ar: ["الغي", "الغاء", "يلغي", "تلغي", "الغيه", "كنسل", "الغي الاوردر",
       "الغي الطلب", "الغاء الطلب", "الغاء الاوردر", "اعدل", "تعديل", "اغير"],
@@ -524,3 +558,25 @@ export const FALLBACK_EN =
 
 export const FOOTER_AR = "\n\n———\nمحتاج حاجة تانية؟ اكتب رقم من القائمة، أو *0* للتحدث مع موظف.";
 export const FOOTER_EN = "\n\n———\nAnything else? Reply with a menu number, or *0* to reach an agent.";
+
+// Shown above the tappable topic buttons (sent with the greeting/fallback).
+export const MENU_PROMPT_AR = "اختر موضوعًا 👇";
+export const MENU_PROMPT_EN = "Pick a topic 👇";
+export const HANDOFF_TITLE_AR = "💬 التحدث مع موظف";
+export const HANDOFF_TITLE_EN = "Talk to an agent";
+
+// Reply when the customer sends a photo/file with no text — usually proof of
+// a damaged or wrong item.
+export const ATTACHMENT_AR =
+  "وصلتنا الصورة 📷 شكرًا!\n" +
+  "أنا مساعد آلي ومش بقدر أفتح المرفقات، لكن الفريق هيشوفها أول ما الدوام يبدأ.\n" +
+  "علشان نسرّع الحل، اكتب في رسالة واحدة:\n" +
+  "• *رقم الطلب*\n• *رقم الهاتف*\n• وصف قصير للمشكلة\n\n" +
+  `وللأمور العاجلة: الخط الساخن ${HOTLINE}.`;
+export const ATTACHMENT_EN =
+  "Got your photo 📷 thanks!\n" +
+  "I'm an automated assistant and can't open attachments, but the team will review it first " +
+  "thing in the morning.\n" +
+  "To speed things up, please send in one message:\n" +
+  "• *Order number*\n• *Phone number*\n• A short description of the issue\n\n" +
+  `Urgent? Hotline ${HOTLINE}.`;

@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Bot, CheckCircle2, XCircle, Plug, Save, Copy, RefreshCw, ChevronDown, ChevronUp, Undo2, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { DEFAULT_SCRIPT, type ScriptOverrides } from "@/lib/chatwoot-bot/engine";
+import { DEFAULT_SCRIPT, mergeScript, route, replyFor, isArabic, type ScriptOverrides } from "@/lib/chatwoot-bot/engine";
 import type { Intent } from "@/lib/chatwoot-bot/script";
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -31,6 +31,8 @@ interface BotSettingsForm {
   work_timezone: string;
   work_schedule: Schedule;
   label: string;
+  menu_buttons: boolean;
+  holidays: string;
 }
 
 const DEFAULT_SCHEDULE: Schedule = {
@@ -50,6 +52,8 @@ const DEFAULT_FORM: BotSettingsForm = {
   work_timezone: "Africa/Cairo",
   work_schedule: DEFAULT_SCHEDULE,
   label: "after-hours",
+  menu_buttons: true,
+  holidays: "",
 };
 
 function randomToken(): string {
@@ -232,6 +236,22 @@ export function BotConnectionSettings() {
             onChange={(e) => setForm((f) => ({ ...f, after_hours_only: e.target.checked }))} />
           Reply outside working hours only
         </label>
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={form.menu_buttons}
+            onChange={(e) => setForm((f) => ({ ...f, menu_buttons: e.target.checked }))} />
+          Tappable topic buttons (with greeting &amp; fallback)
+        </label>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold mb-1">Public holidays</label>
+        <input className="input" dir="ltr" placeholder="2026-07-23, 2026-10-06"
+          value={form.holidays}
+          onChange={(e) => setForm((f) => ({ ...f, holidays: e.target.value }))} />
+        <p className="mt-1 text-xs text-slate-400">
+          Comma-separated dates (YYYY-MM-DD). On these days the bot treats the whole day as
+          after-hours and answers customers even inside normal working times.
+        </p>
       </div>
 
       <div>
@@ -318,6 +338,8 @@ const joinKeywords = (a: string[]) => a.join("، ");
 
 interface IntentForm {
   menu: string;
+  title_ar: string;
+  title_en: string;
   keywords_ar: string;
   keywords_en: string;
   ar: string;
@@ -347,6 +369,8 @@ function scriptFormFromOverrides(o: ScriptOverrides | null): ScriptForm {
   for (const [k, v] of Object.entries(merged)) {
     intents[k] = {
       menu: v.menu ?? "",
+      title_ar: v.title_ar ?? "",
+      title_en: v.title_en ?? "",
       keywords_ar: joinKeywords(v.keywords_ar ?? []),
       keywords_en: (v.keywords_en ?? []).join(", "),
       ar: v.ar ?? "",
@@ -391,11 +415,21 @@ function overridesFromForm(f: ScriptForm): ScriptOverrides {
     const kwEn = splitKeywords(v.keywords_en);
     if (!def) {
       // Custom topic — stored whole. Incomplete ones are skipped at runtime.
-      intents[key] = { menu: v.menu, keywords_ar: kwAr, keywords_en: kwEn, ar: v.ar, en: v.en };
+      intents[key] = {
+        menu: v.menu,
+        title_ar: v.title_ar || undefined,
+        title_en: v.title_en || undefined,
+        keywords_ar: kwAr,
+        keywords_en: kwEn,
+        ar: v.ar,
+        en: v.en,
+      };
       continue;
     }
     const patch: Partial<Intent> = {};
     if (v.menu !== def.menu) patch.menu = v.menu;
+    if (v.title_ar !== (def.title_ar ?? "")) patch.title_ar = v.title_ar;
+    if (v.title_en !== (def.title_en ?? "")) patch.title_en = v.title_en;
     if (joinKeywords(kwAr) !== joinKeywords(def.keywords_ar)) patch.keywords_ar = kwAr;
     if (kwEn.join(", ") !== def.keywords_en.join(", ")) patch.keywords_en = kwEn;
     if (v.ar !== def.ar) patch.ar = v.ar;
@@ -414,6 +448,21 @@ export function BotScriptEditor() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [testMsg, setTestMsg] = useState("");
+  const [testResult, setTestResult] = useState<{ topic: string; reply: string } | null>(null);
+
+  function runTest() {
+    if (!testMsg.trim()) return;
+    // Runs the real routing engine on the CURRENT (possibly unsaved) form.
+    const merged = mergeScript(overridesFromForm(script));
+    const topic = route(testMsg, merged);
+    const arabic = isArabic(testMsg) || !/[a-zA-Z]/.test(testMsg);
+    const reply =
+      topic === null
+        ? (arabic ? merged.fallbackAr : merged.fallbackEn)
+        : replyFor(topic, arabic, merged, testMsg);
+    setTestResult({ topic: topic ?? "fallback (no topic matched)", reply });
+  }
 
   useEffect(() => {
     supabase
@@ -451,7 +500,15 @@ export function BotScriptEditor() {
       ...s,
       intents: {
         ...s.intents,
-        [key]: { menu: usedDigits.has(String(digit)) ? "" : String(digit), keywords_ar: "", keywords_en: "", ar: "", en: "" },
+        [key]: {
+          menu: usedDigits.has(String(digit)) ? "" : String(digit),
+          title_ar: "",
+          title_en: "",
+          keywords_ar: "",
+          keywords_en: "",
+          ar: "",
+          en: "",
+        },
       },
     }));
     setOpenIntent(key);
@@ -482,6 +539,24 @@ export function BotScriptEditor() {
         topic whose keywords score highest — weak matches get the fallback instead of a guess.
         Changes apply on Save, no deploy needed.
       </p>
+
+      {/* Playground: test the current (unsaved) script instantly */}
+      <div className="rounded-lg bg-brand-50 border border-brand-100 p-3 space-y-2">
+        <div className="text-xs font-bold text-brand-800">🧪 Try a customer message (tests your unsaved edits)</div>
+        <div className="flex gap-2">
+          <input className="input text-sm flex-1" dir="auto" placeholder="e.g. كام الشحن للجيزة؟"
+            value={testMsg}
+            onChange={(e) => setTestMsg(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && runTest()} />
+          <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={runTest}>Test</button>
+        </div>
+        {testResult && (
+          <div className="space-y-1 text-xs">
+            <div><b>Topic:</b> <span dir="ltr">{testResult.topic}</span></div>
+            <div className="whitespace-pre-wrap rounded bg-white border border-slate-200 p-2" dir="auto">{testResult.reply}</div>
+          </div>
+        )}
+      </div>
 
       {(
         [
@@ -555,11 +630,21 @@ export function BotScriptEditor() {
                     <input className="input text-sm" dir="ltr" value={intent.menu}
                       onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, menu: e.target.value } } }))} />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold mb-1">Keywords (Arabic, comma-separated)</label>
-                    <input className="input text-sm" dir="rtl" value={intent.keywords_ar}
-                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, keywords_ar: e.target.value } } }))} />
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Button label (Arabic)</label>
+                    <input className="input text-sm" dir="rtl" value={intent.title_ar}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, title_ar: e.target.value } } }))} />
                   </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Button label (English)</label>
+                    <input className="input text-sm" dir="ltr" value={intent.title_en}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, title_en: e.target.value } } }))} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Keywords (Arabic, comma-separated)</label>
+                  <input className="input text-sm" dir="rtl" value={intent.keywords_ar}
+                    onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, keywords_ar: e.target.value } } }))} />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold mb-1">Keywords (English)</label>
@@ -597,6 +682,174 @@ export function BotScriptEditor() {
         <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
           <XCircle size={16} />
           {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Analytics & fallback inbox — the weekly improvement loop
+// ─────────────────────────────────────────────────────────────
+
+interface BotEvent {
+  id: number;
+  created_at: string;
+  conversation_id: number | null;
+  intent: string;
+  message: string | null;
+}
+
+export function BotAnalytics() {
+  const supabase = useMemo(() => createClient(), []);
+  const [events, setEvents] = useState<BotEvent[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [addingFor, setAddingFor] = useState<BotEvent | null>(null);
+  const [keyword, setKeyword] = useState("");
+  const [topic, setTopic] = useState("shipping");
+  const [added, setAdded] = useState("");
+
+  useEffect(() => {
+    supabase
+      .from("bot_events")
+      .select("id, created_at, conversation_id, intent, message")
+      .order("created_at", { ascending: false })
+      .limit(500)
+      .then(({ data }) => {
+        setEvents((data as BotEvent[]) ?? []);
+        setLoaded(true);
+      });
+  }, [supabase]);
+
+  const stats = useMemo(() => {
+    const byIntent: Record<string, number> = {};
+    for (const e of events) byIntent[e.intent] = (byIntent[e.intent] ?? 0) + 1;
+    const replied = events.filter((e) => e.intent !== "greeting").length;
+    const fallbacks = byIntent["fallback"] ?? 0;
+    const handoffs = (byIntent["handoff"] ?? 0) + (byIntent["cancel"] ?? 0) + (byIntent["attachment"] ?? 0);
+    return { byIntent, replied, fallbacks, handoffs };
+  }, [events]);
+
+  const fallbackMessages = useMemo(
+    () => events.filter((e) => e.intent === "fallback" && e.message).slice(0, 30),
+    [events]
+  );
+
+  async function addKeyword() {
+    if (!keyword.trim() || !addingFor) return;
+    const { data } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "chatwoot_bot_script")
+      .maybeSingle();
+    const overrides = (data?.value ?? {}) as ScriptOverrides;
+    const form = scriptFormFromOverrides(overrides);
+    const target = form.intents[topic];
+    if (!target) return;
+    const isAr = isArabic(keyword);
+    if (isAr) target.keywords_ar = target.keywords_ar ? `${target.keywords_ar}، ${keyword.trim()}` : keyword.trim();
+    else target.keywords_en = target.keywords_en ? `${target.keywords_en}, ${keyword.trim()}` : keyword.trim();
+    const next = overridesFromForm(form);
+    await supabase.from("app_settings").upsert(
+      { key: "chatwoot_bot_script", value: next, updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    setAdded(`"${keyword.trim()}" → ${topic}`);
+    setAddingFor(null);
+    setKeyword("");
+  }
+
+  if (!loaded) return null;
+
+  const pct = (n: number) => (stats.replied ? Math.round((n / stats.replied) * 100) : 0);
+  const topIntents = Object.entries(stats.byIntent)
+    .filter(([k]) => k !== "greeting")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  return (
+    <div className="card p-6 space-y-4">
+      <h3 className="font-bold text-brand-700">Bot analytics — last 500 events</h3>
+
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+          <div className="text-2xl font-bold">{stats.replied}</div>
+          <div className="text-xs text-slate-500">messages handled</div>
+        </div>
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+          <div className="text-2xl font-bold">{pct(stats.fallbacks)}%</div>
+          <div className="text-xs text-slate-500">fallback rate (your to-do list)</div>
+        </div>
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+          <div className="text-2xl font-bold">{pct(stats.handoffs)}%</div>
+          <div className="text-xs text-slate-500">handed to the team (20–30% is healthy)</div>
+        </div>
+      </div>
+
+      {topIntents.length > 0 && (
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">Topics customers ask about</div>
+          <div className="flex flex-wrap gap-1.5">
+            {topIntents.map(([k, n]) => (
+              <span key={k} className="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-xs" dir="ltr">
+                {k}: <b>{n}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="text-xs font-bold text-slate-600 mb-1.5">
+          Fallback inbox — what the bot couldn&apos;t answer (teach it a keyword)
+        </div>
+        {fallbackMessages.length === 0 ? (
+          <p className="text-xs text-slate-400">Nothing here — the bot understood everything so far 🎉</p>
+        ) : (
+          <div className="space-y-1.5">
+            {fallbackMessages.map((e) => (
+              <div key={e.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5">
+                <span className="flex-1 text-sm" dir="auto">{e.message}</span>
+                <span className="text-[10px] text-slate-400 shrink-0">{new Date(e.created_at).toLocaleDateString()}</span>
+                <button
+                  type="button"
+                  className="btn-secondary !py-1 text-xs shrink-0"
+                  onClick={() => {
+                    setAddingFor(e);
+                    setKeyword(e.message ?? "");
+                    setAdded("");
+                  }}
+                >
+                  Teach
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {addingFor && (
+        <div className="rounded-lg bg-brand-50 border border-brand-100 p-3 space-y-2">
+          <div className="text-xs font-bold text-brand-800">
+            Add a keyword so this routes correctly next time — trim it to the meaningful word or phrase.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input className="input text-sm flex-1 min-w-40" dir="auto" value={keyword}
+              onChange={(e) => setKeyword(e.target.value)} />
+            <select className="input !w-auto text-sm" value={topic} onChange={(e) => setTopic(e.target.value)}>
+              {Object.keys(DEFAULT_SCRIPT.intents)
+                .filter((k) => !["greet", "thanks"].includes(k))
+                .map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <button type="button" className="btn-primary !py-1.5 text-xs" onClick={addKeyword}>Add keyword</button>
+            <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => setAddingFor(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {added && (
+        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+          <CheckCircle2 size={14} />
+          Added {added} — live immediately.
         </div>
       )}
     </div>

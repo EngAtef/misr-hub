@@ -11,11 +11,18 @@ interface Recorded {
   opened: number[];
   labeled: number[];
   unassigned: number[];
+  menus: number[];
+  notes: string[];
+  pendings: Array<string | null>;
+  events: Array<{ intent: string; message?: string }>;
   logs: string[];
 }
 
 function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext; rec: Recorded } {
-  const rec: Recorded = { sent: [], opened: [], labeled: [], unassigned: [], logs: [] };
+  const rec: Recorded = {
+    sent: [], opened: [], labeled: [], unassigned: [],
+    menus: [], notes: [], pendings: [], events: [], logs: [],
+  };
   const ctx: WebhookContext = {
     webhookToken: "secret-token",
     afterHoursOnly: true,
@@ -33,6 +40,18 @@ function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext
       rec.unassigned.push(convId);
     },
     getBotAgentId: async () => 55, // the bot's own agent id in these tests
+    sendMenu: async (convId) => {
+      rec.menus.push(convId);
+    },
+    sendPrivateNote: async (_convId, content) => {
+      rec.notes.push(content);
+    },
+    setPendingTopic: async (_convId, topic) => {
+      rec.pendings.push(topic);
+    },
+    recordEvent: async (_convId, intent, message) => {
+      rec.events.push({ intent, message });
+    },
     log: (m) => rec.logs.push(m),
     ...overrides,
   };
@@ -131,9 +150,10 @@ test("handoff intent -> handoff message + conversation opened", async () => {
 test("English message gets English reply; Arabic gets Arabic", async () => {
   const { ctx, rec } = makeCtx();
   await handleWebhook("secret-token", incoming("how much is shipping to Aswan?"), ctx);
-  await handleWebhook("secret-token", incoming("كام سعر الشحن؟"), ctx);
+  await handleWebhook("secret-token", incoming("كام سعر الشحن للاسكندرية؟"), ctx);
   assert.ok(rec.sent[0].content.includes("Upper Egypt")); // variant answer, in English
-  assert.ok(rec.sent[1].content.includes("الشحن والتوصيل")); // generic list, in Arabic
+  assert.ok(rec.sent[1].content.includes("99.83")); // Alexandria variant, in Arabic
+  assert.ok(rec.sent[1].content.includes("سكندرية"));
 });
 
 test("every replied conversation gets the triage label (fallback included)", async () => {
@@ -232,13 +252,82 @@ test("custom script from settings is used for greeting and replies", async () =>
   const script = mergeScript({
     greeting_ar: "أهلا مخصص",
     greeting_en: "Custom hello",
-    intents: { shipping: { en: "Custom shipping answer" } },
+    intents: { hours: { en: "Custom hours answer" } },
   });
   const { ctx, rec } = makeCtx({ script });
   await handleWebhook("secret-token", { event: "conversation_created", id: 3 }, ctx);
   assert.ok(rec.sent[0].content.startsWith("أهلا مخصص"));
-  await handleWebhook("secret-token", incoming("how much is shipping?"), ctx);
-  assert.ok(rec.sent[1].content.startsWith("Custom shipping answer"));
+  await handleWebhook("secret-token", incoming("what are your working hours"), ctx);
+  assert.ok(rec.sent[1].content.startsWith("Custom hours answer"));
+});
+
+test("photo with no text gets the attachment reply and reaches the team", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook(
+    "secret-token",
+    { event: "message_created", message_type: "incoming", content: "", attachments: [{}], conversation: { id: 42 } },
+    ctx
+  );
+  assert.equal(res.body.intent, "attachment");
+  assert.ok(rec.sent[0].content.includes("📷"));
+  assert.deepEqual(rec.opened, [42]);
+  assert.deepEqual(rec.unassigned, [42]);
+  assert.equal(rec.notes.length, 1);
+});
+
+test("generic shipping question triggers ask-then-answer flow", async () => {
+  const { ctx, rec } = makeCtx();
+  const res = await handleWebhook("secret-token", incoming("how much is shipping?"), ctx);
+  assert.equal(res.body.asked, true);
+  assert.ok(rec.sent[0].content.includes("Which governorate"));
+  assert.deepEqual(rec.pendings, ["shipping"]); // topic remembered
+});
+
+test("pending topic: a bare governorate reply gets the specific rate", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("Giza"),
+    conversation: { id: 42, custom_attributes: { bot_pending: "shipping" } },
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.intent, "shipping");
+  assert.ok(rec.sent[0].content.includes("85.56"));
+  assert.deepEqual(rec.pendings, [null]); // cleared
+});
+
+test("pending topic: asking for the full list sends the generic answer", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("all"),
+    conversation: { id: 42, custom_attributes: { bot_pending: "shipping" } },
+  };
+  await handleWebhook("secret-token", payload, ctx);
+  assert.ok(rec.sent[0].content.includes("199.64")); // full list includes Sinai
+  assert.deepEqual(rec.pendings, [null]);
+});
+
+test("menu buttons are sent with greeting and fallback", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", { event: "conversation_created", id: 7 }, ctx);
+  await handleWebhook("secret-token", incoming("asdkjhasd"), ctx);
+  assert.deepEqual(rec.menus, [7, 42]);
+});
+
+test("analytics: fallback records the message text, other intents do not", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("asdkjhasd"), ctx);
+  await handleWebhook("secret-token", incoming("عايز أكلم موظف"), ctx);
+  assert.deepEqual(rec.events[0], { intent: "fallback", message: "asdkjhasd" });
+  assert.equal(rec.events[1].intent, "handoff");
+  assert.equal(rec.events[1].message, undefined);
+});
+
+test("handoff private note includes the detected order number", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("عايز الغي الاوردر رقم 4522"), ctx);
+  assert.equal(rec.notes.length, 1);
+  assert.ok(rec.notes[0].includes("4522"));
+  assert.ok(rec.notes[0].includes("cancel"));
 });
 
 test("logs never contain message content (PII rule)", async () => {

@@ -67,6 +67,31 @@ export async function GET(request: NextRequest) {
 
   if (!k) return NextResponse.json({ error: currentRes.error?.message ?? "no data" }, { status: 500 });
 
+  // After-hours bot stats (best-effort — table exists since migration 027).
+  let botRows = "";
+  try {
+    const { data: botEvents } = await admin
+      .from("bot_events")
+      .select("intent")
+      .gte("created_at", daysAgo(7));
+    const evs = (botEvents ?? []) as { intent: string }[];
+    if (evs.length) {
+      const count = (k2: string) => evs.filter((e) => e.intent === k2).length;
+      const handled = evs.filter((e) => e.intent !== "greeting").length;
+      const fallbacks = count("fallback");
+      const handoffs = count("handoff") + count("cancel") + count("attachment");
+      const pct = (n: number) => (handled ? `${Math.round((n / handled) * 100)}%` : "0%");
+      const botRow = (label: string, value: string) =>
+        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}</td></tr>`;
+      botRows =
+        botRow("🤖 Bot: messages handled", String(handled)) +
+        botRow("🤖 Bot: fallback rate", pct(fallbacks)) +
+        botRow("🤖 Bot: handed to team", pct(handoffs));
+    }
+  } catch {
+    // bot analytics are optional in this report
+  }
+
   const dateStr = now.toISOString().slice(0, 10);
   const row = (label: string, value: string, t = "") =>
     `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}${t}</td></tr>`;
@@ -88,6 +113,7 @@ export async function GET(request: NextRequest) {
         ${row("COD Amount", money(k.cod_amount))}
         ${row("Online Paid", money(k.online_paid_amount))}
         ${row("Unique Customers", fmt(k.unique_customers), trend(k.unique_customers, prev?.unique_customers))}
+        ${botRows}
       </table>
       <h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">Top Cities (7 days)</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">

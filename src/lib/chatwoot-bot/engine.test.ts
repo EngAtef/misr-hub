@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { route, norm, tokenize, withinHours, replyFor, mergeScript, DEFAULT_SCRIPT, MIN_SCORE } from "./engine.ts";
+import { route, norm, tokenize, withinHours, replyFor, mergeScript, menuItems, DEFAULT_SCRIPT, MIN_SCORE } from "./engine.ts";
 import { HANDOFF_AR, FOOTER_AR, INTENTS } from "./script.ts";
 
 // [input, expected intent] — null means fallback ("I don't understand").
@@ -204,6 +204,32 @@ test("withinHours: Sunday 10:00 Cairo is inside, Friday and 20:00 are outside", 
   assert.equal(withinHours(cfg, new Date("2026-07-17T07:00:00Z")), false); // Friday
   assert.equal(withinHours(cfg, new Date("2026-07-12T06:00:00Z")), true);  // 09:00 boundary
   assert.equal(withinHours(cfg, new Date("2026-07-12T15:00:00Z")), false); // 18:00 boundary
+});
+
+test("public holidays count as after-hours all day", () => {
+  const range = { start: 9, end: 18 };
+  const cfg = {
+    timezone: "Africa/Cairo",
+    schedule: { sun: range, mon: range, tue: range, wed: range, thu: range },
+    holidays: new Set(["2026-07-23"]), // a Thursday
+  };
+  // Thu 2026-07-23 11:00 Cairo — normally inside hours, but it's a holiday.
+  assert.equal(withinHours(cfg, new Date("2026-07-23T08:00:00Z")), false);
+  // The Thursday before is a normal working day.
+  assert.equal(withinHours(cfg, new Date("2026-07-16T08:00:00Z")), true);
+});
+
+test("menu buttons cover every topic with a digit, plus the agent handoff", () => {
+  const items = menuItems(DEFAULT_SCRIPT, true);
+  const values = items.map((i) => i.value);
+  for (const d of ["1", "2", "3", "4", "5", "6", "7", "8", "0"]) {
+    assert.ok(values.includes(d), `missing menu button for ${d}`);
+  }
+  // Tapping a button routes correctly by its title text.
+  for (const item of items) {
+    const routed = route(item.title);
+    assert.ok(routed !== null, `button title ${JSON.stringify(item.title)} does not route`);
+  }
 });
 
 test("withinHours: per-day schedules differ (short Thursday, Saturday shift)", () => {

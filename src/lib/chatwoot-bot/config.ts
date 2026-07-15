@@ -31,6 +31,8 @@ export interface BotConfig {
   label: string;
   /** The bot agent's Chatwoot id, saved by Test connection; null until known. */
   botAgentId: number | null;
+  /** Send tappable topic buttons with the greeting/fallback. */
+  menuButtons: boolean;
   source: "app_settings" | "env";
 }
 
@@ -50,6 +52,18 @@ interface StoredBotSettings {
   work_schedule?: Record<string, { start?: number | string; end?: number | string } | null>;
   label?: string;
   bot_agent_id?: number;
+  menu_buttons?: boolean;
+  /** Public holidays, comma-separated YYYY-MM-DD dates. */
+  holidays?: string;
+}
+
+function parseHolidays(csv?: string): Set<string> {
+  return new Set(
+    (csv ?? "")
+      .split(/[,\s]+/)
+      .map((d) => d.trim())
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+  );
 }
 
 function parseDays(csv: string): string[] {
@@ -64,7 +78,8 @@ function hoursFrom(
   days?: string,
   start?: number | string,
   end?: number | string,
-  schedule?: StoredBotSettings["work_schedule"]
+  schedule?: StoredBotSettings["work_schedule"],
+  holidays?: string
 ): WorkingHours {
   const out: Partial<Record<string, DayHours>> = {};
   const entries = Object.entries(schedule ?? {});
@@ -79,7 +94,7 @@ function hoursFrom(
       out[d] = { start: Number(start ?? 9), end: Number(end ?? 18) };
     }
   }
-  return { timezone: timezone || "Africa/Cairo", schedule: out };
+  return { timezone: timezone || "Africa/Cairo", schedule: out, holidays: parseHolidays(holidays) };
 }
 
 export function getEnvBotConfig(): BotConfig {
@@ -99,6 +114,7 @@ export function getEnvBotConfig(): BotConfig {
     script: mergeScript(null),
     label: process.env.BOT_LABEL ?? "after-hours",
     botAgentId: null,
+    menuButtons: (process.env.BOT_MENU_BUTTONS ?? "true").toLowerCase() !== "false",
     source: "env",
   };
 }
@@ -131,10 +147,11 @@ export async function resolveBotConfig(token: string): Promise<BotConfig | null>
           botToken: stored.bot_token,
           webhookToken: stored.webhook_token,
           afterHoursOnly: stored.after_hours_only !== false,
-          hours: hoursFrom(stored.work_timezone, stored.work_days, stored.work_start, stored.work_end, stored.work_schedule),
+          hours: hoursFrom(stored.work_timezone, stored.work_days, stored.work_start, stored.work_end, stored.work_schedule, stored.holidays),
           script: mergeScript(overrides),
           label: stored.label || "after-hours",
           botAgentId: stored.bot_agent_id ?? null,
+          menuButtons: stored.menu_buttons !== false,
           source: "app_settings",
         };
       }
@@ -166,13 +183,14 @@ export async function getBotHealth(): Promise<{
         work_start: number;
         work_end: number;
         work_schedule?: StoredBotSettings["work_schedule"];
+        holidays?: string;
       };
       if (h.configured) {
         return {
           configured: true,
           enabled: h.enabled,
           afterHoursOnly: h.after_hours_only,
-          hours: hoursFrom(h.work_timezone, h.work_days, h.work_start, h.work_end, h.work_schedule),
+          hours: hoursFrom(h.work_timezone, h.work_days, h.work_start, h.work_end, h.work_schedule, h.holidays),
           source: "app_settings",
         };
       }
@@ -192,4 +210,28 @@ export async function getBotHealth(): Promise<{
 
 export function isConfigured(cfg: BotConfig): boolean {
   return Boolean(cfg.botToken && cfg.webhookToken);
+}
+
+/**
+ * Analytics: record a routed intent in bot_events via the token-gated
+ * fn_chatwoot_bot_log function. Message text is persisted only for
+ * fallbacks (enforced inside the SQL function), feeding the fallback
+ * inbox on the /bot page. Never throws.
+ */
+export async function logBotEvent(
+  token: string,
+  conversationId: number,
+  intent: string,
+  message?: string
+): Promise<void> {
+  try {
+    await anonClient().rpc("fn_chatwoot_bot_log", {
+      p_token: token,
+      p_conversation_id: conversationId,
+      p_intent: intent,
+      p_message: message ?? null,
+    });
+  } catch {
+    // Analytics must never break the webhook.
+  }
 }

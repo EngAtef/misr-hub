@@ -19,6 +19,12 @@ import {
   FOOTER_EN,
   GREETING_AR,
   GREETING_EN,
+  ATTACHMENT_AR,
+  ATTACHMENT_EN,
+  MENU_PROMPT_AR,
+  MENU_PROMPT_EN,
+  HANDOFF_TITLE_AR,
+  HANDOFF_TITLE_EN,
   type Intent,
 } from "./script.ts";
 
@@ -221,6 +227,45 @@ export function route(text: string, script: BotScript = DEFAULT_SCRIPT): string 
   return null;
 }
 
+/**
+ * Second stage: once a topic has won, pick the most specific answer for the
+ * question — "shipping to Giza?" gets the Greater Cairo rate, not the whole
+ * 27-governorate list. Returns null when no variant matches.
+ */
+export function variantBody(
+  intent: string,
+  arabic: boolean,
+  script: BotScript,
+  messageText: string
+): string | null {
+  const cfg = script.intents[intent];
+  if (!cfg?.variants || !messageText) return null;
+  const n = norm(messageText);
+  const tokens = tokenize(n);
+  let body: string | null = null;
+  let bestScore = 0;
+  for (const v of Object.values(cfg.variants)) {
+    let score = 0;
+    for (const kw of [...v.keywords_ar, ...v.keywords_en]) {
+      score += matchScore(kw, n, tokens);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      body = arabic ? v.ar : v.en;
+    }
+  }
+  return body;
+}
+
+/** "Show me everything" replies inside an ask-flow (e.g. after "which governorate?"). */
+const ALL_LIST_WORDS = ["كل المحافظات", "الكل", "كله", "القايمه", "القائمه", "all", "list", "everything"];
+
+export function wantsFullList(messageText: string): boolean {
+  const n = norm(messageText);
+  const tokens = tokenize(n);
+  return ALL_LIST_WORDS.some((kw) => matchScore(kw, n, tokens) > 0);
+}
+
 export function replyFor(
   intent: string,
   arabic: boolean,
@@ -229,26 +274,21 @@ export function replyFor(
 ): string {
   if (intent === "handoff") return arabic ? script.handoffAr : script.handoffEn;
   const cfg = script.intents[intent];
-  let body = arabic ? cfg.ar : cfg.en;
-  // Second stage: once the topic has won, pick the most specific answer for
-  // the question — "shipping to Giza?" gets the Greater Cairo rate, not the
-  // whole 27-governorate list. No variant matched = the generic answer.
-  if (messageText && cfg.variants) {
-    const n = norm(messageText);
-    const tokens = tokenize(n);
-    let bestScore = 0;
-    for (const v of Object.values(cfg.variants)) {
-      let score = 0;
-      for (const kw of [...v.keywords_ar, ...v.keywords_en]) {
-        score += matchScore(kw, n, tokens);
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        body = arabic ? v.ar : v.en;
-      }
-    }
-  }
+  const body =
+    (messageText ? variantBody(intent, arabic, script, messageText) : null) ??
+    (arabic ? cfg.ar : cfg.en);
   return body + (arabic ? script.footerAr : script.footerEn);
+}
+
+/** Tappable topic buttons: every intent with a menu digit and a title, plus the agent handoff. */
+export function menuItems(script: BotScript, arabic: boolean): Array<{ title: string; value: string }> {
+  const items: Array<{ title: string; value: string }> = [];
+  for (const cfg of Object.values(script.intents)) {
+    const title = arabic ? cfg.title_ar : cfg.title_en;
+    if (cfg.menu && title) items.push({ title, value: cfg.menu });
+  }
+  items.push({ title: arabic ? HANDOFF_TITLE_AR : HANDOFF_TITLE_EN, value: "0" });
+  return items;
 }
 
 // ── Business hours ───────────────────────────────────────────
@@ -262,9 +302,20 @@ export interface WorkingHours {
   timezone: string; // IANA name, e.g. "Africa/Cairo"
   /** lowercase 3-letter day → active hours; a day missing here is off. */
   schedule: Partial<Record<string, DayHours>>;
+  /** Public holidays as YYYY-MM-DD — treated as full days off (bot active). */
+  holidays?: Set<string>;
 }
 
 export function withinHours(cfg: WorkingHours, now: Date = new Date()): boolean {
+  if (cfg.holidays?.size) {
+    const dateStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: cfg.timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+    if (cfg.holidays.has(dateStr)) return false;
+  }
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: cfg.timezone,
     weekday: "short",
@@ -297,6 +348,14 @@ export interface WebhookContext {
   unassignConversation: (conversationId: number) => Promise<void>;
   /** The bot agent's Chatwoot id — used to recognise self-assignments. */
   getBotAgentId: () => Promise<number | null>;
+  /** Send the tappable topic buttons (input_select). Optional feature. */
+  sendMenu?: (conversationId: number, arabic: boolean) => Promise<void>;
+  /** Agent-only private note (handoff context for the morning team). */
+  sendPrivateNote?: (conversationId: number, content: string) => Promise<void>;
+  /** Remember/clear the topic the bot is asking a follow-up question about. */
+  setPendingTopic?: (conversationId: number, topic: string | null) => Promise<void>;
+  /** Analytics: record the routed intent (message text only for fallbacks). */
+  recordEvent?: (conversationId: number, intent: string, message?: string) => Promise<void>;
   /** PII-safe logger — receives conversation ids and intent names only. */
   log: (message: string) => void;
 }
@@ -312,7 +371,12 @@ interface ChatwootPayload {
   content?: string;
   message_type?: string;
   sender?: { type?: string };
-  conversation?: { id?: number; meta?: { assignee?: { id?: number } | null } };
+  attachments?: unknown[];
+  conversation?: {
+    id?: number;
+    meta?: { assignee?: { id?: number } | null };
+    custom_attributes?: Record<string, unknown>;
+  };
   meta?: { assignee?: { id?: number } | null };
 }
 
@@ -341,6 +405,8 @@ export async function handleWebhook(
       if (withinHours) return { status: 200, body: { ok: true, skipped: "working_hours" } };
       await ctx.labelConversation(convId);
       await ctx.send(convId, script.greetingAr + "\n\n———\n" + script.greetingEn);
+      await ctx.sendMenu?.(convId, true);
+      await ctx.recordEvent?.(convId, "greeting");
       return { status: 200, body: { ok: true } };
     }
 
@@ -375,19 +441,85 @@ export async function handleWebhook(
     // (idempotent — the label helper skips if already present).
     await ctx.labelConversation(convId);
 
+    // A photo/file with no text is almost always proof of a damaged or
+    // wrong item — acknowledge it and queue for the team.
+    if (!norm(text) && data.attachments?.length) {
+      ctx.log(`conv=${convId} intent=attachment`);
+      await ctx.send(convId, ATTACHMENT_AR + "\n\n———\n" + ATTACHMENT_EN);
+      await ctx.sendPrivateNote?.(convId, "🤖 Bot: customer sent an attachment (likely a damaged/wrong item photo) — needs review.");
+      await ctx.unassignConversation(convId);
+      await ctx.openConversation(convId);
+      await ctx.recordEvent?.(convId, "attachment");
+      return { status: 200, body: { ok: true, intent: "attachment" } };
+    }
+
+    const rawPending = data.conversation?.custom_attributes?.bot_pending;
+    const pending = typeof rawPending === "string" && rawPending ? rawPending : null;
     const intent = route(text, script);
+
+    // Follow-up flow: the bot previously asked a narrowing question (e.g.
+    // "which governorate?") — try that topic's specific answers directly.
+    if (intent === null && pending && script.intents[pending]) {
+      const specific = variantBody(pending, arabic, script, text);
+      if (specific) {
+        ctx.log(`conv=${convId} intent=${pending}:variant`);
+        await ctx.send(convId, specific + (arabic ? script.footerAr : script.footerEn));
+        await ctx.setPendingTopic?.(convId, null);
+        await ctx.recordEvent?.(convId, pending);
+        return { status: 200, body: { ok: true, intent: pending } };
+      }
+      if (wantsFullList(text)) {
+        ctx.log(`conv=${convId} intent=${pending}:full`);
+        const cfg = script.intents[pending];
+        await ctx.send(convId, (arabic ? cfg.ar : cfg.en) + (arabic ? script.footerAr : script.footerEn));
+        await ctx.setPendingTopic?.(convId, null);
+        await ctx.recordEvent?.(convId, pending);
+        return { status: 200, body: { ok: true, intent: pending } };
+      }
+    }
+
     if (intent === null) {
       ctx.log(`conv=${convId} intent=fallback`);
       await ctx.send(convId, arabic ? script.fallbackAr : script.fallbackEn);
+      await ctx.sendMenu?.(convId, arabic);
+      if (pending) await ctx.setPendingTopic?.(convId, null);
+      await ctx.recordEvent?.(convId, "fallback", text);
       return { status: 200, body: { ok: true, intent: "fallback" } };
+    }
+
+    const cfg = script.intents[intent];
+
+    // Ask-then-answer: a generic question on a topic with specific answers
+    // (e.g. "how much is shipping?") gets a narrowing question instead of
+    // the full list; the reply is matched against the variants above.
+    if (
+      cfg?.ask_ar &&
+      cfg.ask_en &&
+      cfg.variants &&
+      ctx.setPendingTopic &&
+      !variantBody(intent, arabic, script, text) &&
+      !wantsFullList(text)
+    ) {
+      ctx.log(`conv=${convId} intent=${intent}:ask`);
+      await ctx.send(convId, arabic ? cfg.ask_ar : cfg.ask_en);
+      await ctx.setPendingTopic(convId, intent);
+      await ctx.recordEvent?.(convId, intent);
+      return { status: 200, body: { ok: true, intent, asked: true } };
     }
 
     ctx.log(`conv=${convId} intent=${intent}`);
     await ctx.send(convId, replyFor(intent, arabic, script, text));
+    if (pending) await ctx.setPendingTopic?.(convId, null);
+    await ctx.recordEvent?.(convId, intent);
     // Handoff — and any intent flagged open (e.g. cancel) — goes to the
     // human queue: drop the bot's assignment so it shows as unassigned,
-    // and set the status to open.
-    if (intent === "handoff" || script.intents[intent]?.open) {
+    // and set the status to open, with a private note for context.
+    if (intent === "handoff" || cfg?.open) {
+      const digits = text.match(/\d{3,}/)?.[0];
+      await ctx.sendPrivateNote?.(
+        convId,
+        `🤖 Bot handoff • topic: ${intent}${digits ? ` • possible order number: ${digits}` : ""} — customer is waiting for the morning team.`
+      );
       await ctx.unassignConversation(convId);
       await ctx.openConversation(convId);
     }

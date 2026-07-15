@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleWebhook, withinHours } from "@/lib/chatwoot-bot/engine";
-import { resolveBotConfig } from "@/lib/chatwoot-bot/config";
-import { sendMessage, openConversation, assignConversation, addLabel, getProfile } from "@/lib/chatwoot-bot/chatwoot";
+import { handleWebhook, withinHours, menuItems } from "@/lib/chatwoot-bot/engine";
+import { MENU_PROMPT_AR, MENU_PROMPT_EN } from "@/lib/chatwoot-bot/script";
+import { resolveBotConfig, logBotEvent } from "@/lib/chatwoot-bot/config";
+import {
+  sendMessage,
+  openConversation,
+  assignConversation,
+  addLabel,
+  getProfile,
+  sendMenuButtons,
+  sendPrivateNote,
+  setConversationAttributes,
+} from "@/lib/chatwoot-bot/chatwoot";
 
 export const maxDuration = 30;
 
@@ -78,6 +88,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return null;
       }
     },
+    sendMenu: cfg.menuButtons
+      ? async (convId, arabic) => {
+          try {
+            await sendMenuButtons(cfg, convId, arabic ? MENU_PROMPT_AR : MENU_PROMPT_EN, menuItems(cfg.script, arabic));
+          } catch (e) {
+            log(`menu failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+          }
+        }
+      : undefined,
+    sendPrivateNote: async (convId, content) => {
+      try {
+        await sendPrivateNote(cfg, convId, content);
+      } catch (e) {
+        log(`note failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
+    setPendingTopic: async (convId, topic) => {
+      try {
+        await setConversationAttributes(cfg, convId, { bot_pending: topic ?? "" });
+      } catch (e) {
+        log(`pending failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
+    recordEvent: (convId, intent, message) => logBotEvent(token, convId, intent, message),
     log,
   });
 

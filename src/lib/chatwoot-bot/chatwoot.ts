@@ -90,6 +90,53 @@ async function postLabels(url: string, cfg: BotConfig, labels: string[], mustInc
   return (body.payload ?? []).includes(mustInclude);
 }
 
+/** Tappable topic buttons (Chatwoot input_select interactive message). */
+export async function sendMenuButtons(
+  cfg: BotConfig,
+  conversationId: number,
+  prompt: string,
+  items: Array<{ title: string; value: string }>
+): Promise<void> {
+  const res = await fetch(`${api(cfg)}/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers: headers(cfg),
+    body: JSON.stringify({
+      content: prompt,
+      content_type: "input_select",
+      content_attributes: { items },
+      message_type: "outgoing",
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`chatwoot menu failed: HTTP ${res.status}`);
+}
+
+/** Agent-only private note — customers never see these. */
+export async function sendPrivateNote(cfg: BotConfig, conversationId: number, content: string): Promise<void> {
+  const res = await fetch(`${api(cfg)}/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers: headers(cfg),
+    body: JSON.stringify({ content, message_type: "outgoing", private: true }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`chatwoot note failed: HTTP ${res.status}`);
+}
+
+/** Stores tiny bits of bot state (e.g. the pending topic) on the conversation. */
+export async function setConversationAttributes(
+  cfg: BotConfig,
+  conversationId: number,
+  attributes: Record<string, unknown>
+): Promise<void> {
+  const res = await fetch(`${api(cfg)}/conversations/${conversationId}/custom_attributes`, {
+    method: "POST",
+    headers: headers(cfg),
+    body: JSON.stringify({ custom_attributes: attributes }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`chatwoot attributes failed: HTTP ${res.status}`);
+}
+
 /** The bot agent's own profile — used to recognise self-assigned conversations. */
 export async function getProfile(cfg: BotConfig): Promise<{ id: number; name?: string; email?: string } | null> {
   const res = await fetch(`${cfg.chatwootUrl}/api/v1/profile`, {
