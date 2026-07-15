@@ -29,7 +29,7 @@ interface BotSettingsForm {
 
 const DEFAULT_FORM: BotSettingsForm = {
   enabled: true,
-  chatwoot_url: "https://support-nmgdp.tech",
+  chatwoot_url: "https://support.nmgdp.tech",
   account_id: "5",
   webhook_token: "",
   after_hours_only: true,

@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       account_id?: string;
       bot_token?: string;
     };
-    const baseUrl = (cfg.chatwoot_url || "https://support-nmgdp.tech").replace(/\/$/, "");
+    const baseUrl = (cfg.chatwoot_url || "https://support.nmgdp.tech").replace(/\/$/, "");
     const accountId = cfg.account_id || "5";
     if (!cfg.bot_token) {
       return NextResponse.json({ ok: false, message: "Save the bot access token first." });

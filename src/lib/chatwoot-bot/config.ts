@@ -5,7 +5,7 @@
 // token-gated SECURITY DEFINER function fn_chatwoot_bot_config — no service
 // role key needed. Env vars remain as a fallback for the original setup:
 //
-// CHATWOOT_URL          e.g. https://support-nmgdp.tech
+// CHATWOOT_URL          e.g. https://support.nmgdp.tech
 // CHATWOOT_ACCOUNT_ID   e.g. 5
 // CHATWOOT_BOT_TOKEN    the bot agent's access token
 // WEBHOOK_TOKEN         random secret in the webhook URL
@@ -65,7 +65,7 @@ function hoursFrom(timezone?: string, days?: string, start?: number | string, en
 export function getEnvBotConfig(): BotConfig {
   return {
     enabled: true,
-    chatwootUrl: (process.env.CHATWOOT_URL ?? "https://support-nmgdp.tech").replace(/\/$/, ""),
+    chatwootUrl: (process.env.CHATWOOT_URL ?? "https://support.nmgdp.tech").replace(/\/$/, ""),
     accountId: process.env.CHATWOOT_ACCOUNT_ID ?? "5",
     botToken: process.env.CHATWOOT_BOT_TOKEN,
     webhookToken: process.env.WEBHOOK_TOKEN,
@@ -104,7 +104,7 @@ export async function resolveBotConfig(token: string): Promise<BotConfig | null>
       if (stored.bot_token && stored.webhook_token) {
         return {
           enabled: stored.enabled !== false,
-          chatwootUrl: (stored.chatwoot_url || "https://support-nmgdp.tech").replace(/\/$/, ""),
+          chatwootUrl: (stored.chatwoot_url || "https://support.nmgdp.tech").replace(/\/$/, ""),
           accountId: String(stored.account_id || "5"),
           botToken: stored.bot_token,
           webhookToken: stored.webhook_token,
