@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>__TITLE__</title>
+<style>
+  :root{
+    --bg:#f1f3f7;
+    --paper:#ffffff;
+    --hair:#dfe3ea;
+    --ink:#3f4756;
+    --red:#f43f5e; --red-hover:#e11d48;
+    --ft:650ms;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,Roboto,Arial,sans-serif;
+    background:var(--bg); overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .viewer{position:relative;width:100%;height:100%}
+
+  .stage{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    padding:26px 74px 54px;
+    perspective:2600px;-webkit-perspective:2600px;
+  }
+  @media (max-width:640px){ .stage{padding:16px 50px 46px} }
+
+  .book{position:relative;transform-style:preserve-3d;
+    filter:drop-shadow(0 22px 30px rgba(15,23,42,.20)) drop-shadow(0 6px 10px rgba(15,23,42,.10));}
+
+  /* page-edge stacks on the outer sides */
+  .edge{position:absolute;top:2px;bottom:2px;background:
+    repeating-linear-gradient(90deg,#fdfdfe 0 1.6px,#d9dde4 1.6px 2.6px);
+    box-shadow:inset 0 0 0 1px #e6e9ef}
+  .edge-l{right:100%;border-radius:3px 0 0 3px}
+  .edge-r{left:100%;border-radius:0 3px 3px 0}
+
+  .half{position:absolute;top:0;bottom:0;width:50%;background:var(--paper);overflow:hidden}
+  .hl{left:0;border-radius:2px 0 0 2px}
+  .hr{left:50%;border-radius:0 2px 2px 0}
+  .half img{width:100%;height:100%;display:block;object-fit:contain;background:var(--paper);
+    user-select:none;-webkit-user-drag:none;pointer-events:none}
+
+  /* soft gutter shading toward the spine */
+  .hl::after,.hr::after{content:"";position:absolute;inset:0;pointer-events:none}
+  .hl::after{background:linear-gradient(90deg,rgba(0,0,0,0) 82%,rgba(15,23,42,.035) 94%,rgba(15,23,42,.10) 100%)}
+  .hr::after{background:linear-gradient(270deg,rgba(0,0,0,0) 82%,rgba(15,23,42,.035) 94%,rgba(15,23,42,.10) 100%)}
+  .single .hl{display:none}
+  .single .hr{left:0;width:100%;border-radius:2px}
+  .single .hr::after{background:none}
+
+  .spine{position:absolute;top:0;bottom:0;left:50%;width:1px;margin-left:-.5px;
+    background:rgba(15,23,42,.14);pointer-events:none}
+  .single .spine{display:none}
+
+  /* shadow over the page being uncovered */
+  .reveal{position:absolute;top:0;bottom:0;width:50%;pointer-events:none;opacity:0;
+    transition:opacity var(--ft) cubic-bezier(.3,.4,.3,1)}
+
+  /* the turning leaf */
+  .leaf{position:absolute;top:0;bottom:0;display:none;transform-style:preserve-3d;
+    transition:transform var(--ft) cubic-bezier(.24,.52,.26,1)}
+  .leaf .face{position:absolute;inset:0;overflow:hidden;background:var(--paper);
+    backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  .leaf .face img{width:100%;height:100%;display:block;object-fit:contain;background:var(--paper);
+    user-select:none;-webkit-user-drag:none;pointer-events:none}
+  .leaf .back{transform:rotateY(180deg)}
+  .leaf .sheen{position:absolute;inset:0;opacity:0;pointer-events:none}
+  .turning .front .sheen{animation:sheenA var(--ft) linear forwards}
+  .turning .back  .sheen{animation:sheenB var(--ft) linear forwards}
+  @keyframes sheenA{0%{opacity:0}45%{opacity:.5}100%{opacity:0}}
+  @keyframes sheenB{0%{opacity:.5}55%{opacity:.45}100%{opacity:0}}
+
+  /* red round nav buttons */
+  .navbtn{position:absolute;top:50%;transform:translateY(-50%);z-index:10;
+    width:46px;height:46px;border:0;border-radius:50%;cursor:pointer;
+    background:var(--red);color:#fff;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px rgba(244,63,94,.38),0 2px 5px rgba(15,23,42,.14);
+    transition:background .15s,transform .15s,opacity .2s}
+  .navbtn:hover:not(:disabled){background:var(--red-hover);transform:translateY(-50%) scale(1.07)}
+  .navbtn:active:not(:disabled){transform:translateY(-50%) scale(.97)}
+  .navbtn:disabled{opacity:.28;cursor:default}
+  .navbtn svg{width:19px;height:19px;display:block}
+  .nav-l{left:14px}
+  .nav-r{right:14px}
+  @media (max-width:640px){
+    .navbtn{width:38px;height:38px}
+    .navbtn svg{width:16px;height:16px}
+    .nav-l{left:6px}.nav-r{right:6px}
+  }
+
+  .counter{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:10;
+    background:#fff;border:1px solid var(--hair);border-radius:999px;color:var(--ink);
+    font-size:12.5px;font-weight:600;letter-spacing:.03em;padding:5px 14px;direction:ltr;
+    font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(15,23,42,.06)}
+
+  .fsbtn{position:absolute;top:12px;right:12px;z-index:10;width:36px;height:36px;border:0;
+    border-radius:50%;background:#fff;border:1px solid var(--hair);color:var(--ink);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(15,23,42,.06);
+    transition:background .15s}
+  .fsbtn:hover{background:#eef1f6}
+  .fsbtn svg{width:16px;height:16px;display:block}
+
+  @media (prefers-reduced-motion:reduce){
+    .leaf{transition:none}.reveal{transition:none}
+    .turning .front .sheen,.turning .back .sheen{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="viewer" id="viewer">
+  <button class="navbtn nav-l" id="navL" aria-label="Previous / السابق">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.5 4.5v15L5 12z"/></svg>
+  </button>
+  <div class="stage" id="stage">
+    <div class="book" id="book">
+      <div class="edge edge-l" id="edgeL"></div>
+      <div class="edge edge-r" id="edgeR"></div>
+      <div class="half hl" id="hL"><img id="imgL" alt=""></div>
+      <div class="half hr" id="hR"><img id="imgR" alt=""></div>
+      <div class="spine"></div>
+      <div class="reveal" id="reveal"></div>
+      <div class="leaf" id="leaf">
+        <div class="face front"><img id="leafF" alt=""><div class="sheen" id="sheenF"></div></div>
+        <div class="face back"><img id="leafB" alt=""><div class="sheen" id="sheenB"></div></div>
+      </div>
+    </div>
+  </div>
+  <button class="navbtn nav-r" id="navR" aria-label="Next / التالي">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 4.5v15L19 12z"/></svg>
+  </button>
+  <div class="counter" id="counter">– / –</div>
+  <button class="fsbtn" id="fs" title="Fullscreen / ملء الشاشة" aria-label="Fullscreen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
+    </svg>
+  </button>
+</div>
+<script>
+(function(){
+  "use strict";
+  var PAGES = __PAGES__;
+  var RTL   = __RTL__;
+  var FT    = 650;
+  var BLANK = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='4'%3E%3Crect width='3' height='4' fill='white'/%3E%3C/svg%3E";
+
+  function $(id){ return document.getElementById(id); }
+  var stage=$("stage"), book=$("book"), hL=$("hL"), hR=$("hR"),
+      imgL=$("imgL"), imgR=$("imgR"), leaf=$("leaf"), leafF=$("leafF"), leafB=$("leafB"),
+      reveal=$("reveal"), edgeL=$("edgeL"), edgeR=$("edgeR"),
+      navL=$("navL"), navR=$("navR"), counter=$("counter");
+
+  var N=PAGES.length;
+  if(!N){ counter.textContent="0 / 0"; navL.disabled=navR.disabled=true; return; }
+  var S=Math.ceil(N/2);
+
+  var single=false;      // one-page mode (narrow screens)
+  var cur=0;             // spread index (or page index in single mode)
+  var busy=false;
+  var aspect=0.7;        // page width / height
+
+  function pg(i){ return (i>=0 && i<N) ? PAGES[i] : BLANK; }
+  /* run cb on the next paintable frame; falls back to a timer when rAF is
+     throttled (hidden tab / background iframe) so state never gets stuck */
+  function twoFrames(cb){
+    var ran=false;
+    function go(){ if(ran)return; ran=true; cb(); }
+    requestAnimationFrame(function(){ requestAnimationFrame(go); });
+    setTimeout(go,60);
+  }
+  /* page index shown on a given side ("L"/"R") of spread s */
+  function sideIdx(side,s){
+    var a=2*s, b=2*s+1;
+    if(RTL) return side==="R" ? a : b;
+    return side==="L" ? a : b;
+  }
+
+  /* ------------- sizing ------------- */
+  function layout(){
+    var r=stage.getBoundingClientRect();
+    var availW=Math.max(60,r.width-8), availH=Math.max(60,r.height-8);
+    var wantSingle = availW<420 || (availW/availH) < aspect*1.18;
+    if(wantSingle!==single){
+      if(wantSingle){ cur=Math.min(cur*2, N-1); }  // spread -> single: first page of the spread
+      else { cur=Math.floor(cur/2); }              // single -> spread that holds this page
+      single=wantSingle;
+      book.classList.toggle("single",single);
+    }
+    var pw,ph;
+    if(single){ ph=Math.min(availH, availW/aspect); pw=ph*aspect; book.style.width=pw+"px"; }
+    else { ph=Math.min(availH, availW/(2*aspect)); pw=ph*aspect; book.style.width=(2*pw)+"px"; }
+    book.style.height=ph+"px";
+    edgeStacks(pw);
+    render();
+  }
+  function edgeStacks(pw){
+    var maxE=Math.max(6,Math.min(16,pw*0.035));
+    var read = single ? (cur/Math.max(1,N-1)) : (cur/Math.max(1,S-1));
+    if(isNaN(read)) read=0;
+    var ahead=Math.round(3+(maxE-3)*(1-read)), behind=Math.round(3+(maxE-3)*read);
+    /* RTL: unread stack sits to the LEFT, read stack to the RIGHT */
+    edgeL.style.width=(RTL?ahead:behind)+"px";
+    edgeR.style.width=(RTL?behind:ahead)+"px";
+  }
+
+  /* ------------- static render ------------- */
+  function render(){
+    if(single){
+      imgR.src=pg(cur);
+      counter.textContent=(cur+1)+" / "+N;
+    } else {
+      imgL.src=pg(sideIdx("L",cur));
+      imgR.src=pg(sideIdx("R",cur));
+      var a=2*cur+1, b=Math.min(2*cur+2,N);
+      counter.textContent=(a===b?a:(a+"-"+b))+" / "+N;
+    }
+    var last = single ? cur>=N-1 : cur>=S-1;
+    var first = cur<=0;
+    /* left button walks toward the "left" of the book; in RTL that is FORWARD */
+    navL.disabled = busy || (RTL ? last : first);
+    navR.disabled = busy || (RTL ? first : last);
+    preloadAround();
+  }
+
+  var warmed={};
+  function warm(i){ if(i<0||i>=N||warmed[i])return; warmed[i]=1; var im=new Image(); im.src=PAGES[i]; }
+  function preloadAround(){
+    var c = single ? cur : cur*2;
+    for(var i=c-2;i<=c+4;i++) warm(i);
+  }
+
+  /* ------------- page turn (spread) ------------- */
+  function flipSpread(dir){ /* dir +1 forward, -1 back */
+    var target=cur+dir;
+    if(target<0||target>=S) return;
+    busy=true; render();
+    /* forward turns the side where the SECOND page of the pair sits:
+       RTL -> left half turns rightward; LTR -> right half turns leftward */
+    var movingSide = (dir>0) === RTL ? "L" : "R";
+    var fromLeft = movingSide==="L";
+    leafF.src = pg(sideIdx(movingSide,cur));
+    leafB.src = pg(sideIdx(fromLeft?"R":"L",target));
+    /* page revealed underneath the moving half */
+    if(fromLeft) imgL.src=pg(sideIdx("L",target)); else imgR.src=pg(sideIdx("R",target));
+
+    leaf.style.left = fromLeft ? "0" : "50%";
+    leaf.style.width = "50%";
+    leaf.style.transformOrigin = fromLeft ? "right center" : "left center";
+    var sheenDir = fromLeft ? "270deg" : "90deg";
+    $("sheenF").style.background="linear-gradient("+sheenDir+",rgba(15,23,42,.30),rgba(15,23,42,0) 62%)";
+    $("sheenB").style.background="linear-gradient("+(fromLeft?"90deg":"270deg")+",rgba(15,23,42,.26),rgba(15,23,42,0) 62%)";
+
+    reveal.style.left = fromLeft ? "0" : "50%";
+    reveal.style.background = "linear-gradient("+(fromLeft?"270deg":"90deg")+",rgba(15,23,42,.30),rgba(15,23,42,.04) 70%)";
+    reveal.style.transition="none"; reveal.style.opacity="1";
+
+    leaf.style.transition="none";
+    leaf.style.transform="rotateY(0deg)";
+    leaf.style.display="block";
+    book.classList.add("turning");
+
+    var end = fromLeft ? 180 : -180;
+    twoFrames(function(){
+      leaf.style.transition=""; reveal.style.transition="";
+      leaf.style.transform="rotateY("+end+"deg)";
+      reveal.style.opacity="0";
+    });
+
+    var done=false;
+    function finish(){
+      if(done)return; done=true;
+      leaf.removeEventListener("transitionend",finish);
+      cur=target; busy=false;
+      leaf.style.display="none";
+      leaf.style.transition="none"; leaf.style.transform="rotateY(0deg)";
+      reveal.style.transition="none"; reveal.style.opacity="0";
+      book.classList.remove("turning");
+      edgeStacks(parseFloat(book.style.width)/2);
+      render();
+    }
+    leaf.addEventListener("transitionend",finish);
+    setTimeout(finish,FT+250);
+  }
+
+  /* ------------- page turn (single, two-phase fold) ------------- */
+  function flipSingle(dir){
+    var target=cur+dir;
+    if(target<0||target>=N) return;
+    busy=true; render();
+    /* hinge on the spine side: RTL books hinge left, LTR hinge right */
+    var hingeLeft = RTL;
+    leaf.style.left="0"; leaf.style.width="100%";
+    leaf.style.transformOrigin = hingeLeft ? "left center" : "right center";
+    leafF.src=pg(cur); leafB.src=BLANK;
+    var lift = hingeLeft ? -90 : 90;   /* fold toward the viewer */
+    leaf.style.transition="none"; leaf.style.transform="rotateY(0deg)"; leaf.style.display="block";
+    var half=Math.round(FT*0.42);
+    leaf.style.transitionDuration=half+"ms";
+
+    twoFrames(function(){
+      leaf.style.transition="transform "+half+"ms cubic-bezier(.5,0,.9,.6)";
+      leaf.style.transform="rotateY("+lift+"deg)";
+    });
+
+    setTimeout(function(){
+      imgR.src=pg(target);          /* base now shows the new page */
+      leafF.src=pg(target);
+      leaf.style.transition="none";
+      leaf.style.transform="rotateY("+(-lift)+"deg)";
+      twoFrames(function(){
+        leaf.style.transition="transform "+half+"ms cubic-bezier(.1,.4,.3,1)";
+        leaf.style.transform="rotateY(0deg)";
+      });
+      setTimeout(function(){
+        leaf.style.display="none"; leaf.style.transitionDuration="";
+        leaf.style.transition="none"; leaf.style.transform="rotateY(0deg)";
+        cur=target; busy=false;
+        edgeStacks(parseFloat(book.style.width));
+        render();
+      },half+80);
+    },half+40);
+  }
+
+  function go(dir){ if(busy)return; if(single) flipSingle(dir); else flipSpread(dir); }
+  /* spatial navigation: left button moves left through the book */
+  function goLeft(){ go(RTL ? 1 : -1); }
+  function goRight(){ go(RTL ? -1 : 1); }
+
+  navL.addEventListener("click",function(e){ e.stopPropagation(); goLeft(); });
+  navR.addEventListener("click",function(e){ e.stopPropagation(); goRight(); });
+  document.addEventListener("keydown",function(e){
+    if(e.key==="ArrowLeft") goLeft();
+    else if(e.key==="ArrowRight") goRight();
+  });
+  stage.addEventListener("click",function(e){
+    var r=stage.getBoundingClientRect();
+    if(e.clientX-r.left > r.width/2) goRight(); else goLeft();
+  });
+  var sx=null;
+  stage.addEventListener("touchstart",function(e){ sx=e.touches[0].clientX; },{passive:true});
+  stage.addEventListener("touchend",function(e){
+    if(sx==null)return;
+    var dx=e.changedTouches[0].clientX-sx; sx=null;
+    if(Math.abs(dx)>40){ if(dx<0) goLeft(); else goRight(); }
+  },{passive:true});
+
+  $("fs").addEventListener("click",function(e){
+    e.stopPropagation();
+    if(document.fullscreenElement){ if(document.exitFullscreen) document.exitFullscreen(); }
+    else if(document.documentElement.requestFullscreen){ document.documentElement.requestFullscreen().catch(function(){}); }
+  });
+
+  window.addEventListener("resize",layout);
+  window.addEventListener("load",layout);
+  if(typeof ResizeObserver!=="undefined"){
+    var ro=new ResizeObserver(function(){ if(!busy) layout(); });
+    ro.observe(stage);
+  }
+
+  /* measure real page aspect from the first page, then lay out */
+  var probe=new Image();
+  probe.onload=function(){
+    if(probe.naturalWidth>0&&probe.naturalHeight>0) aspect=probe.naturalWidth/probe.naturalHeight;
+    aspect=Math.max(.4,Math.min(1.4,aspect));
+    layout();
+  };
+  probe.onerror=function(){ layout(); };
+  probe.src=PAGES[0];
+  layout();
+})();
+</script>
+</body>
+</html>

@@ -598,7 +598,7 @@ const dict = {
   lastActionNote: { ar: "آخر نشاط متاح في الملفات = آخر طلب. تسجيل الدخول غير موجود في ملف العملاء المُصدَّر", en: "Last available activity in the exports = last order. Login timestamps are not in the customers export" },
   // Book Studio
   studio: { ar: "استوديو الكتب", en: "Book Studio" },
-  studioSubtitle: { ar: "حوّل ملفات EPUB إلى PDF أو صور أو فليب-بوك، وأنشئ كود تضمين لكل كتاب على موقعك", en: "Convert EPUB to PDF / images / flipbook, and generate an embed code for each book on your site" },
+  studioSubtitle: { ar: "حوّل ملفات EPUB أو PDF إلى فليب-بوك أو صور، مع اختيار الصفحات، وأنشئ كود تضمين لكل كتاب على موقعك", en: "Convert EPUB or PDF files to a flipbook / images with page selection, and generate an embed code for each book on your site" },
   openStudio: { ar: "فتح المحوّل بملء الشاشة", en: "Open converter full screen" },
   embedTitle: { ar: "تضمين قارئ الكتاب على موقعك (iframe)", en: "Embed the book reader on your site (iframe)" },
   embedHint: { ar: "بعد توليد الفليب-بوك اضغط «Host & get embed code» داخل المحوّل — يُستضاف الكتاب تلقائياً على التطبيق ويظهر رابطه هنا. أو ضع رابط أي كتاب مستضاف يدوياً", en: "After generating a flipbook, click “Host & get embed code” inside the converter — the book is hosted on the app automatically and its link appears here. Or paste any hosted book URL manually" },
