@@ -44,10 +44,11 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const from = params.get("from");
   const to = params.get("to");
-  const status = params.get("status");
-  const payment = params.get("payment");
-  const city = params.get("city");
-  const source = params.get("source");
+  // repeated params (?status=a&status=b) — multi-select filters
+  const status = params.getAll("status").filter(Boolean);
+  const payment = params.getAll("payment").filter(Boolean);
+  const city = params.getAll("city").filter(Boolean);
+  const source = params.getAll("source").filter(Boolean);
   const q = params.get("q");
 
   const admin = user.supabase;
@@ -63,10 +64,10 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + pageSize - 1);
     if (from) query = query.gte("order_date", from);
     if (to) query = query.lt("order_date", to);
-    if (status) query = query.eq("order_status", status);
-    if (payment) query = query.eq("payment_method", payment);
-    if (city) query = query.eq("city", city);
-    if (source) query = query.eq("source", source);
+    if (status.length) query = query.in("order_status", status);
+    if (payment.length) query = query.in("payment_method", payment);
+    if (city.length) query = query.in("city", city);
+    if (source.length) query = query.in("source", source);
     if (q) {
       const s = q.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
       if (s) {

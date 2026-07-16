@@ -6,6 +6,7 @@ import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Cloc
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
+import { MultiSelect } from "@/components/multi-select";
 import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface EngineRow {
@@ -79,8 +80,8 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("replenish");
   const [search, setSearch] = useState("");
-  const [vendorFilter, setVendorFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState<string[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const { sort, toggle, apply } = useSort<EngineRow>();
   const [moveEdits, setMoveEdits] = useState<Record<string, string>>({});
   const [hasStockData, setHasStockData] = useState(false);
@@ -185,8 +186,8 @@ export default function StockPage() {
     const q = search.trim().toLowerCase();
     let list = rows;
     if (q) list = list.filter((r) => r.product_name?.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q));
-    if (vendorFilter) list = list.filter((r) => r.vendor === vendorFilter);
-    if (categoryFilter) list = list.filter((r) => r.category === categoryFilter);
+    if (vendorFilter.length) list = list.filter((r) => r.vendor != null && vendorFilter.includes(r.vendor));
+    if (categoryFilter.length) list = list.filter((r) => r.category != null && categoryFilter.includes(r.category));
     if (tab === "replenish") return list.filter((r) => ["move", "low_sap"].includes(r.status) || (!hasStockData && r.need > 0));
     if (tab === "overstock") return list.filter((r) => r.status === "overstock");
     if (tab === "oos") return list.filter((r) => r.status === "oos_reorder");
@@ -443,18 +444,24 @@ export default function StockPage() {
           </Ctl>
           {vendors.length > 0 && (
             <Ctl label={t("vendorCol")}>
-              <select className="input !w-auto max-w-[160px]" value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)}>
-                <option value="">{t("allVendors")}</option>
-                {vendors.map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
+              <MultiSelect
+                className="w-[180px]"
+                options={vendors}
+                values={vendorFilter}
+                onChange={setVendorFilter}
+                placeholder={t("allVendors")}
+              />
             </Ctl>
           )}
           {categories.length > 0 && (
             <Ctl label={t("categoryCol")}>
-              <select className="input !w-auto max-w-[160px]" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="">{t("allCategories")}</option>
-                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <MultiSelect
+                className="w-[180px]"
+                options={categories}
+                values={categoryFilter}
+                onChange={setCategoryFilter}
+                placeholder={t("allCategories")}
+              />
             </Ctl>
           )}
           <div className="flex-1 min-w-[180px]">

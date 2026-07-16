@@ -86,6 +86,9 @@ const dict = {
   allPayments: { ar: "كل طرق الدفع", en: "All payment methods" },
   allCities: { ar: "كل المحافظات", en: "All cities" },
   allSources: { ar: "كل المصادر", en: "All sources" },
+  selectAll: { ar: "تحديد الكل", en: "Select all" },
+  clearSelection: { ar: "مسح", en: "Clear" },
+  selectedLbl: { ar: "محدد", en: "selected" },
   // Orders table
   orderNumber: { ar: "رقم الطلب", en: "Order #" },
   orderDate: { ar: "تاريخ الطلب", en: "Order Date" },

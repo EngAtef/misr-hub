@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
+import { MultiSelect } from "@/components/multi-select";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
@@ -20,10 +21,10 @@ export default function OrdersPage() {
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [status, setStatus] = useState("");
-  const [payment, setPayment] = useState("");
-  const [city, setCity] = useState("");
-  const [source, setSource] = useState("");
+  const [status, setStatus] = useState<string[]>([]);
+  const [payment, setPayment] = useState<string[]>([]);
+  const [city, setCity] = useState<string[]>([]);
+  const [source, setSource] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
@@ -62,10 +63,10 @@ export default function OrdersPage() {
     let query = supabase.from("orders").select("*", { count: "exact" });
     if (range.from) query = query.gte("order_date", `${range.from}T00:00:00Z`);
     if (range.to) query = query.lte("order_date", `${range.to}T23:59:59Z`);
-    if (status) query = query.eq("order_status", status);
-    if (payment) query = query.eq("payment_method", payment);
-    if (city) query = query.eq("city", city);
-    if (source) query = query.eq("source", source);
+    if (status.length) query = query.in("order_status", status);
+    if (payment.length) query = query.in("payment_method", payment);
+    if (city.length) query = query.in("city", city);
+    if (source.length) query = query.in("source", source);
     if (search) {
       const s = sanitizeSearch(search);
       if (s) {
@@ -98,10 +99,10 @@ export default function OrdersPage() {
       let query = supabase.from("orders").select("order_number", { count: "exact", head: true });
       if (compare.from) query = query.gte("order_date", `${compare.from}T00:00:00Z`);
       if (compare.to) query = query.lte("order_date", `${compare.to}T23:59:59Z`);
-      if (status) query = query.eq("order_status", status);
-      if (payment) query = query.eq("payment_method", payment);
-      if (city) query = query.eq("city", city);
-      if (source) query = query.eq("source", source);
+      if (status.length) query = query.in("order_status", status);
+      if (payment.length) query = query.in("payment_method", payment);
+      if (city.length) query = query.in("city", city);
+      if (source.length) query = query.in("source", source);
       if (search) {
         const s = sanitizeSearch(search);
         if (s) {
@@ -149,10 +150,10 @@ export default function OrdersPage() {
     const params = new URLSearchParams();
     if (range.from) params.set("from", `${range.from}T00:00:00Z`);
     if (range.to) params.set("to", `${range.to}T23:59:59Z`);
-    if (status) params.set("status", status);
-    if (payment) params.set("payment", payment);
-    if (city) params.set("city", city);
-    if (source) params.set("source", source);
+    for (const s of status) params.append("status", s);
+    for (const p of payment) params.append("payment", p);
+    for (const c of city) params.append("city", c);
+    for (const s of source) params.append("source", s);
     if (search) params.set("q", search);
     window.open(`/api/export?${params.toString()}`, "_blank");
   }
@@ -192,9 +193,9 @@ export default function OrdersPage() {
             </span>
           </div>
         )}
-        <div className="grid gap-2 md:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
           <form
-            className="relative md:col-span-2"
+            className="relative md:col-span-3 lg:col-span-2"
             onSubmit={(e) => {
               e.preventDefault();
               setPage(0);
@@ -209,24 +210,30 @@ export default function OrdersPage() {
               onChange={(e) => setSearchInput(e.target.value)}
             />
           </form>
-          <select className="input" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
-            <option value="">{t("allStatuses")}</option>
-            {filterOptions.statuses.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <select className="input" value={payment} onChange={(e) => { setPayment(e.target.value); setPage(0); }}>
-            <option value="">{t("allPayments")}</option>
-            {filterOptions.payments.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <select className="input" value={city} onChange={(e) => { setCity(e.target.value); setPage(0); }}>
-            <option value="">{t("allCities")}</option>
-            {filterOptions.cities.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={filterOptions.statuses}
+            values={status}
+            onChange={(v) => { setStatus(v); setPage(0); }}
+            placeholder={t("allStatuses")}
+          />
+          <MultiSelect
+            options={filterOptions.payments}
+            values={payment}
+            onChange={(v) => { setPayment(v); setPage(0); }}
+            placeholder={t("allPayments")}
+          />
+          <MultiSelect
+            options={filterOptions.cities}
+            values={city}
+            onChange={(v) => { setCity(v); setPage(0); }}
+            placeholder={t("allCities")}
+          />
+          <MultiSelect
+            options={filterOptions.sources}
+            values={source}
+            onChange={(v) => { setSource(v); setPage(0); }}
+            placeholder={t("allSources")}
+          />
         </div>
       </div>
 
