@@ -26,7 +26,7 @@ export default function StudioPage() {
   const { t, lang } = useLang();
   const [url, setUrl] = useState("");
   const [w, setW] = useState("100%");
-  const [h, setH] = useState("600");
+  const [h, setH] = useState("400");
   const [copied, setCopied] = useState(false);
   const [books, setBooks] = useState<HostedBook[]>([]);
   const [totalBytes, setTotalBytes] = useState(0);

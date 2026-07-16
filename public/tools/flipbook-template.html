@@ -25,10 +25,18 @@
   .stage{
     position:absolute;inset:0;
     display:flex;align-items:center;justify-content:center;
-    padding:26px 74px 54px;
-    perspective:2600px;-webkit-perspective:2600px;
+    padding:14px 74px 46px;
+    overflow:hidden;touch-action:pan-y; /* vertical page scroll stays native at 100% */
   }
-  @media (max-width:640px){ .stage{padding:16px 50px 46px} }
+  @media (max-width:640px){ .stage{padding:10px 50px 42px} }
+  .stage.zoomed{cursor:grab;touch-action:none}
+  .stage.zoomed.panning{cursor:grabbing}
+
+  /* zoom/pan happens on this wrapper so the 3D flip inside keeps its perspective */
+  .zoomwrap{
+    perspective:2600px;-webkit-perspective:2600px;
+    transform-origin:center center;will-change:transform;
+  }
 
   .book{position:relative;transform-style:preserve-3d;
     filter:drop-shadow(0 22px 30px rgba(15,23,42,.20)) drop-shadow(0 6px 10px rgba(15,23,42,.10));}
@@ -106,6 +114,16 @@
   .fsbtn:hover{background:#eef1f6}
   .fsbtn svg{width:16px;height:16px;display:block}
 
+  .zoombar{position:absolute;right:12px;bottom:12px;z-index:10;display:flex;align-items:center;gap:2px;
+    background:#fff;border:1px solid var(--hair);border-radius:999px;padding:3px;
+    box-shadow:0 2px 8px rgba(15,23,42,.06)}
+  .zoombar button{border:0;background:transparent;color:var(--ink);cursor:pointer;border-radius:999px;
+    font-size:16px;font-weight:700;line-height:1;width:29px;height:29px;
+    display:flex;align-items:center;justify-content:center;padding:0}
+  .zoombar button:hover{background:#eef1f6}
+  .zoombar #zpct{width:auto;min-width:46px;font-size:11.5px;font-variant-numeric:tabular-nums;padding:0 5px}
+  @media (max-width:640px){ .zoombar{right:8px;bottom:10px} }
+
   @media (prefers-reduced-motion:reduce){
     .leaf{transition:none}.reveal{transition:none}
     .turning .front .sheen,.turning .back .sheen{animation:none}
@@ -118,6 +136,7 @@
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.5 4.5v15L5 12z"/></svg>
   </button>
   <div class="stage" id="stage">
+    <div class="zoomwrap" id="zoomWrap">
     <div class="book" id="book">
       <div class="edge edge-l" id="edgeL"></div>
       <div class="edge edge-r" id="edgeR"></div>
@@ -130,6 +149,12 @@
         <div class="face back"><img id="leafB" alt=""><div class="sheen" id="sheenB"></div></div>
       </div>
     </div>
+    </div>
+  </div>
+  <div class="zoombar">
+    <button id="zout" aria-label="Zoom out / تصغير" title="Zoom out">−</button>
+    <button id="zpct" title="Reset zoom / إعادة الضبط">100%</button>
+    <button id="zin" aria-label="Zoom in / تكبير" title="Zoom in">+</button>
   </div>
   <button class="navbtn nav-r" id="navR" aria-label="Next / التالي">
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 4.5v15L19 12z"/></svg>
@@ -153,7 +178,8 @@
   var stage=$("stage"), book=$("book"), hL=$("hL"), hR=$("hR"),
       imgL=$("imgL"), imgR=$("imgR"), leaf=$("leaf"), leafF=$("leafF"), leafB=$("leafB"),
       reveal=$("reveal"), edgeL=$("edgeL"), edgeR=$("edgeR"),
-      navL=$("navL"), navR=$("navR"), counter=$("counter");
+      navL=$("navL"), navR=$("navR"), counter=$("counter"),
+      zoomWrap=$("zoomWrap"), zpct=$("zpct");
 
   var N=PAGES.length;
   if(!N){ counter.textContent="0 / 0"; navL.disabled=navR.disabled=true; return; }
@@ -182,8 +208,9 @@
 
   /* ------------- sizing ------------- */
   function layout(){
-    var r=stage.getBoundingClientRect();
-    var availW=Math.max(60,r.width-8), availH=Math.max(60,r.height-8);
+    var cs=window.getComputedStyle(stage);
+    var availW=Math.max(60, stage.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0));
+    var availH=Math.max(60, stage.clientHeight-(parseFloat(cs.paddingTop)||0)-(parseFloat(cs.paddingBottom)||0));
     var wantSingle = availW<420 || (availW/availH) < aspect*1.18;
     if(wantSingle!==single){
       if(wantSingle){ cur=Math.min(cur*2, N-1); }  // spread -> single: first page of the spread
@@ -197,6 +224,7 @@
     book.style.height=ph+"px";
     edgeStacks(pw);
     render();
+    applyZoom(false);   // re-clamp pan for the new size
   }
   function edgeStacks(pw){
     var maxE=Math.max(6,Math.min(16,pw*0.035));
@@ -331,23 +359,128 @@
   function goLeft(){ go(RTL ? 1 : -1); }
   function goRight(){ go(RTL ? -1 : 1); }
 
+  function goFirst(){ if(busy)return; cur=0; render(); }
+  function goLast(){ if(busy)return; cur=single?N-1:S-1; render(); }
+
   navL.addEventListener("click",function(e){ e.stopPropagation(); goLeft(); });
   navR.addEventListener("click",function(e){ e.stopPropagation(); goRight(); });
-  document.addEventListener("keydown",function(e){
-    if(e.key==="ArrowLeft") goLeft();
-    else if(e.key==="ArrowRight") goRight();
+
+  /* ---------------- zoom & pan ---------------- */
+  var zoom=1, panX=0, panY=0, ZMAX=4;
+  function clampPan(){
+    var bw=parseFloat(book.style.width)||0, bh=parseFloat(book.style.height)||0;
+    var mx=(zoom-1)*bw/2+40, my=(zoom-1)*bh/2+40;
+    if(zoom<=1.01){ mx=0; my=0; }
+    if(panX>mx)panX=mx; if(panX<-mx)panX=-mx;
+    if(panY>my)panY=my; if(panY<-my)panY=-my;
+  }
+  function applyZoom(animate){
+    clampPan();
+    zoomWrap.style.transition=animate?"transform .18s ease":"none";
+    zoomWrap.style.transform=(zoom===1&&panX===0&&panY===0)?"none":"translate("+panX+"px,"+panY+"px) scale("+zoom+")";
+    zpct.textContent=Math.round(zoom*100)+"%";
+    stage.classList.toggle("zoomed",zoom>1.01);
+  }
+  function setZoom(z,px,py,animate){
+    z=Math.max(1,Math.min(ZMAX,z));
+    if(px!=null){
+      var r=stage.getBoundingClientRect();
+      var Px=px-(r.left+r.width/2), Py=py-(r.top+r.height/2);
+      panX=Px-(Px-panX)*z/zoom;
+      panY=Py-(Py-panY)*z/zoom;
+    }
+    zoom=z;
+    if(zoom<=1.01){ zoom=1; panX=0; panY=0; }
+    applyZoom(animate!==false);
+  }
+  $("zin").addEventListener("click",function(e){ e.stopPropagation(); setZoom(zoom*1.4); });
+  $("zout").addEventListener("click",function(e){ e.stopPropagation(); setZoom(zoom/1.4); });
+  zpct.addEventListener("click",function(e){ e.stopPropagation(); setZoom(1); });
+  stage.addEventListener("wheel",function(e){
+    if(e.ctrlKey||e.metaKey){ e.preventDefault(); setZoom(zoom*(e.deltaY<0?1.15:1/1.15), e.clientX, e.clientY, false); }
+    else if(zoom>1.01){ e.preventDefault(); panX-=e.deltaX; panY-=e.deltaY; applyZoom(false); }
+  },{passive:false});
+  stage.addEventListener("dblclick",function(e){
+    e.preventDefault();
+    if(zoom>1.05) setZoom(1); else setZoom(2.2,e.clientX,e.clientY);
   });
+
+  /* mouse drag to pan while zoomed */
+  var dragging=false, dragMoved=false, lx=0, ly=0;
+  stage.addEventListener("mousedown",function(e){
+    if(zoom<=1.01||e.button!==0) return;
+    dragging=true; dragMoved=false; lx=e.clientX; ly=e.clientY;
+    stage.classList.add("panning"); e.preventDefault();
+  });
+  window.addEventListener("mousemove",function(e){
+    if(!dragging) return;
+    if(Math.abs(e.clientX-lx)+Math.abs(e.clientY-ly)>3) dragMoved=true;
+    panX+=e.clientX-lx; panY+=e.clientY-ly; lx=e.clientX; ly=e.clientY;
+    applyZoom(false);
+  });
+  window.addEventListener("mouseup",function(){ if(dragging){ dragging=false; stage.classList.remove("panning"); } });
+
+  /* click flips a page — but not while zoomed and not right after a pan-drag */
   stage.addEventListener("click",function(e){
+    if(zoom>1.01||dragMoved){ dragMoved=false; return; }
     var r=stage.getBoundingClientRect();
     if(e.clientX-r.left > r.width/2) goRight(); else goLeft();
   });
-  var sx=null;
-  stage.addEventListener("touchstart",function(e){ sx=e.touches[0].clientX; },{passive:true});
-  stage.addEventListener("touchend",function(e){
-    if(sx==null)return;
-    var dx=e.changedTouches[0].clientX-sx; sx=null;
-    if(Math.abs(dx)>40){ if(dx<0) goLeft(); else goRight(); }
+
+  document.addEventListener("keydown",function(e){
+    if(e.key==="ArrowLeft") goLeft();
+    else if(e.key==="ArrowRight") goRight();
+    else if(e.key==="+"||e.key==="=") setZoom(zoom*1.4);
+    else if(e.key==="-"||e.key==="_") setZoom(zoom/1.4);
+    else if(e.key==="0") setZoom(1);
+    else if(e.key==="Home") goFirst();
+    else if(e.key==="End") goLast();
+  });
+
+  /* touch: swipe flips at 100%, pinch zooms, one finger pans while zoomed,
+     double-tap toggles zoom */
+  var sx=null, sy=null, pinch0=null, touchPanning=false, lastTap=0, lastTapX=0, lastTapY=0;
+  function tDist(t){ var dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.sqrt(dx*dx+dy*dy)||1; }
+  function tMid(t){ return {x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2}; }
+  stage.addEventListener("touchstart",function(e){
+    if(e.touches.length===2){ pinch0={d:tDist(e.touches), z:zoom}; sx=null; touchPanning=false; }
+    else if(e.touches.length===1){
+      sx=e.touches[0].clientX; sy=e.touches[0].clientY;
+      touchPanning=zoom>1.01; lx=sx; ly=sy;
+    }
   },{passive:true});
+  stage.addEventListener("touchmove",function(e){
+    if(pinch0&&e.touches.length===2){
+      e.preventDefault();
+      var m=tMid(e.touches);
+      setZoom(pinch0.z*tDist(e.touches)/pinch0.d, m.x, m.y, false);
+    } else if(touchPanning&&e.touches.length===1){
+      e.preventDefault();
+      var t=e.touches[0];
+      panX+=t.clientX-lx; panY+=t.clientY-ly; lx=t.clientX; ly=t.clientY;
+      applyZoom(false);
+    }
+  },{passive:false});
+  stage.addEventListener("touchend",function(e){
+    if(pinch0){ if(e.touches.length===0) pinch0=null; sx=null; return; }
+    if(e.changedTouches.length!==1){ sx=null; touchPanning=false; return; }
+    var t=e.changedTouches[0];
+    var moved = sx!=null ? (Math.abs(t.clientX-sx)+Math.abs(t.clientY-(sy||0))) : 999;
+    var now=Date.now();
+    if(moved<12){
+      if(now-lastTap<320 && Math.abs(t.clientX-lastTapX)<40 && Math.abs(t.clientY-lastTapY)<40){
+        e.preventDefault();   /* no ghost click / native double-tap zoom */
+        if(zoom>1.05) setZoom(1); else setZoom(2.2,t.clientX,t.clientY);
+        lastTap=0; sx=null; touchPanning=false; return;
+      }
+      lastTap=now; lastTapX=t.clientX; lastTapY=t.clientY;
+    }
+    if(zoom<=1.01 && sx!=null){
+      var dx=t.clientX-sx;
+      if(Math.abs(dx)>40){ if(dx<0) goLeft(); else goRight(); }
+    }
+    sx=null; touchPanning=false;
+  },{passive:false});
 
   $("fs").addEventListener("click",function(e){
     e.stopPropagation();
