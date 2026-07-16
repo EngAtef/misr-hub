@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Maximize2, Copy, Lightbulb, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download } from "lucide-react";
+import { Maximize2, Copy, Eye, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download } from "lucide-react";
 import QRCode from "qrcode";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
@@ -12,6 +12,8 @@ interface HostedBook {
   size: number;
   createdAt: string;
   readerUrl: string;
+  views: number;
+  views7d: number;
 }
 
 function fmtSize(bytes: number) {
@@ -28,6 +30,7 @@ export default function StudioPage() {
   const [copied, setCopied] = useState(false);
   const [books, setBooks] = useState<HostedBook[]>([]);
   const [totalBytes, setTotalBytes] = useState(0);
+  const [totalViews, setTotalViews] = useState(0);
   const [loadingBooks, setLoadingBooks] = useState(true);
   const [copiedId, setCopiedId] = useState("");
   const [deletingId, setDeletingId] = useState("");
@@ -41,6 +44,7 @@ export default function StudioPage() {
       const j = await res.json();
       setBooks(j.books || []);
       setTotalBytes(j.totalBytes || 0);
+      setTotalViews(j.totalViews || 0);
     } catch {
       // list stays as-is; the refresh button retries
     } finally {
@@ -177,6 +181,12 @@ export default function StudioPage() {
             )}
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
+            {totalViews > 0 && (
+              <span className="flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-600" title={t("viewsHint")}>
+                <Eye size={13} />
+                {totalViews.toLocaleString(lang === "ar" ? "ar-EG" : "en-GB")} {t("bookViews")}
+              </span>
+            )}
             {totalBytes > 0 && (
               <span className="text-xs text-slate-400">
                 {t("storageUsed")}: {fmtSize(totalBytes)}
@@ -216,6 +226,13 @@ export default function StudioPage() {
                     {b.createdAt ? new Date(b.createdAt).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { year: "numeric", month: "short", day: "numeric" }) : ""}
                     {" · "}
                     {fmtSize(b.size)}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-brand-600" title={t("viewsHint")}>
+                    <Eye size={12} />
+                    <span>
+                      {(b.views || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-GB")} {t("bookViews")}
+                      {b.views7d > 0 && <span className="text-slate-400"> · {b.views7d.toLocaleString(lang === "ar" ? "ar-EG" : "en-GB")} {t("views7d")}</span>}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -265,17 +282,6 @@ export default function StudioPage() {
         )}
       </div>
 
-      <div className="card p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold">
-          <Lightbulb size={18} className="text-gold" />
-          {t("studioIdeas")}
-        </h3>
-        <ul className="space-y-2 text-sm text-slate-600">
-          <li className="flex gap-2"><span className="text-brand-500">•</span>{t("studioIdea1")}</li>
-          <li className="flex gap-2"><span className="text-brand-500">•</span>{t("studioIdea2")}</li>
-          <li className="flex gap-2"><span className="text-brand-500">•</span>{t("studioIdea3")}</li>
-        </ul>
-      </div>
     </div>
   );
 }

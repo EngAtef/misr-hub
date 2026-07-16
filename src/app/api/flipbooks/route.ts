@@ -69,7 +69,21 @@ export async function GET(request: NextRequest) {
   const { data: meta } = await user.supabase.from("flipbooks").select("path, title");
   const titles = new Map((meta || []).map((m) => [m.path, m.title]));
 
+  // View counters (per book: lifetime total + last 7 days)
+  const viewsTotal = new Map<string, number>();
+  const views7d = new Map<string, number>();
+  const { data: viewRows } = await user.supabase.from("flipbook_views").select("path, day, views");
+  const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  (viewRows || []).forEach((r) => {
+    const v = Number(r.views) || 0;
+    viewsTotal.set(r.path, (viewsTotal.get(r.path) || 0) + v);
+    if (new Date(r.day + "T00:00:00Z").getTime() >= weekAgo) {
+      views7d.set(r.path, (views7d.get(r.path) || 0) + v);
+    }
+  });
+
   let totalBytes = 0;
+  let totalViews = 0;
   const origin = request.nextUrl.origin;
   const books = (objects || [])
     .filter((o) => o.name.endsWith(".html"))
@@ -77,16 +91,19 @@ export async function GET(request: NextRequest) {
       const id = o.name.replace(/\.html$/, "");
       const size = (o.metadata as { size?: number } | null)?.size || 0;
       totalBytes += size;
+      totalViews += viewsTotal.get(o.name) || 0;
       return {
         id,
         title: titles.get(o.name) || id.replace(/-[0-9a-f]{8}$/, "").replace(/-/g, " "),
         size,
         createdAt: o.created_at,
         readerUrl: `${origin}/reader/${id}`,
+        views: viewsTotal.get(o.name) || 0,
+        views7d: views7d.get(o.name) || 0,
       };
     });
 
-  return NextResponse.json({ books, totalBytes });
+  return NextResponse.json({ books, totalBytes, totalViews });
 }
 
 // DELETE { id } -> remove a hosted book (storage object + title record).

@@ -347,10 +347,26 @@
 
       <div class="gen-row" id="singleGenRow">
         <button id="generateBtn" class="btn-primary">Generate</button>
+        <button id="extractTextBtn" class="btn-ghost" title="Pull the selectable text out of the ticked pages — for product titles &amp; descriptions">⧉ Extract text</button>
         <span class="selcount" id="selCount2"></span>
       </div>
       <div class="progress" id="progress"><div class="bar"><i id="bar"></i></div><div class="ptext" id="ptext">Starting…</div></div>
       <div class="err" id="err"></div>
+    </div>
+
+    <!-- extracted text -->
+    <div class="card" id="textPanel" style="display:none;margin-top:16px;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="font-weight:700">Extracted text</div>
+        <span class="note" id="textInfo" style="margin:0"></span>
+        <span style="flex:1"></span>
+        <button class="btn-ghost" id="copyTextBtn" style="padding:8px 14px">Copy all</button>
+        <button class="btn-ghost" id="closeTextBtn" style="padding:8px 14px">✕</button>
+      </div>
+      <p class="note" style="margin:6px 0 8px">Edit freely, then copy what you need for the product page (title, description…). Text follows the same order as your page selection.</p>
+      <textarea id="textOut" dir="auto" spellcheck="false"
+        style="width:100%;min-height:260px;resize:vertical;font:13.5px/1.7 var(--sans);border:1px solid var(--hair);border-radius:8px;padding:12px;background:#fff;color:var(--ink)"></textarea>
+      <p class="warn" id="textWarn" style="position:static;margin-top:10px">⚠ Very little selectable text was found — this book is probably scanned images, so the text isn't extractable (it would need OCR).</p>
     </div>
 
     <div class="results" id="results">
@@ -949,6 +965,77 @@
   }
   async function imageSize(blob){ try{ const im=await blobToImage(blob); return {w:im.naturalWidth,h:im.naturalHeight}; }catch(e){ return {w:0,h:0}; } }
 
+  /* ============================ text extraction ============================ */
+  /* Pulls the selectable text out of the ticked pages so titles/descriptions
+     can be copied straight into product pages. PDF = per page (pdf.js text
+     layer), EPUB = per section (parsed XHTML). No OCR for scanned images. */
+  async function pdfPageText(num){
+    const page=await book.pdf.getPage(num);
+    const tc=await page.getTextContent();
+    const lines=[]; let line="", lastY=null;
+    tc.items.forEach(it=>{
+      if(typeof it.str!=="string") return;
+      const y=it.transform?Math.round(it.transform[5]):null;
+      if(lastY!==null && y!==null && y!==lastY && line){ lines.push(line); line=""; }
+      line+=it.str;
+      if(it.hasEOL){ lines.push(line); line=""; }
+      if(y!==null) lastY=y;
+    });
+    if(line) lines.push(line);
+    return lines.map(l=>l.replace(/\s+/g," ").trim()).join("\n").replace(/\n{3,}/g,"\n\n").trim();
+  }
+  async function epubSectionText(s){
+    const html=await readText(s.full); if(!html) return "";
+    const d=new DOMParser().parseFromString(html,"text/html");
+    d.querySelectorAll("style,script").forEach(n=>n.remove());
+    const blocks=[...d.body.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,td")];
+    const parts=(blocks.length?blocks.map(b=>(b.textContent||"").replace(/\s+/g," ").trim())
+                              :[(d.body.textContent||"").replace(/\s+/g," ").trim()]).filter(Boolean);
+    return parts.join("\n");
+  }
+  async function extractText(){
+    if(busy||!book) return;
+    const selected=orderedPages().filter(p=>p.selected);
+    if(!selected.length){ showErr("Pick at least one page."); return; }
+    hideErr(); busy=true; els.generate.disabled=true; E("extractTextBtn").disabled=true;
+    els.progress.classList.add("show");
+    const chunks=[]; let plain=0, units=0;
+    try{
+      if(book.type==="pdf"){
+        const nums=[...new Set(selected.map(p=>p.pdfPage))]; units=nums.length;
+        for(let i=0;i<nums.length;i++){
+          setProgress(i/nums.length,"Extracting text — page "+nums[i]);
+          let t=""; try{ t=await pdfPageText(nums[i]); }catch(e){ console.error(e); }
+          plain+=t.length;
+          chunks.push("────  Page "+nums[i]+"  ────\n"+(t||"(no selectable text on this page)"));
+        }
+      } else {
+        const secs=[...new Set(selected.map(p=>p.sec))]; units=secs.length;
+        for(let i=0;i<secs.length;i++){
+          const s=book.sections[secs[i]];
+          setProgress(i/secs.length,"Extracting text — "+s.label);
+          let t=""; try{ t=await epubSectionText(s); }catch(e){ console.error(e); }
+          plain+=t.length;
+          chunks.push("────  "+s.label+"  ────\n"+(t||"(no selectable text in this section)"));
+        }
+      }
+      E("textOut").value=chunks.join("\n\n");
+      E("textInfo").textContent=units+(book.type==="pdf"?" page":" section")+(units!==1?"s":"")+" · "+plain.toLocaleString()+" characters";
+      E("textWarn").classList.toggle("show", plain<Math.min(40*units,400));
+      E("textPanel").style.display="";
+      setProgress(1,"Text ready — see the panel below.");
+      E("textPanel").scrollIntoView({behavior:"smooth",block:"nearest"});
+    }catch(e){ console.error(e); showErr("Text extraction failed: "+(e.message||e)); }
+    finally{ busy=false; els.generate.disabled=false; E("extractTextBtn").disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1200); }
+  }
+  function copyExtractedText(){
+    const v=E("textOut").value; if(!v) return;
+    const done=()=>{ const b=E("copyTextBtn"), o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1500); };
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(v).then(done).catch(()=>{ E("textOut").select(); document.execCommand("copy"); done(); }); }
+    else { E("textOut").select(); document.execCommand("copy"); done(); }
+  }
+  function hideTextPanel(){ E("textPanel").style.display="none"; E("textOut").value=""; E("textWarn").classList.remove("show"); }
+
   /* ============================ bundles ============================ */
   async function buildZip(results,name,ext){ const z=new JSZip(); const folder=z.folder(name); results.forEach(r=>folder.file(r.name,r.blob)); const content=await z.generateAsync({type:"blob"}); triggerDownload(content,name+(ext||".zip")); }
   function imgFromBlob(blob){ return new Promise((res,rej)=>{ const u=URL.createObjectURL(blob); const im=new Image(); im.onload=()=>res(im); im.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error("decode failed")); }; im.src=u; }); }
@@ -1196,7 +1283,7 @@
       book=await parseBook(files[0]);
       els.title.textContent=book.title; els.author.textContent=book.author||"Unknown author";
       if(book.coverURL){ els.cover.src=book.coverURL; els.cover.style.display=""; } else els.cover.style.display="none";
-      els.drop.classList.add("hidden"); els.results.classList.remove("show"); setView("single");
+      els.drop.classList.add("hidden"); els.results.classList.remove("show"); hideTextPanel(); setView("single");
       applySettingsToUI();
       await rescan();
     }catch(e){ console.error(e);
@@ -1215,7 +1302,7 @@
       els.pageScanMsg.textContent="· "+pages.length+" detected"; renderGrid();
     }catch(e){ console.error(e); els.pageScanMsg.textContent=""; showErr("Scan failed: "+(e.message||e)); }
   }
-  function resetToDrop(){ book=null; batch=null; blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
+  function resetToDrop(){ book=null; batch=null; hideTextPanel(); blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
     els.bookPanel.classList.add("hidden"); els.batchPanel.classList.add("hidden"); els.drop.classList.remove("hidden","hot");
     els.drop.querySelector(".big").textContent="Drop one or more .epub or .pdf files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); const bem=E("batchEmbeds"); if(bem) bem.remove(); syncConditionalUI(); }
 
@@ -1254,6 +1341,9 @@
   els.rangeApply.addEventListener("click",applyRange);
   els.rangeInput.addEventListener("keydown",e=>{ if(e.key==="Enter") applyRange(); });
   els.generate.addEventListener("click",generate);
+  E("extractTextBtn").addEventListener("click",extractText);
+  E("copyTextBtn").addEventListener("click",copyExtractedText);
+  E("closeTextBtn").addEventListener("click",hideTextPanel);
   els.downloadMain.addEventListener("click",downloadMain);
   E("hostBtn").addEventListener("click",hostFlipbook);
   E("copyEmbedBtn").addEventListener("click",copyEmbedCode);

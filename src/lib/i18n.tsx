@@ -622,10 +622,9 @@ const dict = {
   publicLibraryHint: { ar: "صفحة عامة تعرض كل الكتب المستضافة في رابط واحد — شاركه أو ضمّنه على الموقع", en: "A public page listing every hosted book under one link — share it or embed it on the site" },
   qrHint: { ar: "اطبعه على الغلاف أو أي إعلان مطبوع — مسحه بالموبايل يفتح الكتاب مباشرة. الملف بدقة عالية مناسبة للطباعة", en: "Print it on the cover or any printed ad — scanning it opens the book directly. High-resolution file, print-ready" },
   downloadPng: { ar: "تحميل PNG", en: "Download PNG" },
-  studioIdeas: { ar: "أفكار إضافية", en: "More ideas" },
-  studioIdea1: { ar: "وضع المعاينة المجانية متاح الآن داخل المحوّل: أول صفحات + علامة مائية + زر شراء — جرّبه من خيار Free preview mode", en: "Free preview mode is now built into the converter: first pages + watermark + buy button — try it from the Free preview mode option" },
-  studioIdea2: { ar: "رمز QR لكل كتاب مستضاف متاح الآن من قائمة الكتب المستضافة — اطبعه على الأغلفة والإعلانات", en: "A QR code for every hosted book is now available from the hosted-books list — print it on covers and ads" },
-  studioIdea3: { ar: "توليد صورة غلاف موحّدة المقاس لكل كتاب لصفحات المنتج", en: "Generate a uniform cover image per book for product pages" },
+  bookViews: { ar: "مشاهدة", en: "views" },
+  views7d: { ar: "آخر ٧ أيام", en: "last 7 days" },
+  viewsHint: { ar: "عدد مرات فتح الكتاب (في التضمين أو برابط مباشر). يبدأ العد من لحظة تفعيل الميزة.", en: "How many times the book was opened (embedded or via direct link). Counting starts from when this feature went live." },
   // Profile / security
   profile: { ar: "الملف الشخصي", en: "My Profile" },
   security: { ar: "الأمان", en: "Security" },

@@ -27,8 +27,15 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
+  // View counter: a tiny client-side beacon runs on every real page load,
+  // so views are counted even when this response is served from the CDN cache.
+  let html = await upstream.text();
+  const beacon =
+    `<script>try{navigator.sendBeacon("/api/flipbooks/view",${JSON.stringify(id)})}catch(e){}</script>`;
+  html = html.includes("</body>") ? html.replace("</body>", beacon + "</body>") : html + beacon;
+
   // Each upload gets a fresh id, so the content behind a URL never changes.
-  return new Response(upstream.body, {
+  return new Response(html, {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=3600, s-maxage=31536000, immutable",
