@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleWebhook, withinHours, menuItems } from "@/lib/chatwoot-bot/engine";
 import { MENU_PROMPT_AR, MENU_PROMPT_EN } from "@/lib/chatwoot-bot/script";
-import { resolveBotConfig, logBotEvent } from "@/lib/chatwoot-bot/config";
+import { resolveBotConfig, logBotEvent, persistBotAgentId } from "@/lib/chatwoot-bot/config";
 import {
   sendMessage,
   openConversation,
@@ -83,7 +83,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     getBotAgentId: async () => {
       if (cfg.botAgentId) return cfg.botAgentId;
       try {
-        return (await getProfile(cfg))?.id ?? null;
+        const id = (await getProfile(cfg))?.id ?? null;
+        // Cache it in settings so future requests skip the lookup.
+        if (id) await persistBotAgentId(token, id);
+        return id;
       } catch {
         return null;
       }

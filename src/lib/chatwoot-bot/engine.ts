@@ -417,19 +417,28 @@ export async function handleWebhook(
     if (data.message_type !== "incoming") return { status: 200, body: { ok: true } };
     if (data.sender?.type === "agent_bot") return { status: 200, body: { ok: true } };
 
+    const assigneeId = data.conversation?.meta?.assignee?.id ?? data.meta?.assignee?.id;
+
     // During working hours, stay out of the way — humans are on. Make sure
-    // the customer's message sits in the open queue and say nothing.
+    // the customer's message sits in the open queue, and if the bot itself
+    // still owns the conversation (from an overnight chat), hand it back so
+    // it shows up in the agents' unassigned queue instead of vanishing.
     if (withinHours) {
+      if (assigneeId) {
+        const botId = await ctx.getBotAgentId();
+        if (botId && assigneeId === botId) await ctx.unassignConversation(convId);
+      }
       await ctx.openConversation(convId);
+      ctx.log(`conv=${convId} skipped=working_hours`);
       return { status: 200, body: { ok: true, skipped: "working_hours" } };
     }
 
     // A human agent owns this conversation — the bot must not butt in.
     // (Self-assignments happen when Chatwoot credits the bot's own replies.)
-    const assigneeId = data.conversation?.meta?.assignee?.id ?? data.meta?.assignee?.id;
     if (assigneeId) {
       const botId = await ctx.getBotAgentId();
       if (!botId || assigneeId !== botId) {
+        ctx.log(`conv=${convId} skipped=assigned_to_agent assignee=${assigneeId} bot=${botId ?? "unknown"}`);
         return { status: 200, body: { ok: true, skipped: "assigned_to_agent" } };
       }
     }

@@ -213,6 +213,21 @@ export function isConfigured(cfg: BotConfig): boolean {
 }
 
 /**
+ * Persist the bot's own agent id once the webhook has resolved it via
+ * /profile, so later requests skip the lookup. Token-gated; never throws.
+ */
+export async function persistBotAgentId(token: string, agentId: number): Promise<void> {
+  try {
+    await anonClient().rpc("fn_chatwoot_bot_save_agent_id", {
+      p_token: token,
+      p_agent_id: agentId,
+    });
+  } catch {
+    // Best-effort cache — the live /profile fallback keeps working.
+  }
+}
+
+/**
  * Analytics: record a routed intent in bot_events via the token-gated
  * fn_chatwoot_bot_log function. Message text is persisted only for
  * fallbacks (enforced inside the SQL function), feeding the fallback

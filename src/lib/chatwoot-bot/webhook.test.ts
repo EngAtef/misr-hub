@@ -109,6 +109,41 @@ test("within working hours + AFTER_HOURS_ONLY -> silent, conversation opened", a
   assert.deepEqual(rec.opened, [42]);
 });
 
+test("within hours: bot-owned conversation is handed back to the unassigned queue", async () => {
+  const { ctx, rec } = makeCtx({ withinHours: () => true });
+  const payload = {
+    ...incoming("السلام عليكم"),
+    conversation: { id: 42, meta: { assignee: { id: 55 } } }, // assigned to the bot itself
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.skipped, "working_hours");
+  assert.equal(rec.sent.length, 0);
+  assert.deepEqual(rec.unassigned, [42]); // handed back so agents see it
+  assert.deepEqual(rec.opened, [42]);
+});
+
+test("within hours: a human agent's conversation is never unassigned", async () => {
+  const { ctx, rec } = makeCtx({ withinHours: () => true });
+  const payload = {
+    ...incoming("سؤال تاني"),
+    conversation: { id: 42, meta: { assignee: { id: 77 } } }, // human agent
+  };
+  await handleWebhook("secret-token", payload, ctx);
+  assert.deepEqual(rec.unassigned, []);
+  assert.deepEqual(rec.opened, [42]);
+});
+
+test("after hours: customer returning to a bot-owned resolved conversation gets replies", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("السلام عليكم"),
+    conversation: { id: 42, meta: { assignee: { id: 55 } } },
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.intent, "greet");
+  assert.equal(rec.sent.length, 1);
+});
+
 test("AFTER_HOURS_ONLY=false -> replies even within working hours", async () => {
   const { ctx, rec } = makeCtx({ afterHoursOnly: false, withinHours: () => true });
   await handleWebhook("secret-token", incoming("1"), ctx);
