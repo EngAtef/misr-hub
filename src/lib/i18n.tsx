@@ -868,6 +868,23 @@ const dict = {
   italicLbl: { ar: "مائل", en: "Italic" },
   underlineLbl: { ar: "تسطير", en: "Underline" },
   bulletsLbl: { ar: "قائمة نقطية", en: "Bullet list" },
+  // Insights tab
+  insightsTab: { ar: "التحليلات", en: "Insights" },
+  totalEvents: { ar: "إجمالي الأحداث", en: "Total events" },
+  mostActiveUsers: { ar: "الأكثر نشاطاً", en: "Most active users" },
+  mostVisitedPages: { ar: "الأقسام الأكثر استخداماً", en: "Most used sections" },
+  busiestHours: { ar: "أوقات الذروة", en: "Busiest hours" },
+  activeDaysLbl: { ar: "أيام النشاط", en: "Active days" },
+  dailyActivity: { ar: "النشاط اليومي", en: "Daily activity" },
+  usersCol: { ar: "مستخدمون", en: "users" },
+  // Announcements & attachments
+  announcementsLbl: { ar: "إعلانات الفريق", en: "Team announcements" },
+  attachFile: { ar: "إرفاق ملف", en: "Attach file" },
+  attachTooLarge: { ar: "الحد الأقصى للملف 10 ميجابايت", en: "Files must be under 10 MB" },
+  mentionedYou: { ar: "ذكرك في رسالة", en: "mentioned you" },
+  sectionUsers: { ar: "حسابات المستخدمين", en: "User accounts" },
+  sectionAdSpend: { ar: "دفعات الإعلانات", en: "Ad batches" },
+  notRestorable: { ar: "غير قابل للاسترجاع", en: "Not restorable" },
 } as const;
 
 export type DictKey = keyof typeof dict;

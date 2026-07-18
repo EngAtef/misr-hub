@@ -99,6 +99,48 @@ export async function GET(request: NextRequest) {
     // bot analytics are optional in this report
   }
 
+  // Team activity digest — who did what over the last 7 days (best-effort).
+  let teamRows = "";
+  try {
+    const { data: activity } = await admin
+      .from("user_activity")
+      .select("user_email, kind, page, created_at")
+      .gte("created_at", daysAgo(7))
+      .not("user_email", "is", null)
+      .limit(50000);
+    const acts = (activity ?? []) as { user_email: string; kind: string; page: string | null; created_at: string }[];
+    const byUser = new Map<string, { days: Set<string>; visits: number; clicks: number; actions: number; pages: Map<string, number> }>();
+    for (const a of acts) {
+      let u = byUser.get(a.user_email);
+      if (!u) {
+        u = { days: new Set(), visits: 0, clicks: 0, actions: 0, pages: new Map() };
+        byUser.set(a.user_email, u);
+      }
+      u.days.add(a.created_at.slice(0, 10));
+      if (a.kind === "visit") {
+        u.visits++;
+        if (a.page) u.pages.set(a.page, (u.pages.get(a.page) ?? 0) + 1);
+      } else if (a.kind === "click") u.clicks++;
+      else u.actions++;
+    }
+    teamRows = [...byUser.entries()]
+      .sort((a, b) => b[1].visits + b[1].clicks - (a[1].visits + a[1].clicks))
+      .map(([email, u]) => {
+        const top = [...u.pages.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p).join(", ");
+        return `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${email}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;text-align:right">${u.days.size} active days · ${fmt(u.visits)} visits · ${fmt(u.actions)} actions${top ? `<br><span style="color:#94a3b8">${top}</span>` : ""}</td></tr>`;
+      })
+      .join("");
+  } catch {
+    // digest is optional in this report
+  }
+
+  // refresh smart-alert notifications alongside the weekly email
+  try {
+    await admin.rpc("sync_alert_notifications");
+  } catch {
+    // best-effort
+  }
+
   const dateStr = now.toISOString().slice(0, 10);
   const row = (label: string, value: string, t = "") =>
     `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}${t}</td></tr>`;
@@ -130,6 +172,8 @@ export async function GET(request: NextRequest) {
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         ${products.map((p) => row(p.product_name.slice(0, 45), `${fmt(p.quantity)} pcs`)).join("")}
       </table>
+      ${teamRows ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">Team Activity (7 days)</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">${teamRows}</table>` : ""}
       <p style="font-size:11px;color:#94a3b8;margin:20px 12px 0">Automated report from Misr Hub. Open the dashboard for full analytics.</p>
     </div>
   </div>`;

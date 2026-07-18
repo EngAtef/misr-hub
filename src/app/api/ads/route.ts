@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.action === "clear_batch") {
-    const { error } = await db.from("ad_spend").delete().eq("batch_label", body.batchLabel);
+    // snapshots the whole batch into the owner's trash before deleting
+    const { error } = await db.rpc("trash_ad_batch", { p_batch_label: body.batchLabel });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }

@@ -29,6 +29,11 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
+    // login history + new-device alert to the owner; must never block sign-in
+    supabase.rpc("register_login").then(
+      () => undefined,
+      () => undefined
+    );
     router.push("/");
     router.refresh();
   }
@@ -40,6 +45,10 @@ export default function LoginPage() {
     const supabase = createClient();
     const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError || !data.user) {
+      supabase.rpc("log_failed_login", { p_email: email }).then(
+        () => undefined,
+        () => undefined
+      );
       setError(t("invalidLogin"));
       setLoading(false);
       return;
@@ -74,6 +83,10 @@ export default function LoginPage() {
     }
     const { error: vErr } = await supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code: mfaCode });
     if (vErr) {
+      supabase.rpc("log_failed_login", { p_email: email }).then(
+        () => undefined,
+        () => undefined
+      );
       setError(t("invalidLogin"));
       setLoading(false);
       return;

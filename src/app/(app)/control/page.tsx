@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  BarChart3,
   Download,
   MonitorSmartphone,
   RotateCcw,
@@ -14,11 +15,12 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
+import { ActivityInsights } from "@/components/activity-insights";
 import { formatDateTime, formatNumber, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
-type TabKey = "activity" | "sessions" | "trash";
+type TabKey = "activity" | "insights" | "sessions" | "trash";
 
 interface ActivityRow {
   id: number;
@@ -79,7 +81,12 @@ const SECTION_LABELS: Record<string, DictKey> = {
   team_contacts: "sectionTeamContacts",
   stock_move_lists: "sectionStockLists",
   flipbooks: "sectionFlipbooks",
+  profiles: "sectionUsers",
+  ad_spend: "sectionAdSpend",
 };
+
+// archived records that cannot be reinserted (auth identity is gone)
+const NOT_RESTORABLE = new Set(["profiles"]);
 
 const PERIODS = [
   { key: "24h", hours: 24 },
@@ -155,6 +162,7 @@ export default function ControlCenterPage() {
 
   const tabs: { key: TabKey; label: DictKey; icon: React.ReactNode }[] = [
     { key: "activity", label: "activityTab", icon: <Activity size={14} /> },
+    { key: "insights", label: "insightsTab", icon: <BarChart3 size={14} /> },
     { key: "sessions", label: "sessionsTab", icon: <MonitorSmartphone size={14} /> },
     { key: "trash", label: "trashTab", icon: <Trash2 size={14} /> },
   ];
@@ -205,6 +213,7 @@ export default function ControlCenterPage() {
       </div>
 
       {tab === "activity" && <ActivityTab />}
+      {tab === "insights" && <ActivityInsights />}
       {tab === "sessions" && <SessionsTab />}
       {tab === "trash" && <TrashTab />}
     </div>
@@ -663,14 +672,18 @@ function TrashTab() {
                     </td>
                     <td>
                       <div className="flex justify-end gap-2">
-                        <button
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={busyId !== null}
-                          onClick={() => restore(r)}
-                        >
-                          <RotateCcw size={14} />
-                          {t("restore")}
-                        </button>
+                        {NOT_RESTORABLE.has(r.table_name) ? (
+                          <span className="inline-flex items-center px-2 text-[11px] text-slate-400">{t("notRestorable")}</span>
+                        ) : (
+                          <button
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={busyId !== null}
+                            onClick={() => restore(r)}
+                          >
+                            <RotateCcw size={14} />
+                            {t("restore")}
+                          </button>
+                        )}
                         <button className={dangerBtn} disabled={busyId !== null} onClick={() => deleteForever(r)}>
                           <Trash2 size={14} />
                           {t("deleteForever")}

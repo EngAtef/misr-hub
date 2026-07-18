@@ -42,6 +42,11 @@ export function AlertsBar() {
 
   useEffect(() => {
     supabase.rpc("fn_alerts").then(({ data }) => setData(data as AlertsData));
+    // persist red/amber alerts into the notification bell (deduped server-side)
+    supabase.rpc("sync_alert_notifications").then(
+      () => undefined,
+      () => undefined
+    );
   }, [supabase]);
 
   const alerts = useMemo<AlertItem[]>(() => {
