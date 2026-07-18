@@ -106,7 +106,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ books, totalBytes, totalViews });
 }
 
-// DELETE { id } -> remove a hosted book (storage object + title record).
+// DELETE { id } -> soft-remove a hosted book. The metadata row lands in the
+// owner's trash (BEFORE DELETE trigger) and the storage object is parked under
+// trash/ so the book disappears from the library and the reader, but a restore
+// from the Control Center brings it back intact. Permanent purge removes the
+// parked file.
 export async function DELETE(request: NextRequest) {
   const user = await getApiUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -121,7 +125,7 @@ export async function DELETE(request: NextRequest) {
   if (!ID_RE.test(id)) return NextResponse.json({ error: "bad id" }, { status: 400 });
 
   const path = `${id}.html`;
-  const { error } = await user.supabase.storage.from("flipbooks").remove([path]);
+  const { error } = await user.supabase.storage.from("flipbooks").move(path, `trash/${path}`);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   await user.supabase.from("flipbooks").delete().eq("path", path);
 

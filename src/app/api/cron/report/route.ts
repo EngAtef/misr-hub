@@ -40,6 +40,13 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 30-day retention for the silent user-activity log, independent of email config
+  try {
+    await createAdminClient().rpc("purge_old_activity");
+  } catch {
+    // never let retention cleanup break the report
+  }
+
   const apiKey = process.env.RESEND_API_KEY;
   const recipients = (process.env.REPORT_RECIPIENTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!apiKey || !recipients.length) {

@@ -36,11 +36,15 @@ import {
   TrendingUp,
   Undo2,
   Landmark,
+  MessageSquare,
+  ShieldCheck,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
+import { NotificationBell } from "@/components/notification-bell";
+import { ActivityTracker } from "@/lib/activity-tracker";
 import type { Profile } from "@/lib/types";
 
 interface NavItem {
@@ -48,6 +52,7 @@ interface NavItem {
   labelKey: DictKey;
   icon: React.ElementType;
   roles: string[];
+  ownerOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -76,10 +81,12 @@ const NAV: NavItem[] = [
   { href: "/studio", labelKey: "studio", icon: BookOpen, roles: ["admin", "manager"] },
   { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
   { href: "/bot", labelKey: "afterHoursBot", icon: Bot, roles: ["admin", "manager", "viewer"] },
+  { href: "/inbox", labelKey: "inbox", icon: MessageSquare, roles: ["admin", "manager", "viewer"] },
   { href: "/profile", labelKey: "profile", icon: UserCircle, roles: ["admin", "manager", "viewer"] },
   { href: "/users", labelKey: "users", icon: Users, roles: ["admin"] },
   { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"] },
   { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"] },
+  { href: "/control", labelKey: "controlCenter", icon: ShieldCheck, roles: ["admin"], ownerOnly: true },
 ];
 
 // href -> page_permissions.page_key
@@ -126,6 +133,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   }, [profile.role, profile.id]);
 
   const items = NAV.filter((item) => {
+    if (item.ownerOnly && !profile.is_owner) return false;
     if (!item.roles.includes(profile.role)) return false;
     if (profile.role === "admin") return true;
     const key = pageKey(item.href);
@@ -150,7 +158,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <Logo onDark />
         <div className="mt-1.5 text-[11px] text-brand-300">{t("appTagline")}</div>
         <form
-          className="mt-3"
+          className="relative mt-3"
           onSubmit={(e) => {
             e.preventDefault();
             const q = quickQ.trim();
@@ -160,12 +168,23 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           }}
         >
           <input
-            className="w-full rounded-lg border border-brand-800 bg-brand-900 px-3 py-1.5 text-xs text-white placeholder-brand-400 outline-none focus:border-brand-500"
+            className="w-full rounded-lg border border-brand-800 bg-brand-900 px-3 py-1.5 pe-7 text-xs text-white placeholder-brand-400 outline-none focus:border-brand-500"
             placeholder={t("quickSearch")}
             value={quickQ}
             onChange={(e) => setQuickQ(e.target.value)}
           />
+          {quickQ && (
+            <button
+              type="button"
+              aria-label="clear search"
+              className="absolute end-1.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-brand-400 hover:text-white"
+              onClick={() => setQuickQ("")}
+            >
+              <X size={13} />
+            </button>
+          )}
         </form>
+        <NotificationBell profile={profile} />
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {items.map((item) => {
@@ -216,6 +235,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
 
   return (
     <div className="min-h-screen">
+      <ActivityTracker userId={profile.id} email={profile.email} />
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 bg-brand-950 lg:block">{sidebar}</aside>
 

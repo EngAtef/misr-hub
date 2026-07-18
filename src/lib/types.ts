@@ -6,6 +6,7 @@ export interface Profile {
   full_name: string | null;
   role: Role;
   is_active: boolean;
+  is_owner?: boolean;
   created_at: string;
 }
 
