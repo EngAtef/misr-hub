@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { NM_WATERMARK_SNIPPET } from "@/lib/nm-watermark";
+import { upgradeLegacyFlipbook } from "@/lib/flipbook-upgrade";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +29,20 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
+  let html = await upstream.text();
+
+  // Books generated with the old single-page viewer are re-rendered into the
+  // current viewer (spread, zoom, watermark) on the fly — same URL, and the
+  // edge-cache purge on deploy rolls it out to every existing book.
+  try {
+    const upgraded = upgradeLegacyFlipbook(html);
+    if (upgraded) html = upgraded;
+  } catch {
+    // fall through and serve the original book untouched
+  }
+
   // View counter: a tiny client-side beacon runs on every real page load,
   // so views are counted even when this response is served from the CDN cache.
-  let html = await upstream.text();
   const beacon =
     `<script>try{navigator.sendBeacon("/api/flipbooks/view",${JSON.stringify(id)})}catch(e){}</script>`;
   html = html.includes("</body>") ? html.replace("</body>", beacon + "</body>") : html + beacon;
