@@ -129,7 +129,7 @@ test("variants: payment and returns sub-questions get targeted answers", () => {
   assert.ok(answer("هل تقبلوا فودافون كاش؟").includes("غير متاحة"), "wallet question → wallets answer");
   assert.ok(answer("أقدر أقسط؟").includes("فاليو"), "installment question → ValU answer");
   assert.ok(answer("عايز أستبدل كتاب").includes("الاستبدال غير متاح"), "exchange question → exchange answer");
-  assert.ok(answer("الكتاب وصل تالف").includes("بتتحمّل"), "damaged book → store-covers-shipping answer");
+  assert.ok(answer("الكتاب وصل تالف").includes("يتحمّل"), "damaged book → store-covers-shipping answer");
   assert.ok(answer("عايز أرجع الكتاب وأخد فلوسي").includes("ردّ المبلغ"), "refund question → refund answer");
 });
 
