@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Search, Download, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
+import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import type { Order, OrderItem, OrderEvent } from "@/lib/types";
@@ -16,7 +17,7 @@ const PAGE_SIZE = 25;
 export default function OrdersPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [compareTotal, setCompareTotal] = useState<number | null>(null);
 
   const [search, setSearch] = useState("");
@@ -58,35 +59,40 @@ export default function OrdersPage() {
     loadOptions();
   }, [supabase]);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    let query = supabase.from("orders").select("*", { count: "exact" });
-    if (range.from) query = query.gte("order_date", `${range.from}T00:00:00Z`);
-    if (range.to) query = query.lte("order_date", `${range.to}T23:59:59Z`);
-    if (status.length) query = query.in("order_status", status);
-    if (payment.length) query = query.in("payment_method", payment);
-    if (city.length) query = query.in("city", city);
-    if (source.length) query = query.in("source", source);
-    if (search) {
-      const s = sanitizeSearch(search);
-      if (s) {
-        query = query.or(
-          `order_number.ilike.%${s}%,customer_name.ilike.%${s}%,customer_phone.ilike.%${s}%,awb_number.ilike.%${s}%`
-        );
-      }
-    }
-    // sorting happens in the database so it covers all pages, not just the visible one
-    const { data, count } = await query
-      .order(sort?.key ?? "order_date", { ascending: sort?.dir === "asc", nullsFirst: false })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-    setRows((data as Order[]) ?? []);
-    setTotal(count ?? 0);
-    setLoading(false);
-  }, [supabase, range.from, range.to, status, payment, city, source, search, page, sort]);
-
+  // guarded against overlapping fetches: a slow stale response must never
+  // overwrite the rows of a newer filter selection
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      let query = supabase.from("orders").select("*", { count: "exact" });
+      if (range.from) query = query.gte("order_date", `${range.from}T00:00:00Z`);
+      if (range.to) query = query.lte("order_date", `${range.to}T23:59:59Z`);
+      if (status.length) query = query.in("order_status", status);
+      if (payment.length) query = query.in("payment_method", payment);
+      if (city.length) query = query.in("city", city);
+      if (source.length) query = query.in("source", source);
+      if (search) {
+        const s = sanitizeSearch(search);
+        if (s) {
+          query = query.or(
+            `order_number.ilike.%${s}%,customer_name.ilike.%${s}%,customer_phone.ilike.%${s}%,awb_number.ilike.%${s}%`
+          );
+        }
+      }
+      // sorting happens in the database so it covers all pages, not just the visible one
+      const { data, count } = await query
+        .order(sort?.key ?? "order_date", { ascending: sort?.dir === "asc", nullsFirst: false })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (cancelled) return;
+      setRows((data as Order[]) ?? []);
+      setTotal(count ?? 0);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, range.from, range.to, status, payment, city, source, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -194,22 +200,17 @@ export default function OrdersPage() {
           </div>
         )}
         <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
-          <form
-            className="relative md:col-span-3 lg:col-span-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+          <SearchBox
+            className="md:col-span-3 lg:col-span-2"
+            placeholder={t("searchOrders")}
+            value={searchInput}
+            onChange={setSearchInput}
+            onCommit={(v) => {
               setPage(0);
-              setSearch(searchInput.trim());
+              setSearch(v);
             }}
-          >
-            <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              className="input ps-9"
-              placeholder={t("searchOrders")}
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-          </form>
+            active={!!search}
+          />
           <MultiSelect
             options={filterOptions.statuses}
             values={status}

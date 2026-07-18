@@ -103,7 +103,7 @@ function VendorScorecard() {
 export default function VendorsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
 
   const [mode, setMode] = useState<"adwaa" | "custom" | "tagged">("adwaa");
   const [custom, setCustom] = useState("");

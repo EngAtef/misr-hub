@@ -8,6 +8,7 @@ import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/u
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { CustomerDrawer } from "@/components/customer-drawer";
+import { SearchBox } from "@/components/search-box";
 
 interface WinbackRow {
   customer_id: string;
@@ -418,15 +419,18 @@ function AllCustomersBrowser({ hasStats, onOpenCustomer }: { hasStats: boolean; 
         </h2>
         <span className="text-[11px] text-slate-400">{t("lastActionNote")}</span>
       </div>
-      <form
-        className="mb-3 flex flex-wrap items-center gap-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPage(0);
-          setSearch(searchInput.trim());
-        }}
-      >
-        <input className="input max-w-md" placeholder={t("searchCustomersPh")} value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <SearchBox
+          className="w-full max-w-md"
+          placeholder={t("searchCustomersPh")}
+          value={searchInput}
+          onChange={setSearchInput}
+          onCommit={(v) => {
+            setPage(0);
+            setSearch(v);
+          }}
+          active={!!search}
+        />
         {hasStats && (
           <div className="flex gap-1.5">
             {(["all", "buyers", "never"] as const).map((f) => (
@@ -447,7 +451,7 @@ function AllCustomersBrowser({ hasStats, onOpenCustomer }: { hasStats: boolean; 
             ))}
           </div>
         )}
-      </form>
+      </div>
       <div className="card overflow-x-auto">
         {loading ? (
           <Spinner />

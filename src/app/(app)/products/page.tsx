@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Download, Users, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
+import { SearchBox } from "@/components/search-box";
 import { rangeParams } from "@/lib/use-analytics";
 import { PageHeader, Spinner, EmptyState, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
@@ -20,12 +21,13 @@ interface ProductRow {
 export default function ProductsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("all");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [compareRows, setCompareRows] = useState<ProductRow[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const { sort, toggle: toggleSort, apply } = useSort<ProductRow>();
@@ -42,20 +44,27 @@ export default function ProductsPage() {
     [rows, apply]
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data } = await supabase.rpc("fn_product_stats", {
-      ...rangeParams(range),
-      p_search: search || null,
-      p_limit: 500,
-    });
-    setRows((data as ProductRow[]) ?? []);
-    setLoading(false);
-  }, [supabase, range.from, range.to, search]);
-
+  // guarded against overlapping fetches: a slow stale response must never
+  // overwrite the rows of a newer filter selection
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const { data, error } = await supabase.rpc("fn_product_stats", {
+        ...rangeParams(range),
+        p_search: search || null,
+        p_limit: 500,
+      });
+      if (cancelled) return;
+      setLoadError(!!error);
+      setRows(error ? [] : ((data as ProductRow[]) ?? []));
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, range.from, range.to, search]);
 
   // same search, comparison period -> per-SKU units/revenue to diff against
   useEffect(() => {
@@ -166,29 +175,24 @@ export default function ProductsPage() {
             </span>
           </div>
         )}
-        <form
-          className="relative max-w-md"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSearch(searchInput.trim());
-          }}
-        >
-          <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className="input ps-9"
-            placeholder={t("searchProducts")}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-        </form>
+        <SearchBox
+          className="max-w-md"
+          placeholder={t("searchProducts")}
+          value={searchInput}
+          onChange={setSearchInput}
+          onCommit={setSearch}
+          active={!!search}
+        />
       </div>
 
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <Spinner />
+      ) : loadError ? (
+        <EmptyState message={t("error")} />
       ) : rows.length === 0 ? (
         <EmptyState message={t("noData")} />
       ) : (
-        <div className="card overflow-x-auto">
+        <div className={cn("card overflow-x-auto", loading && "opacity-50 pointer-events-none")}>
           <table className="table-base">
             <thead>
               <tr>

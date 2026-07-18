@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
+import { SearchBox } from "@/components/search-box";
 import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface EngineRow {
@@ -465,7 +466,7 @@ export default function StockPage() {
             </Ctl>
           )}
           <div className="flex-1 min-w-[180px]">
-            <input className="input" placeholder={t("searchProducts")} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <SearchBox placeholder={t("searchProducts")} value={search} onChange={setSearch} />
           </div>
         </div>
       )}
