@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { NM_WATERMARK_SNIPPET } from "@/lib/nm-watermark";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,15 @@ export async function GET(
   const beacon =
     `<script>try{navigator.sendBeacon("/api/flipbooks/view",${JSON.stringify(id)})}catch(e){}</script>`;
   html = html.includes("</body>") ? html.replace("</body>", beacon + "</body>") : html + beacon;
+
+  // Publisher watermark for books generated before it was built into the
+  // viewer (marker "nmwm"); Vercel's edge cache is purged on deploy, so this
+  // retroactively covers every previously hosted book.
+  if (!html.includes("nmwm")) {
+    html = html.includes("</body>")
+      ? html.replace("</body>", NM_WATERMARK_SNIPPET + "</body>")
+      : html + NM_WATERMARK_SNIPPET;
+  }
 
   // Each upload gets a fresh id, so the content behind a URL never changes.
   return new Response(html, {
