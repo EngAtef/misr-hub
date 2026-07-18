@@ -604,7 +604,18 @@ function TrashTab() {
     setError("");
     if (row.table_name === "flipbooks") {
       const path = flipbookPath(row);
-      if (path) await supabase.storage.from("flipbooks").remove([`trash/${path}`]);
+      if (path) {
+        // A v2 book parks only its manifest in trash/ — its page images stay
+        // under {id}/ and are only removed here, at purge time.
+        if (path.endsWith(".json")) {
+          const id = path.slice(0, -".json".length);
+          const { data: pages } = await supabase.storage.from("flipbooks").list(id, { limit: 1000 });
+          if (pages && pages.length > 0) {
+            await supabase.storage.from("flipbooks").remove(pages.map((f) => `${id}/${f.name}`));
+          }
+        }
+        await supabase.storage.from("flipbooks").remove([`trash/${path}`]);
+      }
     }
     const { error: err } = await supabase.from("trash").delete().eq("id", row.id);
     if (err) setError(err.message);

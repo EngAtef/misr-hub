@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { BookOpen } from "lucide-react";
+import { listFlipbooks } from "@/lib/flipbooks-list";
+import LibraryGrid, { type LibraryBook } from "./LibraryGrid";
 
 // Public, shareable library of every hosted book — no login required.
 // Rebuilt at most every 5 minutes so newly hosted books appear quickly.
@@ -10,44 +11,30 @@ export const metadata = {
   description: "اقرأ كتب نهضة مصر ومعايناتها المجانية أونلاين",
 };
 
-interface LibraryBook {
-  id: string;
-  title: string;
-  createdAt: string;
-  isPreview: boolean;
-}
-
 async function getBooks(): Promise<LibraryBook[]> {
-  let objects: { name: string; created_at?: string | null }[] | null = null;
-  let meta: { path: string; title: string }[] | null = null;
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
-    ({ data: objects } = await supabase.storage
-      .from("flipbooks")
-      .list("", { limit: 1000, sortBy: { column: "created_at", order: "desc" } }));
-    ({ data: meta } = await supabase.from("flipbooks").select("path, title"));
-  } catch {
-    // storage unreachable (e.g. at build time) — render the empty state
-  }
-  const titles = new Map((meta || []).map((m) => [m.path, m.title]));
-
-  return (objects || [])
-    .filter((o) => o.name.endsWith(".html"))
-    .map((o) => {
-      const id = o.name.replace(/\.html$/, "");
-      const raw = titles.get(o.name) || id.replace(/-[0-9a-f]{8}$/, "").replace(/-/g, " ");
-      const isPreview = /معاينة|preview/i.test(raw);
+    const entries = await listFlipbooks(supabase);
+    const storageBase = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/flipbooks`;
+    return entries.map((e) => {
+      const isPreview = /معاينة|preview/i.test(e.title);
       return {
-        id,
-        title: raw.replace(/\s*[—-]\s*(معاينة|preview)\s*$/i, "").trim() || raw,
-        createdAt: o.created_at || "",
+        id: e.id,
+        title: e.title.replace(/\s*[—-]\s*(معاينة|preview)\s*$/i, "").trim() || e.title,
+        createdAt: e.createdAt,
         isPreview,
+        coverUrl: e.cover ? `${storageBase}/${e.cover}` : null,
+        pages: e.pages,
       };
     });
+  } catch {
+    // storage unreachable (e.g. at build time) — render the empty state
+    return [];
+  }
 }
 
 export default async function LibraryPage() {
@@ -69,40 +56,7 @@ export default async function LibraryPage() {
         {books.length === 0 ? (
           <p className="py-16 text-center text-slate-400">لا توجد كتب منشورة بعد — عُد قريباً 📖</p>
         ) : (
-          <>
-            <p className="mb-5 text-sm text-slate-500">{books.length} كتاب متاح للقراءة</p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {books.map((b) => (
-                <a
-                  key={b.id}
-                  href={`/reader/${b.id}`}
-                  target="_blank"
-                  rel="noopener"
-                  className="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                      <BookOpen size={20} />
-                    </span>
-                    {b.isPreview && (
-                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                        معاينة مجانية
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="mb-1 font-bold leading-snug">{b.title}</h2>
-                  {b.createdAt && (
-                    <p className="text-xs text-slate-400" dir="ltr">
-                      {new Date(b.createdAt).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" })}
-                    </p>
-                  )}
-                  <span className="mt-auto pt-4 text-sm font-semibold text-indigo-600 group-hover:underline">
-                    اقرأ الآن ←
-                  </span>
-                </a>
-              ))}
-            </div>
-          </>
+          <LibraryGrid books={books} />
         )}
       </main>
 

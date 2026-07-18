@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Maximize2, Copy, Eye, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download } from "lucide-react";
+import { Maximize2, Copy, Eye, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download, Search, Pencil, X, Check } from "lucide-react";
 import QRCode from "qrcode";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
@@ -9,7 +9,9 @@ import { PageHeader } from "@/components/ui";
 interface HostedBook {
   id: string;
   title: string;
+  fmt?: string;
   size: number;
+  pages?: number;
   createdAt: string;
   readerUrl: string;
   views: number;
@@ -36,6 +38,10 @@ export default function StudioPage() {
   const [deletingId, setDeletingId] = useState("");
   const [qrId, setQrId] = useState("");
   const [qrData, setQrData] = useState("");
+  const [query, setQuery] = useState("");
+  const [renameId, setRenameId] = useState("");
+  const [renameVal, setRenameVal] = useState("");
+  const [renaming, setRenaming] = useState(false);
 
   const loadBooks = useCallback(async () => {
     try {
@@ -106,6 +112,31 @@ export default function StudioPage() {
     setQrId(b.id);
   }
 
+  function startRename(b: HostedBook) {
+    setRenameId(b.id);
+    setRenameVal(b.title || "");
+  }
+
+  async function saveRename() {
+    const id = renameId;
+    const title = renameVal.trim();
+    if (!id || !title) return;
+    setRenaming(true);
+    try {
+      const res = await fetch("/api/flipbooks", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, title }),
+      });
+      if (res.ok) {
+        setBooks((prev) => prev.map((x) => (x.id === id ? { ...x, title } : x)));
+        setRenameId("");
+      }
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   async function deleteBook(b: HostedBook) {
     if (!window.confirm(t("deleteBookConfirm"))) return;
     setDeletingId(b.id);
@@ -123,6 +154,11 @@ export default function StudioPage() {
       setDeletingId("");
     }
   }
+
+  const norm = query.trim().toLowerCase();
+  const shown = norm
+    ? books.filter((b) => (b.title || "").toLowerCase().includes(norm) || b.id.toLowerCase().includes(norm))
+    : books;
 
   return (
     <div>
@@ -211,21 +247,81 @@ export default function StudioPage() {
         </div>
         <p className="mb-4 text-xs text-slate-500">{t("hostedHint")}</p>
 
+        {books.length > 0 && (
+          <div className="relative mb-4 max-w-md">
+            <Search size={15} className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ltr:left-3 rtl:right-3" />
+            <input
+              className="input !ps-9"
+              placeholder={t("searchBooksPh")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button
+                className="absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 ltr:right-3 rtl:left-3"
+                onClick={() => setQuery("")}
+                aria-label="clear"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
         {loadingBooks ? (
           <p className="py-4 text-center text-sm text-slate-400">…</p>
         ) : books.length === 0 ? (
           <p className="py-4 text-center text-sm text-slate-400">{t("hostedEmpty")}</p>
+        ) : shown.length === 0 ? (
+          <p className="py-4 text-center text-sm text-slate-400">{t("searchNoBooks")}</p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {books.map((b) => (
+            {shown.map((b) => (
               <li key={b.id} className="py-2.5">
                 <div className="flex items-center gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold">{b.title || b.id}</div>
+                  {renameId === b.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        className="input !py-1.5 !text-sm max-w-sm"
+                        value={renameVal}
+                        autoFocus
+                        onChange={(e) => setRenameVal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveRename();
+                          if (e.key === "Escape") setRenameId("");
+                        }}
+                      />
+                      <button className="btn-primary !px-2.5 !py-1.5 !text-xs" onClick={saveRename} disabled={renaming || !renameVal.trim()}>
+                        <Check size={13} />
+                        {t("renameSave")}
+                      </button>
+                      <button className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => setRenameId("")} disabled={renaming}>
+                        {t("renameCancel")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold">{b.title || b.id}</span>
+                      {b.fmt === "v2" && (
+                        <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600" title={t("lightFormatHint")}>
+                          WebP
+                        </span>
+                      )}
+                      <button
+                        className="shrink-0 text-slate-300 hover:text-brand-500"
+                        onClick={() => startRename(b)}
+                        title={t("renameBook")}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
+                  )}
                   <div className="text-xs text-slate-400" dir="ltr">
                     {b.createdAt ? new Date(b.createdAt).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { year: "numeric", month: "short", day: "numeric" }) : ""}
                     {" · "}
                     {fmtSize(b.size)}
+                    {(b.pages || 0) > 0 && <> · {b.pages} {t("bookPages")}</>}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-brand-600" title={t("viewsHint")}>
                     <Eye size={12} />

@@ -628,6 +628,13 @@ const dict = {
   bookViews: { ar: "مشاهدة", en: "views" },
   views7d: { ar: "آخر ٧ أيام", en: "last 7 days" },
   viewsHint: { ar: "عدد مرات فتح الكتاب (في التضمين أو برابط مباشر). يبدأ العد من لحظة تفعيل الميزة.", en: "How many times the book was opened (embedded or via direct link). Counting starts from when this feature went live." },
+  searchBooksPh: { ar: "ابحث عن كتاب بالاسم...", en: "Search books by name..." },
+  searchNoBooks: { ar: "لا توجد كتب مطابقة للبحث", en: "No books match your search" },
+  renameBook: { ar: "إعادة تسمية", en: "Rename" },
+  renameSave: { ar: "حفظ", en: "Save" },
+  renameCancel: { ar: "إلغاء", en: "Cancel" },
+  bookPages: { ar: "صفحة", en: "pages" },
+  lightFormatHint: { ar: "صيغة خفيفة — صفحات WebP تُحمَّل عند القراءة فقط", en: "Light format — WebP pages that load only while reading" },
   // Profile / security
   profile: { ar: "الملف الشخصي", en: "My Profile" },
   security: { ar: "الأمان", en: "Security" },
