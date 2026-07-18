@@ -49,6 +49,7 @@ function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext
     setPendingTopic: async (_convId, topic) => {
       rec.pendings.push(topic);
     },
+    markAcked: async () => {},
     recordEvent: async (_convId, intent, message) => {
       rec.events.push({ intent, message });
     },
@@ -100,13 +101,22 @@ test("agent_bot sender -> no reply (loop protection)", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
-test("within working hours + AFTER_HOURS_ONLY -> silent, conversation opened", async () => {
+test("within working hours: one polite acknowledgement, then routed to humans", async () => {
   const { ctx, rec } = makeCtx({ withinHours: () => true });
   const res = await handleWebhook("secret-token", incoming("كام الشحن؟"), ctx);
   assert.equal(res.status, 200);
   assert.equal(res.body.skipped, "working_hours");
-  assert.equal(rec.sent.length, 0);
+  assert.equal(rec.sent.length, 1); // the "team is online" acknowledgement
+  assert.ok(rec.sent[0].content.includes("وصلتنا رسالتك"));
   assert.deepEqual(rec.opened, [42]);
+
+  // A follow-up message in an already-acknowledged conversation stays silent.
+  const acked = {
+    ...incoming("طيب هستني"),
+    conversation: { id: 42, custom_attributes: { bot_acked: true } },
+  };
+  await handleWebhook("secret-token", acked, ctx);
+  assert.equal(rec.sent.length, 1); // no second acknowledgement
 });
 
 test("within hours: bot-owned conversation is handed back to the unassigned queue", async () => {
@@ -117,7 +127,7 @@ test("within hours: bot-owned conversation is handed back to the unassigned queu
   };
   const res = await handleWebhook("secret-token", payload, ctx);
   assert.equal(res.body.skipped, "working_hours");
-  assert.equal(rec.sent.length, 0);
+  assert.equal(rec.sent.length, 1); // acknowledgement only
   assert.deepEqual(rec.unassigned, [42]); // handed back so agents see it
   assert.deepEqual(rec.opened, [42]);
 });
@@ -131,6 +141,7 @@ test("within hours: a human agent's conversation is never unassigned", async () 
   await handleWebhook("secret-token", payload, ctx);
   assert.deepEqual(rec.unassigned, []);
   assert.deepEqual(rec.opened, [42]);
+  assert.equal(rec.sent.length, 0); // agent is chatting — bot fully silent
 });
 
 test("after hours: customer returning to a bot-owned resolved conversation gets replies", async () => {
@@ -198,11 +209,28 @@ test("every replied conversation gets the triage label (fallback included)", asy
   assert.deepEqual(rec.labeled, [42, 42]);
 });
 
-test("gibberish -> fallback, no guessed intent", async () => {
+test("gibberish -> fallback, no guessed intent, and the team really gets it", async () => {
   const { ctx, rec } = makeCtx();
   const res = await handleWebhook("secret-token", incoming("asdkjhasd"), ctx);
   assert.equal(res.body.intent, "fallback");
   assert.equal(rec.sent.length, 1);
+  assert.deepEqual(rec.opened, [42]); // fallback promises follow-up → queue it
+});
+
+test("specific-book availability question gets the search-and-confirm answer", async () => {
+  const { ctx, rec } = makeCtx();
+  // Real customer message from the fallback inbox.
+  const res = await handleWebhook("secret-token", incoming("لو سمحت عايزه اطلب الخمس اجزاء من سلسله ليمون ونعناع"), ctx);
+  assert.equal(res.body.intent, "categories");
+  assert.ok(rec.sent[0].content.includes("nahdetmisrbookstore.com"));
+  assert.ok(rec.sent[0].content.includes("أتأكد من التوفر"));
+});
+
+test("delivery time is quoted as 1-7 days depending on governorate", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("كام الشحن للجيزه؟"), ctx);
+  assert.ok(rec.sent[0].content.includes("7 أيام عمل"));
+  assert.ok(!rec.sent[0].content.includes("3 أيام"));
 });
 
 test("Chatwoot API error -> logged, still returns 200", async () => {

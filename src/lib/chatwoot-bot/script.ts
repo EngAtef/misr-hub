@@ -48,34 +48,17 @@ export interface Intent {
 }
 
 export const GREETING_AR =
-  "أهلاً بك في مكتبة نهضة مصر! 🌙\n" +
-  "نحن الآن خارج مواعيد العمل (من الأحد إلى الخميس، 9 ص – 6 م)، " +
-  "لكن يمكنني مساعدتك فورًا في الأسئلة الشائعة.\n\n" +
-  "اكتب رقم الموضوع:\n" +
-  "1️⃣ الشحن والتوصيل\n" +
-  "2️⃣ طرق الدفع\n" +
-  "3️⃣ الاسترجاع والاستبدال\n" +
-  "4️⃣ تتبّع طلبي\n" +
-  "5️⃣ الأقسام واللغات\n" +
-  "6️⃣ مواعيد العمل والتواصل\n" +
-  "7️⃣ الطلبات بالجملة والمدارس\n" +
-  "8️⃣ إلغاء أو تعديل طلب\n" +
-  "0️⃣ أترك بياناتي ليتواصل معي موظف";
+  "أهلاً بك في مكتبة نهضة مصر! 👋\n" +
+  "إحنا حاليًا خارج مواعيد العمل (الأحد – الخميس، 9 ص – 6 م)، ومعاك المساعد الآلي: " +
+  "بجاوب فورًا على الأسئلة الشائعة، وأي حاجة تانية بوصّلها للفريق يرد عليك الصبح.\n\n" +
+  "اكتب سؤالك على طول، أو اختر موضوعًا من الأزرار 👇\n" +
+  "For English, just type in English 🙂";
 
 export const GREETING_EN =
-  "Welcome to Nahdet Misr Bookstore! 🌙\n" +
-  "We're currently outside working hours (Sun–Thu, 9 AM – 6 PM), " +
-  "but I can help you right away with common questions.\n\n" +
-  "Reply with a number:\n" +
-  "1️⃣ Shipping & delivery\n" +
-  "2️⃣ Payment methods\n" +
-  "3️⃣ Returns\n" +
-  "4️⃣ Track my order\n" +
-  "5️⃣ Categories & languages\n" +
-  "6️⃣ Working hours & contact\n" +
-  "7️⃣ Bulk & school orders\n" +
-  "8️⃣ Cancel or change an order\n" +
-  "0️⃣ Leave my details for an agent";
+  "Welcome to Nahdet Misr Bookstore! 👋\n" +
+  "We're outside working hours right now (Sun–Thu, 9 AM – 6 PM). I'm the automated assistant — " +
+  "I answer common questions instantly and pass anything else to the team for the morning.\n\n" +
+  "Just type your question, or pick a topic below 👇";
 
 // Key order matters: when two intents tie on score, the earlier one wins
 // (same behaviour as the tested reference implementation).
@@ -111,7 +94,7 @@ export const INTENTS: Record<string, Intent> = {
       "الشرقية، الغربية، المنوفية، البحيرة، كفر الشيخ، دمياط): من 99.83 ج.م\n" +
       "• الوجه القبلي (الفيوم، بني سويف، المنيا، أسيوط، سوهاج، قنا، الأقصر، أسوان): من 128.34 ج.م\n" +
       "• سيناء: من 199.64 ج.م\n\n" +
-      "*مدة التوصيل:* 1 – 3 أيام عمل.\n" +
+      "*مدة التوصيل:* من 1 إلى 7 أيام عمل حسب المحافظة.\n" +
       "*شركة الشحن:* أرامكس. *الحد الأدنى للطلب:* 150 جنيهًا.\n" +
       "التوصيل خارج مصر غير متاح حاليًا.\n\n" +
       "لو محافظتك مش مذكورة، اكتب *0* واترك بياناتك والفريق هيتواصل معاك.",
@@ -125,7 +108,7 @@ export const INTENTS: Record<string, Intent> = {
       "Gharbia, Monufia, Beheira, Kafr El Sheikh, Damietta): from 99.83 EGP\n" +
       "• Upper Egypt (Fayoum, Beni Suef, Minya, Asyut, Sohag, Qena, Luxor, Aswan): from 128.34 EGP\n" +
       "• Sinai: from 199.64 EGP\n\n" +
-      "*Delivery time:* 1–3 business days.\n" +
+      "*Delivery time:* 1–7 business days depending on the governorate.\n" +
       "*Courier:* Aramex. *Minimum order:* 150 EGP.\n" +
       "International delivery is not available.\n\n" +
       "If your governorate isn't listed, reply *0* to leave your details.",
@@ -136,13 +119,13 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚚 *الشحن للقاهرة الكبرى (القاهرة، الجيزة، القليوبية)*\n\n" +
           "السعر يبدأ من *85.56 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
-          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "⏱ التوصيل خلال من 1 إلى 7 أيام عمل حسب المحافظة مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
           "🎁 *الشحن المجاني* للطلبات من 999 ج.م متاح *للقاهرة والجيزة فقط* — " +
           "القليوبية يُطبَّق عليها سعر الشحن العادي.",
         en:
           "🚚 *Shipping to Greater Cairo (Cairo, Giza, Qalyubia)*\n\n" +
           "Rate starts from *85.56 EGP* — the final price shows at checkout.\n" +
-          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "⏱ Delivery in 1–7 business days depending on the governorate with Aramex. Minimum order: 150 EGP.\n\n" +
           "🎁 *Free shipping* on orders of 999 EGP+ applies to *Cairo and Giza only* — " +
           "Qalyubia pays the standard rate.",
       },
@@ -152,12 +135,12 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚚 *الشحن للإسكندرية*\n\n" +
           "السعر يبدأ من *99.83 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
-          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "⏱ التوصيل خلال من 1 إلى 7 أيام عمل حسب المحافظة مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
           "🎁 *الشحن المجاني* متاح للإسكندرية على الطلبات من 999 ج.م فأكثر.",
         en:
           "🚚 *Shipping to Alexandria*\n\n" +
           "Rate starts from *99.83 EGP* — the final price shows at checkout.\n" +
-          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "⏱ Delivery in 1–7 business days depending on the governorate with Aramex. Minimum order: 150 EGP.\n\n" +
           "🎁 *Free shipping* applies to Alexandria on orders of 999 EGP or more.",
       },
       delta_canal: {
@@ -168,12 +151,12 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚚 *الشحن للوجه البحري والقناة*\n\n" +
           "السعر لمحافظتك يبدأ من *99.83 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
-          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "⏱ التوصيل خلال من 1 إلى 7 أيام عمل حسب المحافظة مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
           "*ملحوظة:* الشحن المجاني (999 ج.م+) متاح للقاهرة والجيزة والإسكندرية فقط.",
         en:
           "🚚 *Shipping to the Delta & Canal region*\n\n" +
           "Your governorate's rate starts from *99.83 EGP* — the final price shows at checkout.\n" +
-          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "⏱ Delivery in 1–7 business days depending on the governorate with Aramex. Minimum order: 150 EGP.\n\n" +
           "*Note:* free shipping (999 EGP+) applies to Cairo, Giza, and Alexandria only.",
       },
       upper_egypt: {
@@ -182,12 +165,12 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚚 *الشحن للوجه القبلي*\n\n" +
           "السعر لمحافظتك يبدأ من *128.34 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
-          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
+          "⏱ التوصيل خلال من 1 إلى 7 أيام عمل حسب المحافظة مع أرامكس. الحد الأدنى للطلب: 150 ج.م.\n\n" +
           "*ملحوظة:* الشحن المجاني (999 ج.م+) متاح للقاهرة والجيزة والإسكندرية فقط.",
         en:
           "🚚 *Shipping to Upper Egypt*\n\n" +
           "Your governorate's rate starts from *128.34 EGP* — the final price shows at checkout.\n" +
-          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.\n\n" +
+          "⏱ Delivery in 1–7 business days depending on the governorate with Aramex. Minimum order: 150 EGP.\n\n" +
           "*Note:* free shipping (999 EGP+) applies to Cairo, Giza, and Alexandria only.",
       },
       sinai: {
@@ -196,11 +179,11 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚚 *الشحن لسيناء*\n\n" +
           "السعر يبدأ من *199.64 ج.م* — والسعر النهائي يظهر عند إتمام الطلب.\n" +
-          "⏱ التوصيل خلال 1 – 3 أيام عمل مع أرامكس. الحد الأدنى للطلب: 150 ج.م.",
+          "⏱ التوصيل خلال من 1 إلى 7 أيام عمل حسب المحافظة مع أرامكس. الحد الأدنى للطلب: 150 ج.م.",
         en:
           "🚚 *Shipping to Sinai*\n\n" +
           "Rate starts from *199.64 EGP* — the final price shows at checkout.\n" +
-          "⏱ Delivery in 1–3 business days with Aramex. Minimum order: 150 EGP.",
+          "⏱ Delivery in 1–7 business days depending on the governorate with Aramex. Minimum order: 150 EGP.",
       },
       unlisted: {
         keywords_ar: ["مطروح", "مرسي مطروح", "الوادي الجديد", "البحر الاحمر", "الغردقه"],
@@ -383,7 +366,8 @@ export const INTENTS: Record<string, Intent> = {
     title_ar: "📚 الأقسام واللغات",
     title_en: "Categories",
     keywords_ar: ["كتب", "كتاب", "اقسام", "قسم", "انجليزي", "فرنساوي", "فرنسي", "اطفال",
-      "كوميكس", "ديزني", "مارفل", "روايات", "ترشيح", "اقترح", "سن", "سنه", "سنين"],
+      "كوميكس", "ديزني", "مارفل", "روايات", "ترشيح", "اقترح", "سن", "سنه", "سنين",
+      "سلسله", "اجزاء", "روايه", "قصص", "قصه"],
     keywords_en: ["books", "category", "categories", "english", "french", "kids", "children",
       "comics", "disney", "marvel", "recommend", "suggestion"],
     ar:
@@ -405,6 +389,24 @@ export const INTENTS: Record<string, Intent> = {
       "*Licensed brands:* Disney • National Geographic • DK • Marvel\n\n" +
       "Browse: https://nahdetmisrbookstore.com/ar\n\n" +
       "Want a recommendation? Reply *0* with the age band and preferred language.",
+    variants: {
+      availability: {
+        keywords_ar: ["متوفر", "موجود", "نسخه", "متاح", "سلسله", "اجزاء", "عايزه اطلب", "عايز اطلب"],
+        keywords_en: ["available", "in stock", "stock", "copy", "series", "do you have"],
+        ar:
+          "🔎 سؤالك عن كتاب أو سلسلة معيّنة — وأنا للأسف مش بقدر أتأكد من التوفر بنفسي 🙏\n\n" +
+          "أسرع طريقة: دوّر بالاسم مباشرة هنا 👈 https://nahdetmisrbookstore.com/ar\n" +
+          "لو لقيته، اطلبه على طول من الموقع.\n\n" +
+          "ولو مش لاقيه أو حابب تتأكد الأول: اكتب *0* واترك اسم الكتاب وبياناتك، " +
+          "والفريق هيتأكدلك ويرد عليك في مواعيد العمل.",
+        en:
+          "🔎 You're asking about a specific title — I can't check live stock myself 🙏\n\n" +
+          "Fastest way: search it by name here 👈 https://nahdetmisrbookstore.com/ar\n" +
+          "If it's there, you can order it right away.\n\n" +
+          "Can't find it, or want to be sure first? Reply *0* with the book's name and your " +
+          "details — the team will confirm during working hours.",
+      },
+    },
   },
   hours: {
     menu: "6",
@@ -523,41 +525,46 @@ export const HANDOFF_KEYWORDS_EN = ["agent", "human", "representative", "manager
   "speak to someone", "call me", "supervisor", "person"];
 
 export const HANDOFF_AR =
-  "تمام ✅ سجّلت طلبك وهيتم تحويلك لفريق خدمة العملاء.\n\n" +
-  "علشان نساعدك بسرعة، من فضلك اكتب في رسالة واحدة:\n" +
-  "• *الاسم بالكامل*\n" +
-  "• *رقم الطلب* (لو عندك)\n" +
+  "للأسف مفيش موظف متاح دلوقتي 🙏 — مواعيد الفريق من الأحد إلى الخميس، 9 ص – 6 م.\n" +
+  "سيب بياناتك في رسالة واحدة وهنتواصل معاك أول ما نرجع:\n" +
+  "• *الاسم*\n" +
   "• *رقم الهاتف*\n" +
-  "• *تفاصيل المشكلة أو الاستفسار*\n\n" +
-  "الفريق هيتواصل معاك أول ما الدوام يبدأ (الأحد – الخميس، 9 ص – 6 م). " +
-  `وللأمور العاجلة: الخط الساخن ${HOTLINE}. شكرًا لصبرك! 🙏`;
+  "• *رقم الطلب* (لو عندك)\n" +
+  "• استفسارك باختصار\n\n" +
+  `وللأمور العاجلة: الخط الساخن *${HOTLINE}* خلال مواعيد العمل.`;
 
 export const HANDOFF_EN =
-  "Got it ✅ I'm passing you to our customer-care team.\n\n" +
-  "To help us reach you faster, please send in one message:\n" +
-  "• *Full name*\n" +
-  "• *Order number* (if you have one)\n" +
+  "I'm sorry — no agent is available right now 🙏 The team works Sun–Thu, 9 AM – 6 PM.\n" +
+  "Leave your details in one message and we'll contact you as soon as we're back:\n" +
+  "• *Name*\n" +
   "• *Phone number*\n" +
-  "• *Details of your question or issue*\n\n" +
-  "The team will get back to you as soon as we're back (Sun–Thu, 9 AM – 6 PM). " +
-  `For anything urgent: hotline ${HOTLINE}. Thanks for your patience! 🙏`;
+  "• *Order number* (if you have one)\n" +
+  "• Your question, briefly\n\n" +
+  `Urgent? Call our hotline *${HOTLINE}* during working hours.`;
 
 export const FALLBACK_AR =
-  "معلش يا فندم، أنا مساعد آلي وبساعد في أسئلة المكتبة الشائعة بس 🙏\n" +
-  "ممكن تكتب سؤالك بكلمات تانية، أو تختار رقم الموضوع:\n\n" +
-  "1️⃣ الشحن • 2️⃣ الدفع • 3️⃣ الاسترجاع • 4️⃣ تتبّع طلبي\n" +
-  "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة • 8️⃣ إلغاء طلب\n" +
-  "0️⃣ أترك بياناتي ليتواصل معي موظف — وهيرد عليك أول ما الدوام يبدأ";
+  "سؤال حلو بس خارج معرفتي أنا 🙏 وصّلت رسالتك للفريق، وهيردوا عليك في مواعيد العمل " +
+  "(الأحد – الخميس، 9 ص – 6 م).\n" +
+  `لو مستعجل، كلمنا على الخط الساخن *${HOTLINE}*.\n` +
+  "وفي اللي أقدر أساعدك فيه فورًا 👇";
 
 export const FALLBACK_EN =
-  "Sorry — I'm an automated assistant and can only help with common bookstore questions 🙏\n" +
-  "Try rephrasing, or pick a topic number:\n\n" +
-  "1️⃣ Shipping • 2️⃣ Payment • 3️⃣ Returns • 4️⃣ Track order\n" +
-  "5️⃣ Categories • 6️⃣ Working hours • 7️⃣ Bulk orders • 8️⃣ Cancel an order\n" +
-  "0️⃣ Leave my details for an agent — the team replies first thing in the morning";
+  "Good question — but it's beyond what I can answer 🙏 I've passed your message to the team; " +
+  "they'll reply during working hours (Sun–Thu, 9 AM – 6 PM).\n" +
+  `In a hurry? Call our hotline *${HOTLINE}*.\n` +
+  "Here's what I can help with right away 👇";
 
-export const FOOTER_AR = "\n\n———\nمحتاج حاجة تانية؟ اكتب رقم من القائمة، أو *0* للتحدث مع موظف.";
-export const FOOTER_EN = "\n\n———\nAnything else? Reply with a menu number, or *0* to reach an agent.";
+export const FOOTER_AR = "\n\n———\nمحتاج حاجة تانية؟ اكتب سؤالك، أو *0* لترك بياناتك للفريق.";
+export const FOOTER_EN = "\n\n———\nAnything else? Just ask — or reply *0* to leave your details for the team.";
+
+// Short acknowledgement during working hours (bot otherwise stays silent —
+// a human agent will answer). Sent once per conversation.
+export const WORKING_HOURS_ACK_AR =
+  "وصلتنا رسالتك 🙏 فريق خدمة العملاء متاح دلوقتي وهيرد عليك في أقرب وقت.\n" +
+  `وللعاجل: الخط الساخن *${HOTLINE}*.`;
+export const WORKING_HOURS_ACK_EN =
+  "Got your message 🙏 Our support team is online now and will reply shortly.\n" +
+  `Urgent? Call our hotline *${HOTLINE}*.`;
 
 // Shown above the tappable topic buttons (sent with the greeting/fallback).
 export const MENU_PROMPT_AR = "اختر موضوعًا 👇";

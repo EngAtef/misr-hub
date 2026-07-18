@@ -25,6 +25,8 @@ import {
   MENU_PROMPT_EN,
   HANDOFF_TITLE_AR,
   HANDOFF_TITLE_EN,
+  WORKING_HOURS_ACK_AR,
+  WORKING_HOURS_ACK_EN,
   type Intent,
 } from "./script.ts";
 
@@ -354,6 +356,8 @@ export interface WebhookContext {
   sendPrivateNote?: (conversationId: number, content: string) => Promise<void>;
   /** Remember/clear the topic the bot is asking a follow-up question about. */
   setPendingTopic?: (conversationId: number, topic: string | null) => Promise<void>;
+  /** Mark that the working-hours acknowledgement was sent (once per conversation). */
+  markAcked?: (conversationId: number) => Promise<void>;
   /** Analytics: record the routed intent (message text only for fallbacks). */
   recordEvent?: (conversationId: number, intent: string, message?: string) => Promise<void>;
   /** PII-safe logger — receives conversation ids and intent names only. */
@@ -404,7 +408,9 @@ export async function handleWebhook(
     if (event === "conversation_created") {
       if (withinHours) return { status: 200, body: { ok: true, skipped: "working_hours" } };
       await ctx.labelConversation(convId);
-      await ctx.send(convId, script.greetingAr + "\n\n———\n" + script.greetingEn);
+      // Arabic-first greeting (with an English hint inside) — no bilingual
+      // wall of text. English speakers get English from their first message.
+      await ctx.send(convId, script.greetingAr);
       await ctx.sendMenu?.(convId, true);
       await ctx.recordEvent?.(convId, "greeting");
       return { status: 200, body: { ok: true } };
@@ -419,16 +425,25 @@ export async function handleWebhook(
 
     const assigneeId = data.conversation?.meta?.assignee?.id ?? data.meta?.assignee?.id;
 
-    // During working hours, stay out of the way — humans are on. Make sure
-    // the customer's message sits in the open queue, and if the bot itself
-    // still owns the conversation (from an overnight chat), hand it back so
-    // it shows up in the agents' unassigned queue instead of vanishing.
+    // During working hours, humans answer. Make sure the customer's message
+    // sits in the open queue; if the bot itself still owns the conversation
+    // (from an overnight chat), hand it back so agents see it. Unless a
+    // human agent is already on the conversation, acknowledge the customer
+    // once so they know they were heard.
     if (withinHours) {
+      let humanAssigned = false;
       if (assigneeId) {
         const botId = await ctx.getBotAgentId();
         if (botId && assigneeId === botId) await ctx.unassignConversation(convId);
+        else humanAssigned = true;
       }
       await ctx.openConversation(convId);
+      const alreadyAcked = Boolean(data.conversation?.custom_attributes?.bot_acked);
+      if (!humanAssigned && !alreadyAcked && ctx.markAcked) {
+        const arabicMsg = isArabic(data.content ?? "") || !/[a-zA-Z]/.test(data.content ?? "");
+        await ctx.send(convId, arabicMsg ? WORKING_HOURS_ACK_AR : WORKING_HOURS_ACK_EN);
+        await ctx.markAcked(convId);
+      }
       ctx.log(`conv=${convId} skipped=working_hours`);
       return { status: 200, body: { ok: true, skipped: "working_hours" } };
     }
@@ -491,6 +506,9 @@ export async function handleWebhook(
       ctx.log(`conv=${convId} intent=fallback`);
       await ctx.send(convId, arabic ? script.fallbackAr : script.fallbackEn);
       await ctx.sendMenu?.(convId, arabic);
+      // The fallback text promises the team will follow up — make it true:
+      // put the conversation in the open queue for the morning.
+      await ctx.openConversation(convId);
       if (pending) await ctx.setPendingTopic?.(convId, null);
       await ctx.recordEvent?.(convId, "fallback", text);
       return { status: 200, body: { ok: true, intent: "fallback" } };

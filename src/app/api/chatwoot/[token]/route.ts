@@ -114,6 +114,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         log(`pending failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
       }
     },
+    markAcked: async (convId) => {
+      try {
+        await setConversationAttributes(cfg, convId, { bot_acked: true });
+      } catch (e) {
+        log(`ack-mark failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+      }
+    },
     recordEvent: (convId, intent, message) => logBotEvent(token, convId, intent, message),
     log,
   });

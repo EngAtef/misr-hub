@@ -336,6 +336,13 @@ export function BotConnectionSettings() {
 const splitKeywords = (s: string) => s.split(/[,،]/).map((x) => x.trim()).filter(Boolean);
 const joinKeywords = (a: string[]) => a.join("، ");
 
+interface VariantForm {
+  keywords_ar: string;
+  keywords_en: string;
+  ar: string;
+  en: string;
+}
+
 interface IntentForm {
   menu: string;
   title_ar: string;
@@ -344,6 +351,9 @@ interface IntentForm {
   keywords_en: string;
   ar: string;
   en: string;
+  ask_ar: string;
+  ask_en: string;
+  variants: Record<string, VariantForm>;
 }
 
 interface ScriptForm {
@@ -367,6 +377,15 @@ function scriptFormFromOverrides(o: ScriptOverrides | null): ScriptForm {
   for (const [k, v] of Object.entries(d.intents)) merged[k] = { ...v, ...(o?.intents?.[k] ?? {}) };
   for (const [k, v] of Object.entries(o?.intents ?? {})) if (!(k in merged)) merged[k] = v;
   for (const [k, v] of Object.entries(merged)) {
+    const variants: Record<string, VariantForm> = {};
+    for (const [vk, vv] of Object.entries(v.variants ?? {})) {
+      variants[vk] = {
+        keywords_ar: joinKeywords(vv.keywords_ar ?? []),
+        keywords_en: (vv.keywords_en ?? []).join(", "),
+        ar: vv.ar ?? "",
+        en: vv.en ?? "",
+      };
+    }
     intents[k] = {
       menu: v.menu ?? "",
       title_ar: v.title_ar ?? "",
@@ -375,6 +394,9 @@ function scriptFormFromOverrides(o: ScriptOverrides | null): ScriptForm {
       keywords_en: (v.keywords_en ?? []).join(", "),
       ar: v.ar ?? "",
       en: v.en ?? "",
+      ask_ar: v.ask_ar ?? "",
+      ask_en: v.ask_en ?? "",
+      variants,
     };
   }
   return {
@@ -413,6 +435,15 @@ function overridesFromForm(f: ScriptForm): ScriptOverrides {
     const def = d.intents[key];
     const kwAr = splitKeywords(v.keywords_ar);
     const kwEn = splitKeywords(v.keywords_en);
+    const variantsOut: NonNullable<Intent["variants"]> = {};
+    for (const [vk, vv] of Object.entries(v.variants)) {
+      variantsOut[vk] = {
+        keywords_ar: splitKeywords(vv.keywords_ar),
+        keywords_en: splitKeywords(vv.keywords_en),
+        ar: vv.ar,
+        en: vv.en,
+      };
+    }
     if (!def) {
       // Custom topic — stored whole. Incomplete ones are skipped at runtime.
       intents[key] = {
@@ -423,6 +454,9 @@ function overridesFromForm(f: ScriptForm): ScriptOverrides {
         keywords_en: kwEn,
         ar: v.ar,
         en: v.en,
+        ask_ar: v.ask_ar || undefined,
+        ask_en: v.ask_en || undefined,
+        variants: Object.keys(variantsOut).length ? variantsOut : undefined,
       };
       continue;
     }
@@ -434,6 +468,12 @@ function overridesFromForm(f: ScriptForm): ScriptOverrides {
     if (kwEn.join(", ") !== def.keywords_en.join(", ")) patch.keywords_en = kwEn;
     if (v.ar !== def.ar) patch.ar = v.ar;
     if (v.en !== def.en) patch.en = v.en;
+    if (v.ask_ar !== (def.ask_ar ?? "")) patch.ask_ar = v.ask_ar;
+    if (v.ask_en !== (def.ask_en ?? "")) patch.ask_en = v.ask_en;
+    // Variants are stored as a whole map when anything inside them changed.
+    if (JSON.stringify(variantsOut) !== JSON.stringify(def.variants ?? {})) {
+      patch.variants = variantsOut;
+    }
     if (Object.keys(patch).length) intents[key] = patch;
   }
   if (Object.keys(intents).length) o.intents = intents;
@@ -508,6 +548,9 @@ export function BotScriptEditor() {
           keywords_en: "",
           ar: "",
           en: "",
+          ask_ar: "",
+          ask_en: "",
+          variants: {},
         },
       },
     }));
@@ -661,6 +704,72 @@ export function BotScriptEditor() {
                   <textarea className="input text-sm !leading-relaxed" rows={6} dir="ltr" value={intent.en}
                     onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, en: e.target.value } } }))} />
                 </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Follow-up question (Arabic) — optional</label>
+                    <textarea className="input text-sm" rows={3} dir="rtl" value={intent.ask_ar}
+                      placeholder="لو اتكتبت هنا، البوت يسأل السؤال ده بدل الإجابة العامة (مثال: لأي محافظة؟)"
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, ask_ar: e.target.value } } }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Follow-up question (English) — optional</label>
+                    <textarea className="input text-sm" rows={3} dir="ltr" value={intent.ask_en}
+                      placeholder="If set, the bot asks this instead of the generic answer when no specific answer matched"
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, ask_en: e.target.value } } }))} />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs font-bold text-slate-600">
+                    Specific answers — the exact reply per sub-question (e.g. per governorate)
+                  </span>
+                  <button type="button" className="btn-secondary !py-1 text-xs"
+                    onClick={() => {
+                      let n = 1;
+                      while (`answer-${n}` in intent.variants) n++;
+                      setScript((s) => ({
+                        ...s,
+                        intents: {
+                          ...s.intents,
+                          [key]: {
+                            ...intent,
+                            variants: { ...intent.variants, [`answer-${n}`]: { keywords_ar: "", keywords_en: "", ar: "", en: "" } },
+                          },
+                        },
+                      }));
+                    }}>
+                    <Plus size={12} />
+                    Add specific answer
+                  </button>
+                </div>
+                {Object.entries(intent.variants).map(([vk, vv]) => (
+                  <div key={vk} className="rounded-lg bg-slate-50 border border-slate-200 p-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-500" dir="ltr">{vk}</span>
+                      <button type="button" className="text-red-400 hover:text-red-600" title="Delete this specific answer"
+                        onClick={() => setScript((s) => {
+                          const variants = { ...intent.variants };
+                          delete variants[vk];
+                          return { ...s, intents: { ...s.intents, [key]: { ...intent, variants } } };
+                        })}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <input className="input !py-1 text-xs" dir="rtl" placeholder="كلمات مفتاحية بالعربي (مفصولة بفواصل)"
+                      value={vv.keywords_ar}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, variants: { ...intent.variants, [vk]: { ...vv, keywords_ar: e.target.value } } } } }))} />
+                    <input className="input !py-1 text-xs" dir="ltr" placeholder="English keywords (comma-separated)"
+                      value={vv.keywords_en}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, variants: { ...intent.variants, [vk]: { ...vv, keywords_en: e.target.value } } } } }))} />
+                    <textarea className="input !py-1 text-xs !leading-relaxed" rows={4} dir="rtl" placeholder="الإجابة بالعربي"
+                      value={vv.ar}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, variants: { ...intent.variants, [vk]: { ...vv, ar: e.target.value } } } } }))} />
+                    <textarea className="input !py-1 text-xs !leading-relaxed" rows={4} dir="ltr" placeholder="Answer in English"
+                      value={vv.en}
+                      onChange={(e) => setScript((s) => ({ ...s, intents: { ...s.intents, [key]: { ...intent, variants: { ...intent.variants, [vk]: { ...vv, en: e.target.value } } } } }))} />
+                  </div>
+                ))}
               </div>
             )}
           </div>
