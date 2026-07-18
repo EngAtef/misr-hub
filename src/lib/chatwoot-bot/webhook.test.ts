@@ -13,7 +13,8 @@ interface Recorded {
   unassigned: number[];
   menus: number[];
   notes: string[];
-  pendings: Array<string | null>;
+  attrs: Array<Record<string, unknown>>;
+  contacts: Array<{ id: number; fields: Record<string, unknown> }>;
   events: Array<{ intent: string; message?: string }>;
   logs: string[];
 }
@@ -21,7 +22,7 @@ interface Recorded {
 function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext; rec: Recorded } {
   const rec: Recorded = {
     sent: [], opened: [], labeled: [], unassigned: [],
-    menus: [], notes: [], pendings: [], events: [], logs: [],
+    menus: [], notes: [], attrs: [], contacts: [], events: [], logs: [],
   };
   const ctx: WebhookContext = {
     webhookToken: "secret-token",
@@ -46,10 +47,12 @@ function makeCtx(overrides: Partial<WebhookContext> = {}): { ctx: WebhookContext
     sendPrivateNote: async (_convId, content) => {
       rec.notes.push(content);
     },
-    setPendingTopic: async (_convId, topic) => {
-      rec.pendings.push(topic);
+    setAttributes: async (_convId, attributes) => {
+      rec.attrs.push(attributes);
     },
-    markAcked: async () => {},
+    saveContact: async (id, fields) => {
+      rec.contacts.push({ id, fields });
+    },
     recordEvent: async (_convId, intent, message) => {
       rec.events.push({ intent, message });
     },
@@ -343,7 +346,7 @@ test("generic shipping question triggers ask-then-answer flow", async () => {
   const res = await handleWebhook("secret-token", incoming("how much is shipping?"), ctx);
   assert.equal(res.body.asked, true);
   assert.ok(rec.sent[0].content.includes("Which governorate"));
-  assert.deepEqual(rec.pendings, ["shipping"]); // topic remembered
+  assert.equal(rec.attrs.at(-1)?.bot_pending, "shipping"); // topic remembered
 });
 
 test("pending topic: a bare governorate reply gets the specific rate", async () => {
@@ -355,7 +358,7 @@ test("pending topic: a bare governorate reply gets the specific rate", async () 
   const res = await handleWebhook("secret-token", payload, ctx);
   assert.equal(res.body.intent, "shipping");
   assert.ok(rec.sent[0].content.includes("85.56"));
-  assert.deepEqual(rec.pendings, [null]); // cleared
+  assert.equal(rec.attrs.at(-1)?.bot_pending, ""); // cleared
 });
 
 test("pending topic: asking for the full list sends the generic answer", async () => {
@@ -366,7 +369,43 @@ test("pending topic: asking for the full list sends the generic answer", async (
   };
   await handleWebhook("secret-token", payload, ctx);
   assert.ok(rec.sent[0].content.includes("199.64")); // full list includes Sinai
-  assert.deepEqual(rec.pendings, [null]);
+  assert.equal(rec.attrs.at(-1)?.bot_pending, "");
+});
+
+test("customer details are saved to the contact panel and conversation", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("انا اسمي محمد عاطف ورقمي ٠١٠١٢٣٤٥٦٧٨ ورقم الطلب 22002"),
+    sender: { id: 9, name: "Fragrant-Frost-773", email: null, phone_number: null },
+  };
+  await handleWebhook("secret-token", payload, ctx);
+  assert.equal(rec.contacts.length, 1);
+  assert.equal(rec.contacts[0].id, 9);
+  assert.equal(rec.contacts[0].fields.phone_number, "+201012345678");
+  assert.equal(rec.contacts[0].fields.name, "محمد عاطف");
+  assert.equal(rec.attrs.at(-1)?.order_number, "22002");
+});
+
+test("existing contact phone is never overwritten", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("رقمي 01012345678"),
+    sender: { id: 9, phone_number: "+201000000000", email: null },
+  };
+  await handleWebhook("secret-token", payload, ctx);
+  assert.equal(rec.contacts.length, 0);
+});
+
+test("attribute writes merge — order number does not wipe bot_pending", async () => {
+  const { ctx, rec } = makeCtx();
+  const payload = {
+    ...incoming("Giza 22002"),
+    conversation: { id: 42, custom_attributes: { bot_pending: "shipping" } },
+  };
+  await handleWebhook("secret-token", payload, ctx);
+  const orderWrite = rec.attrs.find((a) => a.order_number === "22002");
+  assert.ok(orderWrite, "order number recorded");
+  assert.equal(orderWrite!.bot_pending, "shipping", "existing attributes preserved in the write");
 });
 
 test("menu buttons are sent with greeting and fallback", async () => {

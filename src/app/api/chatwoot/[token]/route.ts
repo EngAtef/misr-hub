@@ -11,6 +11,7 @@ import {
   sendMenuButtons,
   sendPrivateNote,
   setConversationAttributes,
+  updateContact,
 } from "@/lib/chatwoot-bot/chatwoot";
 
 export const maxDuration = 30;
@@ -107,18 +108,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         log(`note failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
       }
     },
-    setPendingTopic: async (convId, topic) => {
+    setAttributes: async (convId, attributes) => {
       try {
-        await setConversationAttributes(cfg, convId, { bot_pending: topic ?? "" });
+        await setConversationAttributes(cfg, convId, attributes);
       } catch (e) {
-        log(`pending failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+        log(`attrs failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
       }
     },
-    markAcked: async (convId) => {
+    saveContact: async (contactId, fields) => {
       try {
-        await setConversationAttributes(cfg, convId, { bot_acked: true });
+        await updateContact(cfg, contactId, fields);
       } catch (e) {
-        log(`ack-mark failed conv=${convId}: ${e instanceof Error ? e.message : "unknown"}`);
+        log(`contact update failed id=${contactId}: ${e instanceof Error ? e.message : "unknown"}`);
       }
     },
     recordEvent: (convId, intent, message) => logBotEvent(token, convId, intent, message),

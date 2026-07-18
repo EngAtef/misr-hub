@@ -166,6 +166,47 @@ export function isArabic(text: string): boolean {
   return /[\u0600-\u06FF]/.test(text || "");
 }
 
+// \u2500\u2500 Contact-detail extraction \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Customers answer the handoff prompt with phone numbers, emails, names,
+// and order numbers in free text. Parse what regexes can parse reliably so
+// it lands in the Chatwoot contact panel instead of dying in the transcript.
+
+export interface ExtractedDetails {
+  phone?: string;       // E.164, e.g. +201012345678
+  email?: string;
+  name?: string;        // only from an explicit "\u0627\u0633\u0645\u064A \u2026" / "my name is \u2026"
+  orderNumber?: string; // 4-8 digits that are not part of the phone number
+}
+
+export function extractDetails(text: string): ExtractedDetails {
+  if (!text) return {};
+  const out: ExtractedDetails = {};
+  // Arabic-Indic digits \u2192 ASCII, then strip separators inside numbers.
+  const ascii = text.replace(ARABIC_DIGITS, (d) => String(d.charCodeAt(0) - 0x0660));
+  const squeezed = ascii.replace(/[\s\-().]+/g, " ");
+
+  const phoneMatch = squeezed.replace(/ /g, "").match(/(?:\+?20|0)?(1[0125]\d{8})/);
+  if (phoneMatch) out.phone = `+20${phoneMatch[1]}`;
+
+  const emailMatch = ascii.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  if (emailMatch) out.email = emailMatch[0];
+
+  const nameMatch = ascii.match(/(?:\u0627\u0633\u0645\u064A|\u0627\u0646\u0627 \u0627\u0633\u0645\u064A|\u0623\u0633\u0645\u064A|my name is)[:\s]+([^\n\u2022,;0-9]{2,40})/i);
+  if (nameMatch) {
+    out.name = nameMatch[1]
+      .replace(/\s*(?:\u0648?\u0631\u0642\u0645\u064A|\u0648?\u0631\u0642\u0645|\u062A\u0644\u064A\u0641\u0648\u0646\u064A|\u0645\u0648\u0628\u0627\u064A\u0644\u064A|\u0645\u0648\u0628\u0627\u064A\u0644|\u062A\u0644\u064A\u0641\u0648\u0646|phone).*$/i, "")
+      .trim();
+    if (out.name.length < 2) delete out.name;
+  }
+
+  // Order number: digits that are NOT the phone we just found.
+  const withoutPhone = phoneMatch ? squeezed.replace(/ /g, "").replace(phoneMatch[0], " ") : ascii;
+  const orderMatch = withoutPhone.match(/(?<!\d)(\d{4,8})(?!\d)/);
+  if (orderMatch) out.orderNumber = orderMatch[1];
+
+  return out;
+}
+
 // ── Routing ──────────────────────────────────────────────────
 
 /** Below this score we'd rather admit we don't know than guess. */
@@ -354,10 +395,14 @@ export interface WebhookContext {
   sendMenu?: (conversationId: number, arabic: boolean) => Promise<void>;
   /** Agent-only private note (handoff context for the morning team). */
   sendPrivateNote?: (conversationId: number, content: string) => Promise<void>;
-  /** Remember/clear the topic the bot is asking a follow-up question about. */
-  setPendingTopic?: (conversationId: number, topic: string | null) => Promise<void>;
-  /** Mark that the working-hours acknowledgement was sent (once per conversation). */
-  markAcked?: (conversationId: number) => Promise<void>;
+  /**
+   * Write conversation custom attributes. The engine always passes the FULL
+   * merged map (existing payload attributes + changes) so implementations
+   * may safely replace the whole object.
+   */
+  setAttributes?: (conversationId: number, attributes: Record<string, unknown>) => Promise<void>;
+  /** Save extracted contact details (phone/email/name) to the Chatwoot contact. */
+  saveContact?: (contactId: number, fields: { name?: string; phone_number?: string; email?: string }) => Promise<void>;
   /** Analytics: record the routed intent (message text only for fallbacks). */
   recordEvent?: (conversationId: number, intent: string, message?: string) => Promise<void>;
   /** PII-safe logger — receives conversation ids and intent names only. */
@@ -374,7 +419,7 @@ interface ChatwootPayload {
   id?: number;
   content?: string;
   message_type?: string;
-  sender?: { type?: string };
+  sender?: { type?: string; id?: number; name?: string; email?: string | null; phone_number?: string | null };
   attachments?: unknown[];
   conversation?: {
     id?: number;
@@ -424,6 +469,31 @@ export async function handleWebhook(
     if (data.sender?.type === "agent_bot") return { status: 200, body: { ok: true } };
 
     const assigneeId = data.conversation?.meta?.assignee?.id ?? data.meta?.assignee?.id;
+    const attrs = { ...(data.conversation?.custom_attributes ?? {}) };
+    const setAttrs = async (patch: Record<string, unknown>) => {
+      Object.assign(attrs, patch);
+      await ctx.setAttributes?.(convId, { ...attrs });
+    };
+
+    // Capture any contact details the customer shared — phone/email/name go
+    // to the Chatwoot contact panel, the order number onto the conversation.
+    // Runs regardless of working hours or assignment; only fills gaps and
+    // logs field names, never values.
+    const details = extractDetails(data.content ?? "");
+    const senderId = data.sender?.id;
+    if (senderId) {
+      const fields: { name?: string; phone_number?: string; email?: string } = {};
+      if (details.phone && !data.sender?.phone_number) fields.phone_number = details.phone;
+      if (details.email && !data.sender?.email) fields.email = details.email;
+      if (details.name) fields.name = details.name;
+      if (Object.keys(fields).length) {
+        await ctx.saveContact?.(senderId, fields);
+        ctx.log(`conv=${convId} contact_saved=${Object.keys(fields).join(",")}`);
+      }
+    }
+    if (details.orderNumber && attrs.order_number !== details.orderNumber) {
+      await setAttrs({ order_number: details.orderNumber });
+    }
 
     // During working hours, humans answer. Make sure the customer's message
     // sits in the open queue; if the bot itself still owns the conversation
@@ -438,11 +508,10 @@ export async function handleWebhook(
         else humanAssigned = true;
       }
       await ctx.openConversation(convId);
-      const alreadyAcked = Boolean(data.conversation?.custom_attributes?.bot_acked);
-      if (!humanAssigned && !alreadyAcked && ctx.markAcked) {
+      if (!humanAssigned && !attrs.bot_acked && ctx.setAttributes) {
         const arabicMsg = isArabic(data.content ?? "") || !/[a-zA-Z]/.test(data.content ?? "");
         await ctx.send(convId, arabicMsg ? WORKING_HOURS_ACK_AR : WORKING_HOURS_ACK_EN);
-        await ctx.markAcked(convId);
+        await setAttrs({ bot_acked: true });
       }
       ctx.log(`conv=${convId} skipped=working_hours`);
       return { status: 200, body: { ok: true, skipped: "working_hours" } };
@@ -488,7 +557,7 @@ export async function handleWebhook(
       if (specific) {
         ctx.log(`conv=${convId} intent=${pending}:variant`);
         await ctx.send(convId, specific + (arabic ? script.footerAr : script.footerEn));
-        await ctx.setPendingTopic?.(convId, null);
+        await setAttrs({ bot_pending: "" });
         await ctx.recordEvent?.(convId, pending);
         return { status: 200, body: { ok: true, intent: pending } };
       }
@@ -496,7 +565,7 @@ export async function handleWebhook(
         ctx.log(`conv=${convId} intent=${pending}:full`);
         const cfg = script.intents[pending];
         await ctx.send(convId, (arabic ? cfg.ar : cfg.en) + (arabic ? script.footerAr : script.footerEn));
-        await ctx.setPendingTopic?.(convId, null);
+        await setAttrs({ bot_pending: "" });
         await ctx.recordEvent?.(convId, pending);
         return { status: 200, body: { ok: true, intent: pending } };
       }
@@ -509,7 +578,7 @@ export async function handleWebhook(
       // The fallback text promises the team will follow up — make it true:
       // put the conversation in the open queue for the morning.
       await ctx.openConversation(convId);
-      if (pending) await ctx.setPendingTopic?.(convId, null);
+      if (pending) await setAttrs({ bot_pending: "" });
       await ctx.recordEvent?.(convId, "fallback", text);
       return { status: 200, body: { ok: true, intent: "fallback" } };
     }
@@ -523,20 +592,20 @@ export async function handleWebhook(
       cfg?.ask_ar &&
       cfg.ask_en &&
       cfg.variants &&
-      ctx.setPendingTopic &&
+      ctx.setAttributes &&
       !variantBody(intent, arabic, script, text) &&
       !wantsFullList(text)
     ) {
       ctx.log(`conv=${convId} intent=${intent}:ask`);
       await ctx.send(convId, arabic ? cfg.ask_ar : cfg.ask_en);
-      await ctx.setPendingTopic(convId, intent);
+      await setAttrs({ bot_pending: intent });
       await ctx.recordEvent?.(convId, intent);
       return { status: 200, body: { ok: true, intent, asked: true } };
     }
 
     ctx.log(`conv=${convId} intent=${intent}`);
     await ctx.send(convId, replyFor(intent, arabic, script, text));
-    if (pending) await ctx.setPendingTopic?.(convId, null);
+    if (pending) await setAttrs({ bot_pending: "" });
     await ctx.recordEvent?.(convId, intent);
     // Handoff — and any intent flagged open (e.g. cancel) — goes to the
     // human queue: drop the bot's assignment so it shows as unassigned,

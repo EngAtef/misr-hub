@@ -137,6 +137,21 @@ export async function setConversationAttributes(
   if (!res.ok) throw new Error(`chatwoot attributes failed: HTTP ${res.status}`);
 }
 
+/** Update contact fields (name/phone/email) shown in the side panel. */
+export async function updateContact(
+  cfg: BotConfig,
+  contactId: number,
+  fields: { name?: string; phone_number?: string; email?: string }
+): Promise<void> {
+  const res = await fetch(`${api(cfg)}/contacts/${contactId}`, {
+    method: "PUT",
+    headers: headers(cfg),
+    body: JSON.stringify(fields),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`chatwoot contact update failed: HTTP ${res.status}`);
+}
+
 /** The bot agent's own profile — used to recognise self-assigned conversations. */
 export async function getProfile(cfg: BotConfig): Promise<{ id: number; name?: string; email?: string } | null> {
   const res = await fetch(`${cfg.chatwootUrl}/api/v1/profile`, {
