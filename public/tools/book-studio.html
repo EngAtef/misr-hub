@@ -654,8 +654,25 @@
     const sc=document.createElement("canvas"); sc.width=SCAN_W; sc.height=sh;
     const sctx=sc.getContext("2d"); sctx.drawImage(src,0,0,SCAN_W,sh);
     let data; try{ data=sctx.getImageData(0,0,SCAN_W,sh).data; }catch(e){ return src; }
-    const bg=opts.bgMode==="transparent"?null:hexToRgb(opts.bgMode==="custom"?opts.bgColor:"#ffffff");
     const TOL=44;
+    let bg=opts.bgMode==="transparent"?null:hexToRgb(opts.bgMode==="custom"?opts.bgColor:"#ffffff");
+    if(bg){
+      /* books are often printed on cream/tan paper, not white — detect the
+         page's real background from the border ring (median colour) and use
+         it when the border is flat enough to trust */
+      const ring=[];
+      for(let x=0;x<SCAN_W;x++){ ring.push(x*4, ((sh-1)*SCAN_W+x)*4); }
+      for(let y=1;y<sh-1;y++){ ring.push((y*SCAN_W)*4, (y*SCAN_W+SCAN_W-1)*4); }
+      const rs=[],gs=[],bs=[];
+      ring.forEach(i=>{ if(data[i+3]>200){ rs.push(data[i]); gs.push(data[i+1]); bs.push(data[i+2]); } });
+      if(rs.length>ring.length*0.5){
+        const med=a=>{ a.sort((x,y)=>x-y); return a[a.length>>1]; };
+        const cand={r:med(rs),g:med(gs),b:med(bs)};
+        let close=0;
+        ring.forEach(i=>{ if(data[i+3]>200 && Math.abs(data[i]-cand.r)<=TOL && Math.abs(data[i+1]-cand.g)<=TOL && Math.abs(data[i+2]-cand.b)<=TOL) close++; });
+        if(close>=ring.length*0.6) bg=cand;
+      }
+    }
     const isContent=i=>{
       const a=data[i+3];
       if(!bg) return a>8;
@@ -853,7 +870,26 @@
               origBlob=await readBlob(full,ct); origExt=extFromType(ct)||extFromType(opts.format);
               const dim=await imageSize(origBlob); byGi.set(gi,{name:"",blob:origBlob,w:dim.w,h:dim.h,ext:origExt,p}); done++; continue;
             }
-            canvas=await captureEl(w,opts);
+            /* single-image page + transforms (trim/uniform/rotate/bg): start
+               from the original image instead of re-rendering its HTML
+               wrapper — full scan quality, and none of the book theme's
+               background or margins leaks in around the page */
+            if(p.single && transformsNeeded){
+              try{
+                const full=resolvePath(dirOf(s.full),p.single.src); const ct=bk.origType.get(canon(full))||"";
+                const im=await blobToImage(await readBlob(full,ct));
+                const maxW=Math.round(opts.W*(opts.scale||1));
+                let cw=im.naturalWidth||im.width, ch=im.naturalHeight||im.height;
+                if(cw>maxW){ ch=Math.round(ch*maxW/cw); cw=maxW; }
+                const c=document.createElement("canvas"); c.width=Math.max(1,cw); c.height=Math.max(1,ch);
+                const cx=c.getContext("2d");
+                if(opts.bgMode!=="transparent"){ cx.fillStyle=opts.bgMode==="custom"?opts.bgColor:"#ffffff"; cx.fillRect(0,0,c.width,c.height); }
+                cx.imageSmoothingQuality="high"; cx.drawImage(im,0,0,c.width,c.height);
+                try{ URL.revokeObjectURL(im.src); }catch(e){}
+                canvas=c;
+              }catch(e){ canvas=null; }
+            }
+            if(!canvas) canvas=await captureEl(w,opts);
             if(p.half){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
           }
           if(opts.trim) canvas=trimCanvas(canvas,opts);
@@ -908,12 +944,14 @@
     let finalArr=ordered;
     if(opts.uniform && ordered.length){
       /* aspectFit (e-commerce): only the height is fixed — the width follows
-         the widest page's aspect ratio instead of the largest raw pixel
-         width, so portrait books don't get giant white side bars. */
+         the MEDIAN page aspect ratio, so the box matches the book's real page
+         shape and a single degenerate page (e.g. a short wide text strip from
+         a reflowable EPUB) can't stretch every image into a banner. Outliers
+         simply get letterboxed inside the normal page box. */
       const tH=opts.uniH>0?opts.uniH:Math.max(...ordered.map(r=>r.h));
       const tW=opts.uniW>0?opts.uniW
         :(opts.aspectFit&&opts.uniH>0
-          ?Math.max(...ordered.map(r=>Math.round(tH*r.w/Math.max(1,r.h))))
+          ?Math.round(tH*(function(){ const a=ordered.map(r=>r.w/Math.max(1,r.h)).sort((x,y)=>x-y); return a[a.length>>1]; })())
           :Math.max(...ordered.map(r=>r.w)));
       finalArr=[];
       for(let i=0;i<ordered.length;i++){ if(progress) progress(i/ordered.length,"Standardising sizes "+(i+1)+"/"+ordered.length);
