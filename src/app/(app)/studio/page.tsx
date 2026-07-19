@@ -1,8 +1,9 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Maximize2, Copy, Eye, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download, Search, Pencil, X, Check } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Maximize2, Copy, Eye, ExternalLink, Link2, Trash2, RefreshCw, BookOpen, QrCode, Download, Search, Pencil, X, Check, Settings2, ArrowUpCircle, EyeOff, TrendingUp } from "lucide-react";
 import QRCode from "qrcode";
+import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
 
@@ -16,12 +17,101 @@ interface HostedBook {
   readerUrl: string;
   views: number;
   views7d: number;
+  views30d?: number;
+  category?: string | null;
+  buyUrl?: string | null;
+  isPublic?: boolean;
 }
 
 function fmtSize(bytes: number) {
   if (!bytes) return "—";
   const mb = bytes / 1048576;
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// ---- legacy → v2 upgrade helpers (client-side re-encode, same URL) ----
+
+const CAN_WEBP = (() => {
+  try {
+    return typeof document !== "undefined" &&
+      document.createElement("canvas").toDataURL("image/webp").startsWith("data:image/webp");
+  } catch {
+    return false;
+  }
+})();
+
+async function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("could not decode a page image"));
+    img.src = dataUrl;
+  });
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, img.naturalWidth);
+  c.height = Math.max(1, img.naturalHeight);
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0);
+  return c;
+}
+
+function canvasBlob(c: HTMLCanvasElement, mime: string, q: number): Promise<Blob | null> {
+  return new Promise((r) => c.toBlob(r, mime, q));
+}
+
+// Batch-sign storage paths through the API and PUT the blobs to them.
+async function signAndUpload(
+  id: string,
+  files: { name: string; blob: Blob }[],
+  mime: string,
+  onStep?: (done: number, total: number) => void
+) {
+  let done = 0;
+  for (let i = 0; i < files.length; i += 20) {
+    const chunk = files.slice(i, i + 20);
+    const sres = await fetch("/api/flipbooks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sign: id, files: chunk.map((f) => f.name) }),
+    });
+    if (!sres.ok) throw new Error(`sign failed (HTTP ${sres.status})`);
+    const { urls } = await sres.json();
+    await Promise.all(
+      chunk.map(async (f, j) => {
+        const up = await fetch(urls[j], {
+          method: "PUT",
+          // upsert: a retried upgrade may overwrite its own partial upload
+          headers: { "content-type": f.name === "manifest" ? "application/json" : mime, "x-upsert": "true" },
+          body: f.blob,
+        });
+        if (!up.ok) throw new Error(`upload failed on ${f.name} (HTTP ${up.status})`);
+        done++;
+        onStep?.(done, files.length);
+      })
+    );
+  }
+}
+
+// Tiny dependency-free bar chart for the last-30-days views.
+function ViewsChart({ days, noDataText }: { days: { day: string; views: number }[]; noDataText: string }) {
+  const max = Math.max(...days.map((d) => d.views), 1);
+  const total = days.reduce((s, d) => s + d.views, 0);
+  if (total === 0) return <p className="py-3 text-center text-xs text-slate-400">{noDataText}</p>;
+  return (
+    <div className="flex h-16 items-end gap-[2px]" dir="ltr">
+      {days.map((d) => (
+        <div
+          key={d.day}
+          className="flex-1 rounded-t bg-brand-400/70 hover:bg-brand-500 transition-colors min-w-[3px]"
+          style={{ height: `${Math.max(d.views > 0 ? 8 : 2, Math.round((d.views / max) * 100))}%` }}
+          title={`${d.day} — ${d.views}`}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function StudioPage() {
@@ -42,6 +132,18 @@ export default function StudioPage() {
   const [renameId, setRenameId] = useState("");
   const [renameVal, setRenameVal] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [detailsId, setDetailsId] = useState("");
+  const [detCategory, setDetCategory] = useState("");
+  const [detBuy, setDetBuy] = useState("");
+  const [detPublic, setDetPublic] = useState(true);
+  const [detSaving, setDetSaving] = useState(false);
+  const [detSaved, setDetSaved] = useState(false);
+  const [detError, setDetError] = useState("");
+  const [chartDays, setChartDays] = useState<{ day: string; views: number }[]>([]);
+  const [upgradingId, setUpgradingId] = useState("");
+  const [upgradeErrId, setUpgradeErrId] = useState("");
+  const [upgradeMsg, setUpgradeMsg] = useState("");
+  const supabase = useMemo(() => createClient(), []);
 
   const loadBooks = useCallback(async () => {
     try {
@@ -135,6 +237,172 @@ export default function StudioPage() {
     } finally {
       setRenaming(false);
     }
+  }
+
+  async function toggleDetails(b: HostedBook) {
+    if (detailsId === b.id) {
+      setDetailsId("");
+      return;
+    }
+    setDetailsId(b.id);
+    setDetCategory(b.category || "");
+    setDetBuy(b.buyUrl || "");
+    setDetPublic(b.isPublic !== false);
+    setDetSaved(false);
+    setDetError("");
+    // last-30-days daily views for the chart (beacon counts under {id}.html)
+    setChartDays([]);
+    const from = new Date(Date.now() - 29 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from("flipbook_views")
+      .select("day, views")
+      .eq("path", `${b.id}.html`)
+      .gte("day", from)
+      .order("day");
+    const byDay = new Map((data || []).map((r) => [r.day as string, Number(r.views) || 0]));
+    const days: { day: string; views: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      days.push({ day: d, views: byDay.get(d) || 0 });
+    }
+    setChartDays(days);
+  }
+
+  async function saveDetails(b: HostedBook) {
+    setDetSaving(true);
+    setDetError("");
+    try {
+      const res = await fetch("/api/flipbooks", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: b.id, category: detCategory, buyUrl: detBuy, isPublic: detPublic }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setDetError(j?.error || `HTTP ${res.status}`);
+        return;
+      }
+      setBooks((prev) =>
+        prev.map((x) =>
+          x.id === b.id
+            ? { ...x, category: detCategory.trim() || null, buyUrl: detBuy.trim() || null, isPublic: detPublic }
+            : x
+        )
+      );
+      setDetSaved(true);
+      setTimeout(() => setDetSaved(false), 1800);
+    } finally {
+      setDetSaving(false);
+    }
+  }
+
+  // Re-hosts a legacy single-file book as v2 (binary WebP pages) at the SAME
+  // id, so every existing embed and QR keeps working. The old file is parked
+  // in trash by the server once the new manifest is confirmed live.
+  const upgradeBook = useCallback(
+    async (b: HostedBook, silent = false) => {
+      if (!silent && !window.confirm(t("upgradeConfirm"))) return false;
+      setUpgradingId(b.id);
+      setUpgradeErrId("");
+      setUpgradeMsg(t("upgrading"));
+      try {
+        const res = await fetch(`/reader/${b.id}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`could not load the book (HTTP ${res.status})`);
+        const html = await res.text();
+        const marker = "var PAGES = ";
+        const start = html.indexOf(marker);
+        const end = start >= 0 ? html.indexOf("];", start) : -1;
+        if (start < 0 || end < 0) throw new Error("book pages not found — is it already upgraded?");
+        const pages: string[] = JSON.parse(html.slice(start + marker.length, end + 1));
+        if (!Array.isArray(pages) || pages.length === 0) throw new Error("no pages in this book");
+        const rtl = /var RTL\s*=\s*true/.test(html);
+
+        const mime = CAN_WEBP ? "image/webp" : "image/jpeg";
+        const ext = CAN_WEBP ? "webp" : "jpg";
+        const q = CAN_WEBP ? 0.8 : 0.85;
+        const files: { name: string; blob: Blob }[] = [];
+        let coverBlob: Blob | null = null;
+        for (let i = 0; i < pages.length; i++) {
+          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${pages.length}`);
+          const c = await dataUrlToCanvas(pages[i]);
+          const blob = (await canvasBlob(c, mime, q)) || (await canvasBlob(c, "image/jpeg", 0.85));
+          if (!blob) throw new Error(`could not encode page ${i + 1}`);
+          files.push({ name: `p${i + 1}.${ext}`, blob });
+          if (i === 0) {
+            const cw = Math.min(480, c.width);
+            const cc = document.createElement("canvas");
+            cc.width = cw;
+            cc.height = Math.max(1, Math.round((c.height * cw) / c.width));
+            cc.getContext("2d")!.drawImage(c, 0, 0, cc.width, cc.height);
+            coverBlob = await canvasBlob(cc, mime, 0.72);
+          }
+        }
+        if (coverBlob) files.push({ name: `cover.${ext}`, blob: coverBlob });
+        const sizeBytes = files.reduce((s, f) => s + f.blob.size, 0);
+
+        const create = await fetch("/api/flipbooks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            v: 2,
+            id: b.id,
+            migrate: true,
+            filename: b.id,
+            title: b.title || b.id,
+            pages: pages.length,
+            ext,
+            rtl,
+            sizeBytes,
+            cover: !!coverBlob,
+          }),
+        });
+        if (!create.ok) throw new Error(`registration failed (HTTP ${create.status})`);
+
+        await signAndUpload(b.id, files, mime, (done, total) =>
+          setUpgradeMsg(`${t("upgrading")} ${done}/${total}`)
+        );
+        const manifest = {
+          v: 2,
+          title: b.title || b.id,
+          rtl,
+          ext,
+          pages: pages.length,
+          bytes: sizeBytes,
+          cover: coverBlob ? `cover.${ext}` : "",
+          buyUrl: b.buyUrl || "",
+        };
+        await signAndUpload(
+          b.id,
+          [{ name: "manifest", blob: new Blob([JSON.stringify(manifest)], { type: "application/json" }) }],
+          mime
+        );
+        const fin = await fetch("/api/flipbooks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ finishMigrate: b.id }),
+        });
+        if (!fin.ok) throw new Error(`cleanup failed (HTTP ${fin.status})`);
+        setUpgradeMsg("");
+        return true;
+      } catch (e) {
+        setUpgradeErrId(b.id);
+        setUpgradeMsg(`✗ ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+      } finally {
+        setUpgradingId("");
+      }
+    },
+    [t]
+  );
+
+  async function upgradeAllLegacy() {
+    const legacy = books.filter((b) => b.fmt !== "v2");
+    if (legacy.length === 0 || !window.confirm(t("upgradeAllConfirm"))) return;
+    for (const b of legacy) {
+      const ok = await upgradeBook(b, true);
+      if (!ok) break; // the failed book keeps its error message on screen
+    }
+    await loadBooks();
   }
 
   async function deleteBook(b: HostedBook) {
@@ -240,12 +508,44 @@ export default function StudioPage() {
               <Link2 size={13} />
               {copiedId === "library" ? t("copied") : t("copyLink")}
             </button>
+            {books.filter((b) => b.fmt !== "v2").length > 1 && (
+              <button
+                className="btn-secondary !px-2.5 !py-1.5 !text-xs !text-emerald-700"
+                onClick={upgradeAllLegacy}
+                disabled={!!upgradingId}
+                title={t("upgradeHint")}
+              >
+                <ArrowUpCircle size={13} />
+                {t("upgradeAll")}
+              </button>
+            )}
             <button className="btn-secondary !px-2.5 !py-1.5" onClick={() => loadBooks()} title={t("refresh")}>
               <RefreshCw size={14} />
             </button>
           </div>
         </div>
         <p className="mb-4 text-xs text-slate-500">{t("hostedHint")}</p>
+
+        {books.some((b) => (b.views30d || 0) > 0) && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs">
+            <span className="flex items-center gap-1 font-semibold text-slate-500">
+              <TrendingUp size={13} className="text-brand-500" />
+              {t("topBooks30")}:
+            </span>
+            {[...books]
+              .sort((a, b) => (b.views30d || 0) - (a.views30d || 0))
+              .slice(0, 3)
+              .filter((b) => (b.views30d || 0) > 0)
+              .map((b, i) => (
+                <span key={b.id} className="rounded-full bg-white px-2.5 py-1 font-medium text-slate-600 shadow-sm">
+                  {i + 1}. {b.title || b.id}
+                  <span className="ms-1 font-bold text-brand-600">
+                    {(b.views30d || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-GB")}
+                  </span>
+                </span>
+              ))}
+          </div>
+        )}
 
         {books.length > 0 && (
           <div className="relative mb-4 max-w-md">
@@ -308,6 +608,17 @@ export default function StudioPage() {
                           WebP
                         </span>
                       )}
+                      {b.isPublic === false && (
+                        <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500" title={t("hiddenLinkOnly")}>
+                          <EyeOff size={10} />
+                          {t("hiddenBadge")}
+                        </span>
+                      )}
+                      {b.category && (
+                        <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">
+                          {b.category}
+                        </span>
+                      )}
                       <button
                         className="shrink-0 text-slate-300 hover:text-brand-500"
                         onClick={() => startRename(b)}
@@ -323,6 +634,11 @@ export default function StudioPage() {
                     {fmtSize(b.size)}
                     {(b.pages || 0) > 0 && <> · {b.pages} {t("bookPages")}</>}
                   </div>
+                  {(upgradingId === b.id || upgradeErrId === b.id) && upgradeMsg && (
+                    <div className={`mt-0.5 text-xs font-medium ${upgradeMsg.startsWith("✗") ? "text-red-600" : "text-emerald-600"}`}>
+                      {upgradeMsg}
+                    </div>
+                  )}
                   <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-brand-600" title={t("viewsHint")}>
                     <Eye size={12} />
                     <span>
@@ -344,6 +660,27 @@ export default function StudioPage() {
                     <QrCode size={13} />
                     {t("qrCode")}
                   </button>
+                  <button
+                    className={`btn-secondary !px-2.5 !py-1.5 !text-xs ${detailsId === b.id ? "!bg-brand-50 !text-brand-600" : ""}`}
+                    onClick={() => toggleDetails(b)}
+                    title={t("bookDetails")}
+                  >
+                    <Settings2 size={13} />
+                    {t("bookDetails")}
+                  </button>
+                  {b.fmt !== "v2" && (
+                    <button
+                      className="btn-secondary !px-2.5 !py-1.5 !text-xs !text-emerald-700"
+                      onClick={async () => {
+                        if (await upgradeBook(b)) loadBooks();
+                      }}
+                      disabled={!!upgradingId}
+                      title={t("upgradeHint")}
+                    >
+                      <ArrowUpCircle size={13} />
+                      {t("upgradeBook")}
+                    </button>
+                  )}
                   <a className="btn-secondary !px-2.5 !py-1.5 !text-xs" href={b.readerUrl} target="_blank" rel="noopener noreferrer">
                     <ExternalLink size={13} />
                     {t("openLink")}
@@ -358,6 +695,51 @@ export default function StudioPage() {
                   </button>
                 </div>
                 </div>
+                {detailsId === b.id && (
+                  <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-500">{t("categoryLabel")}</label>
+                        <input
+                          className="input !py-1.5 !text-sm"
+                          list="book-categories"
+                          placeholder={t("categoryPh")}
+                          value={detCategory}
+                          onChange={(e) => setDetCategory(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-500">{t("buyLinkLabel")}</label>
+                        <input
+                          className="input !py-1.5 !text-sm"
+                          dir="ltr"
+                          placeholder="https://nahdetmisr.com/product/..."
+                          value={detBuy}
+                          onChange={(e) => setDetBuy(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" checked={detPublic} onChange={(e) => setDetPublic(e.target.checked)} />
+                      <span>{detPublic ? t("visibleInLibrary") : t("hiddenLinkOnly")}</span>
+                    </label>
+                    <div className="mt-3 flex items-center gap-2">
+                      <button className="btn-primary !px-3 !py-1.5 !text-xs" onClick={() => saveDetails(b)} disabled={detSaving}>
+                        <Check size={13} />
+                        {detSaved ? t("detailsSaved") : t("renameSave")}
+                      </button>
+                      {detError && <span className="text-xs text-red-600">✗ {detError}</span>}
+                    </div>
+                    <div className="mt-4">
+                      <p className="mb-1.5 text-xs font-semibold text-slate-500">{t("viewsChart30")}</p>
+                      {chartDays.length === 0 ? (
+                        <p className="py-3 text-center text-xs text-slate-400">…</p>
+                      ) : (
+                        <ViewsChart days={chartDays} noDataText={t("noViewsYet")} />
+                      )}
+                    </div>
+                  </div>
+                )}
                 {qrId === b.id && qrData && (
                   <div className="mt-3 flex items-center gap-4 rounded-xl border border-slate-100 bg-slate-50 p-3 flex-wrap">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -376,6 +758,11 @@ export default function StudioPage() {
             ))}
           </ul>
         )}
+        <datalist id="book-categories">
+          {[...new Set(books.map((b) => b.category).filter(Boolean))].map((c) => (
+            <option key={c as string} value={c as string} />
+          ))}
+        </datalist>
       </div>
 
     </div>

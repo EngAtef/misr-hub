@@ -1047,11 +1047,11 @@
     }
     return { blobs:blobs, cover:cover, ext:mime==="image/webp"?"webp":"jpg", mime:mime };
   }
-  async function uploadFlipbookV2(hp,filename,title,opts,progress){
+  async function uploadFlipbookV2(hp,filename,title,opts,progress,searchText){
     const total=hp.blobs.reduce((s,b)=>s+b.size,0)+(hp.cover?hp.cover.size:0);
     const res=await fetch("/api/flipbooks",{method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({ v:2, filename:filename||"book", title:title||"", pages:hp.blobs.length, ext:hp.ext,
-        rtl:!!opts.rtl, sizeBytes:total, cover:!!hp.cover })});
+        rtl:!!opts.rtl, sizeBytes:total, cover:!!hp.cover, searchText:searchText||"" })});
     if(res.status===401) throw new Error("You need to be signed in — open Book Studio from inside NM Smart App and try again.");
     if(!res.ok) throw new Error("Couldn't start the upload (HTTP "+res.status+").");
     const info=await res.json();
@@ -1084,8 +1084,8 @@
   /* Pulls the selectable text out of the ticked pages so titles/descriptions
      can be copied straight into product pages. PDF = per page (pdf.js text
      layer), EPUB = per section (parsed XHTML). No OCR for scanned images. */
-  async function pdfPageText(num){
-    const page=await book.pdf.getPage(num);
+  async function pdfPageText(num,bk){
+    const page=await (bk||book).pdf.getPage(num);
     const tc=await page.getTextContent();
     const lines=[]; let line="", lastY=null;
     tc.items.forEach(it=>{
@@ -1107,6 +1107,23 @@
     const parts=(blocks.length?blocks.map(b=>(b.textContent||"").replace(/\s+/g," ").trim())
                               :[(d.body.textContent||"").replace(/\s+/g," ").trim()]).filter(Boolean);
     return parts.join("\n");
+  }
+  /* quiet best-effort text harvest at host time — powers the public library's
+     "search inside books". Scanned image-only books simply yield "". */
+  async function collectBookText(bk,selectedPages,cap){
+    cap=cap||150000;
+    try{
+      const out=[]; let len=0;
+      if(bk.type==="pdf"){
+        const nums=[...new Set(selectedPages.map(p=>p.pdfPage).filter(n=>n!=null))];
+        for(const n of nums){ if(len>cap) break; try{ const t=await pdfPageText(n,bk); out.push(t); len+=t.length; }catch(e){} }
+      } else {
+        const secs=[...new Set(selectedPages.map(p=>p.sec))];
+        for(const si of secs){ if(len>cap) break; const s=bk.sections&&bk.sections[si]; if(!s) continue;
+          try{ const t=await epubSectionText(s); out.push(t); len+=t.length; }catch(e){} }
+      }
+      return out.join("\n").replace(/\s+/g," ").trim().slice(0,cap);
+    }catch(e){ return ""; }
   }
   async function extractText(){
     if(busy||!book) return;
@@ -1192,7 +1209,7 @@
       const slug=slugify(opts.prefix||book.title);
       if(bundle==="pdf"){ setProgress(1,"Building PDF…"); await buildPdf(results,slug); }
       else if(bundle==="cbz"){ setProgress(1,"Building CBZ…"); await buildZip(results,slug,".cbz"); }
-      else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug}; }
+      else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug,pages:selected}; }
       // gallery always
       results.forEach(addPlate);
       window._results=results; window._slug=slug;
@@ -1263,7 +1280,9 @@
       if(window._flipSrc){
         const s=window._flipSrc;
         const hp=await resultsToHostedPages(s.results,title,s.opts,function(f,t){ st.textContent=t; });
-        const up2=await uploadFlipbookV2(hp,s.slug||"book",title,s.opts,function(f,t){ st.textContent=t; });
+        st.textContent="Collecting book text…";
+        const searchText=await collectBookText(book,s.pages||[],150000);
+        const up2=await uploadFlipbookV2(hp,s.slug||"book",title,s.opts,function(f,t){ st.textContent=t; },searchText);
         url=up2.url; mb=up2.mb;
       } else {
         /* pre-v2 session state — fall back to the single-file upload */
@@ -1320,8 +1339,9 @@
         const results=await exportPages(fresh,bpages,opts,(f,t)=>prog((bi+f*0.75)/valid.length,t));
         const title=(fresh.title||item.file.name.replace(/\.(epub|pdf)$/i,""))+(opts.preview?" — معاينة":"");
         const hp=await resultsToHostedPages(results,title,opts,(f,t)=>prog((bi+0.75+f*0.15)/valid.length,t));
+        const searchText=await collectBookText(fresh,bpages,150000);
         prog((bi+0.9)/valid.length,"Uploading "+title+"…");
-        const up=await uploadFlipbookV2(hp,slugify(title),title,opts,(f,t)=>prog((bi+0.9+f*0.1)/valid.length,"Uploading "+title+" — "+t));
+        const up=await uploadFlipbookV2(hp,slugify(title),title,opts,(f,t)=>prog((bi+0.9+f*0.1)/valid.length,"Uploading "+title+" — "+t),searchText);
         hosted.push({title:title,url:up.url});
         notifyHosted(up.url,true);
         bi++;

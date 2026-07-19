@@ -17,6 +17,9 @@ export interface FlipbookEntry {
   createdAt: string;
   cover: string | null; // storage path of the cover thumbnail, if any
   rtl: boolean;
+  category: string | null;
+  buyUrl: string | null;
+  isPublic: boolean;
 }
 
 interface RootObject {
@@ -44,7 +47,7 @@ export async function listAllRootObjects(supabase: SupabaseClient): Promise<Root
 export async function listFlipbooks(supabase: SupabaseClient): Promise<FlipbookEntry[]> {
   const [objects, metaRes] = await Promise.all([
     listAllRootObjects(supabase),
-    supabase.from("flipbooks").select("path, title, fmt, size_bytes, page_count, rtl, cover, created_at"),
+    supabase.from("flipbooks").select("path, title, fmt, size_bytes, page_count, rtl, cover, created_at, category, buy_url, is_public"),
   ]);
   const meta = new Map((metaRes.data || []).map((m) => [m.path as string, m]));
 
@@ -65,6 +68,9 @@ export async function listFlipbooks(supabase: SupabaseClient): Promise<FlipbookE
       createdAt: o.created_at || (m?.created_at as string) || "",
       cover: m?.cover ? `${id}/${m.cover}` : null,
       rtl: m?.rtl !== false,
+      category: (m?.category as string) || null,
+      buyUrl: (m?.buy_url as string) || null,
+      isPublic: m?.is_public !== false,
     });
   }
   books.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));

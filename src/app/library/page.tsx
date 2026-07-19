@@ -20,17 +20,21 @@ async function getBooks(): Promise<LibraryBook[]> {
     );
     const entries = await listFlipbooks(supabase);
     const storageBase = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/flipbooks`;
-    return entries.map((e) => {
-      const isPreview = /معاينة|preview/i.test(e.title);
-      return {
-        id: e.id,
-        title: e.title.replace(/\s*[—-]\s*(معاينة|preview)\s*$/i, "").trim() || e.title,
-        createdAt: e.createdAt,
-        isPreview,
-        coverUrl: e.cover ? `${storageBase}/${e.cover}` : null,
-        pages: e.pages,
-      };
-    });
+    return entries
+      .filter((e) => e.isPublic) // hidden books stay reachable by direct link only
+      .map((e) => {
+        const isPreview = /معاينة|preview/i.test(e.title);
+        return {
+          id: e.id,
+          title: e.title.replace(/\s*[—-]\s*(معاينة|preview)\s*$/i, "").trim() || e.title,
+          createdAt: e.createdAt,
+          isPreview,
+          coverUrl: e.cover ? `${storageBase}/${e.cover}` : null,
+          pages: e.pages,
+          category: e.category,
+          buyUrl: e.buyUrl,
+        };
+      });
   } catch {
     // storage unreachable (e.g. at build time) — render the empty state
     return [];

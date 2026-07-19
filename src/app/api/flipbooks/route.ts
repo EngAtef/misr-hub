@@ -20,13 +20,19 @@ const ID_RE = /^[a-zA-Z0-9_-]{1,120}$/;
 // page images (p1.webp…), the cover thumbnail, or the manifest sentinel.
 const FILE_RE = /^(p[0-9]{1,4}|cover)\.(webp|jpg)$/;
 
-// POST — three shapes, all from Book Studio:
+// POST — the shapes Book Studio (and the Studio page) sends:
 //   { filename, title }                              legacy: one signed URL for a
 //                                                    self-contained {id}.html
 //   { v:2, filename, title, pages, ext, ... }        v2: registers the book and
-//                                                    returns its id + reader URL
+//                                                    returns its id + reader URL;
+//                                                    with { id, migrate:true } it
+//                                                    reuses an existing legacy id
+//                                                    so URLs/embeds survive
 //   { sign: id, files: ["p1.webp", …, "manifest"] }  v2: a batch of signed upload
 //                                                    URLs for that book's objects
+//   { finishMigrate: id }                            legacy→v2 upgrade epilogue:
+//                                                    parks the old {id}.html in
+//                                                    trash once the manifest is up
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -61,10 +67,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ urls: signed.map((s) => s.data!.signedUrl) });
   }
 
+  // -- legacy→v2 upgrade epilogue: once the new manifest is confirmed live,
+  //    park the old single-file book in trash/ (restorable) and drop its row.
+  if (typeof body.finishMigrate === "string") {
+    const id = body.finishMigrate;
+    if (!ID_RE.test(id)) return NextResponse.json({ error: "bad id" }, { status: 400 });
+    const { data: mf } = await user.supabase.storage.from("flipbooks").download(`${id}.json`);
+    if (!mf) return NextResponse.json({ error: "manifest not found — upgrade incomplete" }, { status: 409 });
+    const moved = await user.supabase.storage.from("flipbooks").move(`${id}.html`, `trash/${id}.html`);
+    if (moved.error) return NextResponse.json({ error: moved.error.message }, { status: 500 });
+    await user.supabase.from("flipbooks").delete().eq("path", `${id}.html`);
+    return NextResponse.json({ ok: true });
+  }
+
   const filename = typeof body.filename === "string" ? body.filename : "";
   const title = typeof body.title === "string" ? (body.title as string).slice(0, 300) : "";
   const slug = slugify(filename) || "book";
-  const id = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
+  const migrate = body.migrate === true && typeof body.id === "string" && ID_RE.test(body.id as string);
+  const id = migrate ? (body.id as string) : `${slug}-${crypto.randomUUID().slice(0, 8)}`;
 
   // -- v2: binary pages + manifest; the row is the source of truth for
   //    size/pages/cover because the storage listing can't aggregate a folder.
@@ -73,6 +93,16 @@ export async function POST(request: NextRequest) {
     const ext = body.ext === "jpg" ? "jpg" : "webp";
     if (pages < 1 || pages > 2000) {
       return NextResponse.json({ error: "bad page count" }, { status: 400 });
+    }
+    // An upgraded book inherits the legacy row's category/buy-link/visibility.
+    let inherited: { category?: string | null; buy_url?: string | null; is_public?: boolean } = {};
+    if (migrate) {
+      const { data: old } = await user.supabase
+        .from("flipbooks")
+        .select("category, buy_url, is_public")
+        .eq("path", `${id}.html`)
+        .maybeSingle();
+      if (old) inherited = old;
     }
     const { error } = await user.supabase.from("flipbooks").upsert({
       path: `${id}.json`,
@@ -83,8 +113,18 @@ export async function POST(request: NextRequest) {
       page_count: pages,
       rtl: body.rtl !== false,
       cover: body.cover === true ? `cover.${ext}` : null,
+      category: inherited.category ?? null,
+      buy_url: inherited.buy_url ?? null,
+      is_public: inherited.is_public !== false,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Extracted text (when the book has a selectable text layer) powers the
+    // public library's "search inside books". Best-effort.
+    const searchText = typeof body.searchText === "string" ? (body.searchText as string).slice(0, 150000).trim() : "";
+    if (searchText) {
+      await user.supabase.from("flipbook_texts").upsert({ path: `${id}.json`, txt: searchText });
+    }
     return NextResponse.json({ id, readerUrl: `${request.nextUrl.origin}/reader/${id}` });
   }
 
@@ -119,19 +159,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "list failed" }, { status: 500 });
   }
 
-  // View counters (per book: lifetime total + last 7 days). The beacon always
-  // counts under "{id}.html" — for v2 books too — so the key is derived from
-  // the id, not the storage path.
+  // View counters (per book: lifetime total + last 7/30 days). The beacon
+  // always counts under "{id}.html" — for v2 books too — so the key is
+  // derived from the id, not the storage path.
   const viewsTotal = new Map<string, number>();
   const views7d = new Map<string, number>();
+  const views30d = new Map<string, number>();
   const { data: viewRows } = await user.supabase.from("flipbook_views").select("path, day, views");
   const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
   (viewRows || []).forEach((r) => {
     const v = Number(r.views) || 0;
+    const t = new Date(r.day + "T00:00:00Z").getTime();
     viewsTotal.set(r.path, (viewsTotal.get(r.path) || 0) + v);
-    if (new Date(r.day + "T00:00:00Z").getTime() >= weekAgo) {
-      views7d.set(r.path, (views7d.get(r.path) || 0) + v);
-    }
+    if (t >= weekAgo) views7d.set(r.path, (views7d.get(r.path) || 0) + v);
+    if (t >= monthAgo) views30d.set(r.path, (views30d.get(r.path) || 0) + v);
   });
 
   let totalBytes = 0;
@@ -151,54 +193,82 @@ export async function GET(request: NextRequest) {
       readerUrl: `${origin}/reader/${b.id}`,
       views,
       views7d: views7d.get(`${b.id}.html`) || 0,
+      views30d: views30d.get(`${b.id}.html`) || 0,
+      category: b.category,
+      buyUrl: b.buyUrl,
+      isPublic: b.isPublic,
     };
   });
 
   return NextResponse.json({ books, totalBytes, totalViews });
 }
 
-// PATCH { id, title } -> rename a hosted book. Updates the metadata row (which
-// drives the Studio list and the public library) and, for v2 books, rewrites
-// the manifest so the reader page shows the new name too.
+// PATCH { id, title?, category?, buyUrl?, isPublic? } -> edit a hosted book's
+// metadata. Only the fields present in the body change. Updates the row (which
+// drives the Studio list, the library and the reader) and, when the title
+// changes on a v2 book, rewrites the manifest so the reader shows it too.
 export async function PATCH(request: NextRequest) {
   const user = await getApiUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let id = "";
-  let title = "";
+  let body: Record<string, unknown> = {};
   try {
-    const body = await request.json();
-    id = typeof body?.id === "string" ? body.id : "";
-    title = typeof body?.title === "string" ? body.title.trim().slice(0, 300) : "";
+    body = await request.json();
+    id = typeof body?.id === "string" ? (body.id as string) : "";
   } catch {
     // handled by the validation below
   }
-  if (!ID_RE.test(id) || !title) return NextResponse.json({ error: "bad request" }, { status: 400 });
+  if (!ID_RE.test(id)) return NextResponse.json({ error: "bad request" }, { status: 400 });
+
+  const patch: Record<string, unknown> = {};
+  let title = "";
+  if (typeof body.title === "string") {
+    title = (body.title as string).trim().slice(0, 300);
+    if (!title) return NextResponse.json({ error: "empty title" }, { status: 400 });
+    patch.title = title;
+  }
+  if (typeof body.category === "string") {
+    patch.category = (body.category as string).trim().slice(0, 60) || null;
+  }
+  if (typeof body.buyUrl === "string") {
+    const u = (body.buyUrl as string).trim();
+    if (u && !/^https?:\/\/.{3,500}$/i.test(u)) {
+      return NextResponse.json({ error: "buy link must start with http(s)://" }, { status: 400 });
+    }
+    patch.buy_url = u || null;
+  }
+  if (typeof body.isPublic === "boolean") patch.is_public = body.isPublic;
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+  }
 
   const { error } = await user.supabase
     .from("flipbooks")
-    .update({ title })
+    .update(patch)
     .in("path", [`${id}.html`, `${id}.json`]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Best-effort manifest rewrite — the row already carries the new title.
-  try {
-    const { data: mf } = await user.supabase.storage.from("flipbooks").download(`${id}.json`);
-    if (mf) {
-      const manifest = JSON.parse(await mf.text());
-      manifest.title = title;
-      await user.supabase.storage
-        .from("flipbooks")
-        .update(`${id}.json`, new Blob([JSON.stringify(manifest)], { type: "application/json" }), {
-          contentType: "application/json",
-          upsert: true,
-        });
+  if (title) {
+    try {
+      const { data: mf } = await user.supabase.storage.from("flipbooks").download(`${id}.json`);
+      if (mf) {
+        const manifest = JSON.parse(await mf.text());
+        manifest.title = title;
+        await user.supabase.storage
+          .from("flipbooks")
+          .update(`${id}.json`, new Blob([JSON.stringify(manifest)], { type: "application/json" }), {
+            contentType: "application/json",
+            upsert: true,
+          });
+      }
+    } catch {
+      // legacy book or unreachable manifest — the row rename is what matters
     }
-  } catch {
-    // legacy book or unreachable manifest — the row rename is what matters
   }
 
-  return NextResponse.json({ ok: true, title });
+  return NextResponse.json({ ok: true });
 }
 
 // DELETE { id } -> soft-remove a hosted book. The metadata row lands in the
@@ -229,7 +299,13 @@ export async function DELETE(request: NextRequest) {
     moved = await user.supabase.storage.from("flipbooks").move(path, `trash/${path}`);
   }
   if (moved.error) return NextResponse.json({ error: moved.error.message }, { status: 500 });
-  await user.supabase.from("flipbooks").delete().eq("path", path);
+  const del = await user.supabase.from("flipbooks").delete().eq("path", path);
+  if (del.error) {
+    // Compensating move: don't leave the book hidden from the reader while its
+    // row still lists it — undo the park and report the failure.
+    await user.supabase.storage.from("flipbooks").move(`trash/${path}`, path);
+    return NextResponse.json({ error: del.error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }

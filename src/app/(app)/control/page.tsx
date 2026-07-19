@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
   Download,
+  HardDrive,
   MonitorSmartphone,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -20,7 +22,7 @@ import { formatDateTime, formatNumber, toCsv, downloadCsv, cn, sanitizeSearch } 
 
 const PAGE_SIZE = 50;
 
-type TabKey = "activity" | "insights" | "sessions" | "trash";
+type TabKey = "activity" | "insights" | "sessions" | "trash" | "storage";
 
 interface ActivityRow {
   id: number;
@@ -165,6 +167,7 @@ export default function ControlCenterPage() {
     { key: "insights", label: "insightsTab", icon: <BarChart3 size={14} /> },
     { key: "sessions", label: "sessionsTab", icon: <MonitorSmartphone size={14} /> },
     { key: "trash", label: "trashTab", icon: <Trash2 size={14} /> },
+    { key: "storage", label: "storageTab", icon: <HardDrive size={14} /> },
   ];
 
   if (ownerState === "checking") {
@@ -216,6 +219,7 @@ export default function ControlCenterPage() {
       {tab === "insights" && <ActivityInsights />}
       {tab === "sessions" && <SessionsTab />}
       {tab === "trash" && <TrashTab />}
+      {tab === "storage" && <StorageTab />}
     </div>
   );
 }
@@ -570,11 +574,61 @@ function TrashTab() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
+  const autoPurged = useRef(false);
+
+  // Removes a trashed row's storage leftovers, then the row itself. Storage
+  // cleanup is error-checked and aborts BEFORE touching the row on failure,
+  // so a Supabase hiccup can never orphan page images silently.
+  const purgeRow = useCallback(
+    async (row: TrashRow): Promise<string | null> => {
+      if (row.table_name === "flipbooks") {
+        const p = row.payload?.path;
+        const path = typeof p === "string" ? p : "";
+        if (path) {
+          // A v2 book parks only its manifest in trash/ — its page images stay
+          // under {id}/ and are only removed here, at purge time. List-and-
+          // remove loops until the folder is empty (one list call caps at 1000).
+          if (path.endsWith(".json")) {
+            const id = path.slice(0, -".json".length);
+            for (;;) {
+              const { data: pages, error: listErr } = await supabase.storage
+                .from("flipbooks")
+                .list(id, { limit: 1000 });
+              if (listErr) return listErr.message;
+              if (!pages || pages.length === 0) break;
+              const { error: rmErr } = await supabase.storage
+                .from("flipbooks")
+                .remove(pages.map((f) => `${id}/${f.name}`));
+              if (rmErr) return rmErr.message;
+              if (pages.length < 1000) break;
+            }
+          }
+          const { error: rmTrashErr } = await supabase.storage.from("flipbooks").remove([`trash/${path}`]);
+          if (rmTrashErr) return rmTrashErr.message;
+        }
+      }
+      const { error: err } = await supabase.from("trash").delete().eq("id", row.id);
+      return err ? err.message : null;
+    },
+    [supabase]
+  );
+
   const load = useCallback(async () => {
     const { data } = await supabase.from("trash").select("*").order("deleted_at", { ascending: false });
-    setRows((data as TrashRow[]) ?? []);
+    let list = (data as TrashRow[]) ?? [];
+    // 30-day retention, swept on open — same pattern as the activity log.
+    if (!autoPurged.current) {
+      autoPurged.current = true;
+      const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+      for (const r of list.filter((x) => new Date(x.deleted_at).getTime() < cutoff)) {
+        const err = await purgeRow(r);
+        if (err) break; // leave the rest for the next open
+        list = list.filter((x) => x.id !== r.id);
+      }
+    }
+    setRows(list);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, purgeRow]);
 
   useEffect(() => {
     load();
@@ -611,23 +665,8 @@ function TrashTab() {
     if (!confirm(t("deleteForeverConfirm"))) return;
     setBusyId(row.id);
     setError("");
-    if (row.table_name === "flipbooks") {
-      const path = flipbookPath(row);
-      if (path) {
-        // A v2 book parks only its manifest in trash/ — its page images stay
-        // under {id}/ and are only removed here, at purge time.
-        if (path.endsWith(".json")) {
-          const id = path.slice(0, -".json".length);
-          const { data: pages } = await supabase.storage.from("flipbooks").list(id, { limit: 1000 });
-          if (pages && pages.length > 0) {
-            await supabase.storage.from("flipbooks").remove(pages.map((f) => `${id}/${f.name}`));
-          }
-        }
-        await supabase.storage.from("flipbooks").remove([`trash/${path}`]);
-      }
-    }
-    const { error: err } = await supabase.from("trash").delete().eq("id", row.id);
-    if (err) setError(err.message);
+    const err = await purgeRow(row);
+    if (err) setError(err);
     await load();
     setBusyId(null);
   }
@@ -639,6 +678,7 @@ function TrashTab() {
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       )}
+      <p className="mb-3 text-xs text-slate-400">{t("trashAutoPurgeNote")}</p>
       {rows.length === 0 ? (
         <EmptyState message={t("trashEmpty")} />
       ) : (
@@ -697,6 +737,182 @@ function TrashTab() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Tab 5: Storage (flipbooks bucket consistency) ------------------
+
+interface OrphanFolder {
+  id: string;
+  files: number;
+  bytes: number;
+}
+
+function fmtBytes(bytes: number) {
+  if (!bytes) return "0";
+  const mb = bytes / 1048576;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// Owner-only audit of the flipbooks bucket: total usage, trash-parked size,
+// and orphaned page folders (images left behind with no manifest and no trash
+// entry) with a one-click reclaim.
+function StorageTab() {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState({ books: 0, totalBytes: 0, trashBytes: 0 });
+  const [orphans, setOrphans] = useState<OrphanFolder[]>([]);
+  const [reclaiming, setReclaiming] = useState("");
+
+  const listFolder = useCallback(
+    async (prefix: string) => {
+      // full listing of one folder — pages past the 1000-object cap
+      const all: { name: string; metadata?: { size?: number } | null }[] = [];
+      for (let offset = 0; offset < 20000; offset += 1000) {
+        const { data, error: e } = await supabase.storage.from("flipbooks").list(prefix, { limit: 1000, offset });
+        if (e) throw new Error(e.message);
+        all.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      return all;
+    },
+    [supabase]
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [root, trashObjects, trashRows] = await Promise.all([
+        listFolder(""),
+        listFolder("trash"),
+        supabase.from("trash").select("payload").eq("table_name", "flipbooks"),
+      ]);
+      const manifests = new Set(root.filter((o) => o.name.endsWith(".json")).map((o) => o.name));
+      const htmls = root.filter((o) => o.name.endsWith(".html"));
+      const htmlBytes = htmls.reduce((s, o) => s + (o.metadata?.size || 0), 0);
+      const folders = root.filter((o) => !o.name.includes(".") && o.name !== "trash");
+      const trashedPaths = new Set(
+        (trashRows.data || [])
+          .map((r) => (r.payload as { path?: string } | null)?.path)
+          .filter((p): p is string => typeof p === "string")
+      );
+
+      let folderBytes = 0;
+      const orphanList: OrphanFolder[] = [];
+      for (const f of folders) {
+        const files = await listFolder(f.name);
+        const bytes = files.reduce((s, o) => s + (o.metadata?.size || 0), 0);
+        folderBytes += bytes;
+        // a folder is legitimate if a live manifest OR a trash entry points at it
+        if (!manifests.has(`${f.name}.json`) && !trashedPaths.has(`${f.name}.json`)) {
+          orphanList.push({ id: f.name, files: files.length, bytes });
+        }
+      }
+      const trashBytes = trashObjects.reduce((s, o) => s + (o.metadata?.size || 0), 0);
+      setStats({
+        books: manifests.size + htmls.length,
+        totalBytes: htmlBytes + folderBytes + trashBytes,
+        trashBytes,
+      });
+      setOrphans(orphanList);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, listFolder]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function reclaim(o: OrphanFolder) {
+    setReclaiming(o.id);
+    setError("");
+    try {
+      for (;;) {
+        const files = await listFolder(o.id);
+        if (files.length === 0) break;
+        const { error: rmErr } = await supabase.storage
+          .from("flipbooks")
+          .remove(files.map((f) => `${o.id}/${f.name}`));
+        if (rmErr) throw new Error(rmErr.message);
+        if (files.length < 1000) break;
+      }
+      setOrphans((prev) => prev.filter((x) => x.id !== o.id));
+      setStats((prev) => ({ ...prev, totalBytes: Math.max(0, prev.totalBytes - o.bytes) }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReclaiming("");
+    }
+  }
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div>
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
+      )}
+
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        <div className="card p-4">
+          <p className="text-xs font-semibold text-slate-400">{t("storageTotalBooks")}</p>
+          <p className="mt-1 text-2xl font-extrabold">{formatNumber(stats.books)}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-semibold text-slate-400">{t("storageTotalSize")}</p>
+          <p className="mt-1 text-2xl font-extrabold" dir="ltr">{fmtBytes(stats.totalBytes)}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-semibold text-slate-400">{t("storageTrashParked")}</p>
+          <p className="mt-1 text-2xl font-extrabold" dir="ltr">{fmtBytes(stats.trashBytes)}</p>
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="font-bold">{t("orphanFolders")}</h3>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            onClick={() => load()}
+          >
+            <RefreshCw size={13} />
+            {t("storageRecheck")}
+          </button>
+        </div>
+        <p className="mb-4 text-xs text-slate-500">{t("orphanHint")}</p>
+        {orphans.length === 0 ? (
+          <p className="py-4 text-center text-sm text-emerald-600">{t("noOrphans")}</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {orphans.map((o) => (
+              <li key={o.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold" dir="ltr">{o.id}/</p>
+                  <p className="text-xs text-slate-400" dir="ltr">
+                    {o.files} files · {fmtBytes(o.bytes)}
+                  </p>
+                </div>
+                <button
+                  className={dangerBtn}
+                  disabled={reclaiming !== ""}
+                  onClick={() => reclaim(o)}
+                >
+                  <Trash2 size={14} />
+                  {reclaiming === o.id ? "…" : t("reclaimSpace")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
