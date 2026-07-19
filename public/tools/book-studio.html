@@ -246,6 +246,33 @@
           </select>
         </div>
 
+        <div class="opt full">
+          <label class="h">Output bundle</label>
+          <p class="cap">How you get the result. <b>Images + ZIP</b>: separate image files in one zip. <b>CBZ</b>: a comic/picture-book reader file. <b>Single PDF</b>: all pages in one PDF document. <b>Flipbook (HTML)</b>: one self-contained page-turning web file (images baked in, no external libraries) — after generating, click <b>Host &amp; get embed code</b> and you get ready iframe code, no hosting needed.</p>
+          <div class="seg" id="bundleSeg">
+            <button data-bundle="images" class="on">Images + ZIP</button>
+            <button data-bundle="cbz">CBZ</button>
+            <button data-bundle="pdf">Single PDF</button>
+            <button data-bundle="flipbook">Flipbook (HTML)</button>
+          </div>
+        </div>
+
+        <div class="opt full" id="previewOpt" style="display:none">
+          <label class="h">Free preview mode</label>
+          <p class="cap">Publish a free sample instead of the whole book: only the first pages, a watermark on every page, an "end of preview" page, and a floating <b>get the full book</b> button that opens your buy link.</p>
+          <div class="check"><input type="checkbox" id="previewMode"><label for="previewMode">Preview mode — host only a sample of the book</label></div>
+          <div class="row2" id="previewCtl" style="display:none;margin-top:4px">
+            <input id="previewPages" type="number" min="1" max="50" value="3"><span class="hint">pages</span>
+            <input id="buyUrl" type="text" dir="ltr" placeholder="https://… buy / product page link" style="flex:1;min-width:230px">
+            <input id="wmText" type="text" placeholder="watermark text" value="نسخة معاينة — Preview" style="width:190px">
+          </div>
+          <p class="subhint" id="previewHint" style="display:none;margin-inline-start:0">In batch mode the same buy link is used for every book — leave it empty to skip the button and show only the end-of-preview page.</p>
+        </div>
+      </div>
+
+      <button id="advToggle" class="btn-ghost" style="margin-top:12px">⚙ Advanced settings</button>
+      <p class="subhint" style="margin:4px 2px 0">Everything already has good defaults — open this only when a specific book needs fine-tuning (page detection, sizes, format, filenames…).</p>
+      <div class="opts" id="advOpts" style="display:none;margin-top:10px">
         <div class="opt" id="optDetect">
           <label class="h">Page detection</label>
           <p class="cap">How aggressively the tool breaks a chapter into separate pages. Move toward <b>High</b> if pages are being missed, toward <b>Low</b> if unrelated bits get split apart.</p>
@@ -282,12 +309,12 @@
           <label class="h">Format</label>
           <p class="cap">The image file type. <b>PNG</b> = best quality, larger. <b>JPEG</b> = smaller, no transparency. <b>WebP</b> = smallest at similar quality.</p>
           <select id="format">
-            <option value="image/png" selected>PNG — lossless</option>
-            <option value="image/jpeg">JPEG — small</option>
+            <option value="image/jpeg" selected>JPEG — recommended</option>
+            <option value="image/png">PNG — lossless, larger</option>
             <option value="image/webp">WebP — smallest</option>
           </select>
-          <div class="row2" id="qualityOpt" style="display:none"><span class="hint">Quality</span><input id="quality" type="number" min="10" max="100" step="5" value="92"><span class="hint">%</span></div>
-          <p class="subhint" id="qualityHint" style="display:none;margin-left:0">Higher % = better looking but bigger file (JPEG/WebP only). 90–95 is a good balance.</p>
+          <div class="row2" id="qualityOpt"><span class="hint">Quality</span><input id="quality" type="number" min="10" max="100" step="5" value="92"><span class="hint">%</span></div>
+          <p class="subhint" id="qualityHint" style="margin-left:0">Higher % = better looking but bigger file (JPEG/WebP only). 90–95 is a good balance.</p>
         </div>
 
         <div class="opt">
@@ -334,33 +361,11 @@
           <p class="subhint"><b>Within each section</b>: restarts at p01 every chapter (e.g. 03_chapter_p01). <b>Continuous</b>: one running count across the whole book (001, 002, 003…).</p>
         </div>
 
-        <div class="opt full">
-          <label class="h">Output bundle</label>
-          <p class="cap">How you get the result. <b>Images + ZIP</b>: separate image files in one zip. <b>CBZ</b>: a comic/picture-book reader file. <b>Single PDF</b>: all pages in one PDF document. <b>Flipbook (HTML)</b>: one self-contained page-turning web file (images baked in, no external libraries) — after generating, click <b>Host &amp; get embed code</b> and you get ready iframe code, no hosting needed.</p>
-          <div class="seg" id="bundleSeg">
-            <button data-bundle="images" class="on">Images + ZIP</button>
-            <button data-bundle="cbz">CBZ</button>
-            <button data-bundle="pdf">Single PDF</button>
-            <button data-bundle="flipbook">Flipbook (HTML)</button>
-          </div>
-        </div>
-
-        <div class="opt full" id="previewOpt" style="display:none">
-          <label class="h">Free preview mode</label>
-          <p class="cap">Publish a free sample instead of the whole book: only the first pages, a watermark on every page, an "end of preview" page, and a floating <b>get the full book</b> button that opens your buy link.</p>
-          <div class="check"><input type="checkbox" id="previewMode"><label for="previewMode">Preview mode — host only a sample of the book</label></div>
-          <div class="row2" id="previewCtl" style="display:none;margin-top:4px">
-            <input id="previewPages" type="number" min="1" max="50" value="3"><span class="hint">pages</span>
-            <input id="buyUrl" type="text" dir="ltr" placeholder="https://… buy / product page link" style="flex:1;min-width:230px">
-            <input id="wmText" type="text" placeholder="watermark text" value="نسخة معاينة — Preview" style="width:190px">
-          </div>
-          <p class="subhint" id="previewHint" style="display:none;margin-inline-start:0">In batch mode the same buy link is used for every book — leave it empty to skip the button and show only the end-of-preview page.</p>
-        </div>
       </div>
 
       <div class="gen-row" id="singleGenRow">
         <button id="generateBtn" class="btn-primary">Generate</button>
-        <button id="generateEcomBtn" class="btn-ghost" title="Every image the same dimensions with height capped at 1200px, white background, high-quality JPEG — sized for product pages: sharp enough to zoom, small enough to load fast">🛍 Generate for e-commerce</button>
+        <button id="generateEcomBtn" class="btn-ghost" title="Every image the same portrait page size (height 1200px, width from the book's real page shape), margins auto-cropped, white background, JPEG 90% — sharp enough to zoom on a product page, small enough to load fast">🛍 Generate for e-commerce</button>
         <button id="extractTextBtn" class="btn-ghost" title="Pull the selectable text out of the ticked pages — for product titles &amp; descriptions">⧉ Extract text</button>
         <span class="selcount" id="selCount2"></span>
       </div>
@@ -868,7 +873,7 @@
             if(opts.useOriginal && p.single && !transformsNeeded && formatMatchesOriginal(bk,p.single.src,opts.format)){
               const full=resolvePath(dirOf(s.full),p.single.src); const ct=bk.origType.get(canon(full))||"";
               origBlob=await readBlob(full,ct); origExt=extFromType(ct)||extFromType(opts.format);
-              const dim=await imageSize(origBlob); byGi.set(gi,{name:"",blob:origBlob,w:dim.w,h:dim.h,ext:origExt,p}); done++; continue;
+              const dim=await imageSize(origBlob); byGi.set(gi,[{name:"",blob:origBlob,w:dim.w,h:dim.h,ext:origExt,p}]); done++; continue;
             }
             /* single-image page + transforms (trim/uniform/rotate/bg): start
                from the original image instead of re-rendering its HTML
@@ -892,16 +897,30 @@
             if(!canvas) canvas=await captureEl(w,opts);
             if(p.half){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
           }
-          if(opts.trim) canvas=trimCanvas(canvas,opts);
-          if(p.rot) canvas=rotateCanvas(canvas,p.rot);
-          const blob=await canvasToBlob(canvas,opts.format,opts.format==="image/png"?undefined:opts.quality);
-          byGi.set(gi,{name:"",blob,w:canvas.width,h:canvas.height,ext:extFromType(opts.format),p});
+          /* e-commerce: a long reflowable text section renders as one very
+             tall capture — paginate it into book-page-shaped slices instead
+             of shrinking it into an unreadable column */
+          let parts=[canvas];
+          if(opts.ecom && !p.single && canvas.height>Math.round(canvas.width*1.33)*1.6){
+            const pageHpx=Math.round(canvas.width*1.33);
+            parts=[]; const n=Math.min(16,Math.ceil(canvas.height/pageHpx));
+            for(let t=0;t<n;t++){ const sy=t*pageHpx, sl=Math.min(pageHpx,canvas.height-sy); if(sl>40) parts.push(cropCanvas(canvas,0,sy,canvas.width,sl)); }
+            if(!parts.length) parts=[canvas];
+          }
+          const outs=[];
+          for(let pc of parts){
+            if(opts.trim) pc=trimCanvas(pc,opts);
+            if(p.rot) pc=rotateCanvas(pc,p.rot);
+            const blob=await canvasToBlob(pc,opts.format,opts.format==="image/png"?undefined:opts.quality);
+            outs.push({name:"",blob,w:pc.width,h:pc.height,ext:extFromType(opts.format),p});
+          }
+          byGi.set(gi,outs);
         }catch(e){ console.error("page failed",e); }
         done++;
       }
     }
-    // assemble in order
-    const ordered=[]; for(let gi=0; gi<pagesInOrder.length; gi++){ if(byGi.has(gi)) ordered.push(byGi.get(gi)); }
+    // assemble in order (a sliced text section contributes several pages)
+    const ordered=[]; for(let gi=0; gi<pagesInOrder.length; gi++){ if(byGi.has(gi)) ordered.push(...byGi.get(gi)); }
     return await finishExport(ordered,bk,opts,progress,pagesInOrder);
   }
 
@@ -944,15 +963,21 @@
     let finalArr=ordered;
     if(opts.uniform && ordered.length){
       /* aspectFit (e-commerce): only the height is fixed — the width follows
-         the MEDIAN page aspect ratio, so the box matches the book's real page
-         shape and a single degenerate page (e.g. a short wide text strip from
-         a reflowable EPUB) can't stretch every image into a banner. Outliers
-         simply get letterboxed inside the normal page box. */
+         the book's REAL page shape. Only pages that are actual page images
+         (embedded scans / PDF pages) vote, via their median aspect: text
+         wrappers from reflowable EPUBs have arbitrary shapes and used to
+         stretch everything into landscape banners. A pure-text book gets a
+         standard portrait book page (3:4). */
       const tH=opts.uniH>0?opts.uniH:Math.max(...ordered.map(r=>r.h));
-      const tW=opts.uniW>0?opts.uniW
-        :(opts.aspectFit&&opts.uniH>0
-          ?Math.round(tH*(function(){ const a=ordered.map(r=>r.w/Math.max(1,r.h)).sort((x,y)=>x-y); return a[a.length>>1]; })())
-          :Math.max(...ordered.map(r=>r.w)));
+      let tW;
+      if(opts.uniW>0) tW=opts.uniW;
+      else if(opts.aspectFit&&opts.uniH>0){
+        const real=ordered.filter(r=>r.p&&(r.p.single||r.p.pdfPage!=null))
+          .map(r=>r.w/Math.max(1,r.h)).sort((a,b)=>a-b);
+        const asp=real.length?real[real.length>>1]:0.75;
+        tW=Math.round(tH*clamp(asp,0.5,1.6));
+      }
+      else tW=Math.max(...ordered.map(r=>r.w));
       finalArr=[];
       for(let i=0;i<ordered.length;i++){ if(progress) progress(i/ordered.length,"Standardising sizes "+(i+1)+"/"+ordered.length);
         const r=ordered[i]; const c=document.createElement("canvas"); c.width=tW;c.height=tH; const ctx=c.getContext("2d");
@@ -1271,15 +1296,16 @@
     if(busy||!book) return;
     const opts=optsFromUI(); book.opts=opts;
     if(ecom){
-      /* e-commerce export: every image the same dimensions (height capped at
-         1200px, width follows the pages' aspect), white background,
-         high-quality JPEG — sharp enough to zoom on a product page, small
-         enough to load fast on the store. */
-      opts.format="image/jpeg"; opts.quality=0.85; opts.bgMode="white";
-      opts.useOriginal=false; opts.tiles=false;
-      opts.trim=true; /* auto-crop the page's built-in white margins */
+      /* e-commerce export: every image the same PORTRAIT page dimensions
+         (height capped at 1200px, width from the book's real page shape),
+         white background, high-quality JPEG — sharp enough to zoom on a
+         product page, small enough to load fast on the store. */
+      opts.format="image/jpeg"; opts.quality=0.90; opts.bgMode="white";
+      opts.useOriginal=false; opts.tiles=false; opts.ecom=true;
+      opts.trim=true; /* auto-crop the page's built-in margins */
       opts.uniform=true; opts.uniW=0; opts.uniH=1200; opts.aspectFit=true;
-      opts.W=Math.min(opts.W,1400); opts.scale=Math.min(opts.scale||1,1.5);
+      /* narrower capture makes reflowable text flow into a portrait page */
+      opts.W=1000; opts.scale=1.5;
     }
     let selected=orderedPages().filter(p=>p.selected);
     if(!selected.length){ showErr("Pick at least one page."); return; }
@@ -1538,8 +1564,12 @@
 
   /* ============================ settings persistence ============================ */
   const SETTING_IDS=["sens","dontSplit","splitSpreads","bookLang","reverse","pageW","scale","format","quality","bgMode","bgColor","trim","useOriginal","uniform","uniW","uniH","tiles","pageH","prefix","numbering","previewMode","previewPages","buyUrl","wmText"];
-  function saveSettings(){ const o={bundle}; SETTING_IDS.forEach(id=>{ const el=E(id); if(!el)return; o[id]=el.type==="checkbox"?el.checked:el.value; }); store.set(o); }
-  function applySettingsToUI(){ const o=store.get(); if(!o)return; SETTING_IDS.forEach(id=>{ if(o[id]==null)return; const el=E(id); if(!el)return; if(el.type==="checkbox") el.checked=!!o[id]; else el.value=o[id]; });
+  function saveSettings(){ const o={bundle,_v:2}; SETTING_IDS.forEach(id=>{ const el=E(id); if(!el)return; o[id]=el.type==="checkbox"?el.checked:el.value; }); store.set(o); }
+  function applySettingsToUI(){ const o=store.get(); if(!o)return;
+    // settings-version bump: JPEG 92% became the default format (was PNG) —
+    // drop the previously saved format/quality once so everyone lands on it
+    if(o._v!==2){ delete o.format; delete o.quality; }
+    SETTING_IDS.forEach(id=>{ if(o[id]==null)return; const el=E(id); if(!el)return; if(el.type==="checkbox") el.checked=!!o[id]; else el.value=o[id]; });
     // migrate the old "rtl" checkbox setting to the language selector
     if(o.bookLang==null && o.rtl!=null) els.bookLang.value = o.rtl ? "ar" : "en";
     if(o.bundle){ bundle=o.bundle; $$("#bundleSeg button").forEach(b=>b.classList.toggle("on",b.dataset.bundle===bundle)); }
@@ -1576,6 +1606,7 @@
   els.rangeInput.addEventListener("keydown",e=>{ if(e.key==="Enter") applyRange(); });
   els.generate.addEventListener("click",()=>generate(false));
   E("generateEcomBtn").addEventListener("click",()=>generate(true));
+  E("advToggle").addEventListener("click",()=>{ const a=E("advOpts"); const open=a.style.display!=="none"; a.style.display=open?"none":""; E("advToggle").textContent=open?"⚙ Advanced settings":"⚙ Hide advanced settings"; });
   E("extractTextBtn").addEventListener("click",extractText);
   E("copyTextBtn").addEventListener("click",copyExtractedText);
   E("closeTextBtn").addEventListener("click",hideTextPanel);
