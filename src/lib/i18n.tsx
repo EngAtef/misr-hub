@@ -913,6 +913,11 @@ const dict = {
   sectionUsers: { ar: "حسابات المستخدمين", en: "User accounts" },
   sectionAdSpend: { ar: "دفعات الإعلانات", en: "Ad batches" },
   notRestorable: { ar: "غير قابل للاسترجاع", en: "Not restorable" },
+  clearHistory: { ar: "مسح السجل", en: "Clear history" },
+  clearHistoryNote: { ar: "سيتم حذف كل الأحداث المطابقة للفلاتر الحالية في الفترة المحددة نهائياً", en: "All events matching the current filters in the selected range will be permanently deleted" },
+  clearHistoryDone: { ar: "تم حذف {n} حدث", en: "Deleted {n} events" },
+  applyFiltersHint: { ar: "الفلاتر المطبقة", en: "Applied filters" },
+  cancelLbl: { ar: "إلغاء", en: "Cancel" },
 } as const;
 
 export type DictKey = keyof typeof dict;

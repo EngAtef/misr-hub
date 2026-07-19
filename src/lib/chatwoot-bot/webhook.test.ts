@@ -104,22 +104,17 @@ test("agent_bot sender -> no reply (loop protection)", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
-test("within working hours: one polite acknowledgement, then routed to humans", async () => {
+test("within working hours: bot sends nothing, message routed to humans", async () => {
   const { ctx, rec } = makeCtx({ withinHours: () => true });
   const res = await handleWebhook("secret-token", incoming("كام الشحن؟"), ctx);
   assert.equal(res.status, 200);
   assert.equal(res.body.skipped, "working_hours");
-  assert.equal(rec.sent.length, 1); // the "team is online" acknowledgement
-  assert.ok(rec.sent[0].content.includes("وصلتنا رسالتك"));
+  assert.equal(rec.sent.length, 0); // fully silent — the team replies
   assert.deepEqual(rec.opened, [42]);
 
-  // A follow-up message in an already-acknowledged conversation stays silent.
-  const acked = {
-    ...incoming("طيب هستني"),
-    conversation: { id: 42, custom_attributes: { bot_acked: true } },
-  };
-  await handleWebhook("secret-token", acked, ctx);
-  assert.equal(rec.sent.length, 1); // no second acknowledgement
+  // Follow-up messages stay silent too.
+  await handleWebhook("secret-token", incoming("طيب هستني"), ctx);
+  assert.equal(rec.sent.length, 0);
 });
 
 test("within hours: bot-owned conversation is handed back to the unassigned queue", async () => {
@@ -130,7 +125,7 @@ test("within hours: bot-owned conversation is handed back to the unassigned queu
   };
   const res = await handleWebhook("secret-token", payload, ctx);
   assert.equal(res.body.skipped, "working_hours");
-  assert.equal(rec.sent.length, 1); // acknowledgement only
+  assert.equal(rec.sent.length, 0); // silent even while handing back
   assert.deepEqual(rec.unassigned, [42]); // handed back so agents see it
   assert.deepEqual(rec.opened, [42]);
 });

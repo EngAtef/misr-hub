@@ -557,15 +557,6 @@ export const FALLBACK_EN =
 export const FOOTER_AR = "\n\n———\nمحتاج حاجة تانية؟ اكتب سؤالك، أو *0* لترك بياناتك للفريق.";
 export const FOOTER_EN = "\n\n———\nAnything else? Just ask — or reply *0* to leave your details for the team.";
 
-// Short acknowledgement during working hours (bot otherwise stays silent —
-// a human agent will answer). Sent once per conversation.
-export const WORKING_HOURS_ACK_AR =
-  "وصلتنا رسالتك 🙏 فريق خدمة العملاء متاح دلوقتي وهيرد عليك في أقرب وقت.\n" +
-  `وللعاجل: الخط الساخن *${HOTLINE}*.`;
-export const WORKING_HOURS_ACK_EN =
-  "Got your message 🙏 Our support team is online now and will reply shortly.\n" +
-  `Urgent? Call our hotline *${HOTLINE}*.`;
-
 // Shown above the tappable topic buttons (sent with the greeting/fallback).
 export const MENU_PROMPT_AR = "اختر موضوعًا 👇";
 export const MENU_PROMPT_EN = "Pick a topic 👇";

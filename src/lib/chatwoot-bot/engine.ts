@@ -25,8 +25,6 @@ import {
   MENU_PROMPT_EN,
   HANDOFF_TITLE_AR,
   HANDOFF_TITLE_EN,
-  WORKING_HOURS_ACK_AR,
-  WORKING_HOURS_ACK_EN,
   type Intent,
 } from "./script.ts";
 
@@ -495,24 +493,16 @@ export async function handleWebhook(
       await setAttrs({ order_number: details.orderNumber });
     }
 
-    // During working hours, humans answer. Make sure the customer's message
-    // sits in the open queue; if the bot itself still owns the conversation
-    // (from an overnight chat), hand it back so agents see it. Unless a
-    // human agent is already on the conversation, acknowledge the customer
-    // once so they know they were heard.
+    // During working hours, humans answer — the bot sends nothing at all.
+    // Make sure the customer's message sits in the open queue; if the bot
+    // itself still owns the conversation (from an overnight chat), hand it
+    // back so agents see it.
     if (withinHours) {
-      let humanAssigned = false;
       if (assigneeId) {
         const botId = await ctx.getBotAgentId();
         if (botId && assigneeId === botId) await ctx.unassignConversation(convId);
-        else humanAssigned = true;
       }
       await ctx.openConversation(convId);
-      if (!humanAssigned && !attrs.bot_acked && ctx.setAttributes) {
-        const arabicMsg = isArabic(data.content ?? "") || !/[a-zA-Z]/.test(data.content ?? "");
-        await ctx.send(convId, arabicMsg ? WORKING_HOURS_ACK_AR : WORKING_HOURS_ACK_EN);
-        await setAttrs({ bot_acked: true });
-      }
       ctx.log(`conv=${convId} skipped=working_hours`);
       return { status: 200, body: { ok: true, skipped: "working_hours" } };
     }

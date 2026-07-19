@@ -5,6 +5,7 @@ import {
   Activity,
   BarChart3,
   Download,
+  Eraser,
   HardDrive,
   MonitorSmartphone,
   RefreshCw,
@@ -240,6 +241,11 @@ function ActivityTab() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearFrom, setClearFrom] = useState("");
+  const [clearTo, setClearTo] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -287,9 +293,37 @@ function ActivityTab() {
     return () => {
       cancelled = true;
     };
-  }, [buildQuery, page]);
+  }, [buildQuery, page, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function openClear() {
+    // default the range to the currently viewed period
+    setClearFrom(periodFromIso(period).slice(0, 10));
+    setClearTo(new Date().toISOString().slice(0, 10));
+    setClearOpen(true);
+  }
+
+  async function doClear() {
+    if (!clearFrom || !clearTo) return;
+    setClearing(true);
+    const { data, error } = await supabase.rpc("purge_activity", {
+      p_from: `${clearFrom}T00:00:00Z`,
+      p_to: `${clearTo}T23:59:59Z`,
+      p_user_id: userId || null,
+      p_kind: kind || null,
+      p_search: search ? sanitizeSearch(search) : null,
+    });
+    setClearing(false);
+    if (!error) {
+      setClearOpen(false);
+      setPage(0);
+      setReloadKey((k) => k + 1);
+      alert(t("clearHistoryDone").replace("{n}", String(data ?? 0)));
+    } else {
+      alert(error.message);
+    }
+  }
 
   async function exportReport() {
     setExporting(true);
@@ -379,9 +413,69 @@ function ActivityTab() {
             <Download size={16} />
             {t("downloadReport")}
           </button>
+          <button className={dangerBtn} onClick={openClear} disabled={loading}>
+            <Eraser size={14} />
+            {t("clearHistory")}
+          </button>
         </div>
         <p className="mt-2 text-xs text-slate-400">{t("retentionNote")}</p>
       </div>
+
+      {clearOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => !clearing && setClearOpen(false)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="mb-1 font-bold text-slate-800">{t("clearHistory")}</h3>
+            <p className="mb-4 text-xs text-rose-600">{t("clearHistoryNote")}</p>
+            <div className="mb-3 grid grid-cols-2 gap-3">
+              <label className="text-xs font-semibold text-slate-600">
+                {t("from")}
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={clearFrom}
+                  max={clearTo}
+                  onChange={(e) => setClearFrom(e.target.value)}
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                {t("to")}
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={clearTo}
+                  min={clearFrom}
+                  onChange={(e) => setClearTo(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <span className="font-semibold">{t("applyFiltersHint")}: </span>
+              {[
+                userId ? users.find((u) => u.id === userId)?.email : t("allUsers"),
+                kind ? t(KIND_LABELS[kind as ActivityRow["kind"]] ?? "allKinds") : t("allKinds"),
+                search ? `"${search}"` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                disabled={clearing}
+                onClick={() => setClearOpen(false)}
+              >
+                {t("cancelLbl")}
+              </button>
+              <button type="button" className={dangerBtn + " !px-4 !py-2 !text-sm"} disabled={clearing || !clearFrom || !clearTo} onClick={doClear}>
+                <Eraser size={14} />
+                {t("clearHistory")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card overflow-x-auto">
         {loading ? (
