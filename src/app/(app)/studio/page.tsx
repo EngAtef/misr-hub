@@ -25,7 +25,7 @@ interface HostedBook {
 
 // Cache-buster for the embedded converter — bump when book-studio.html
 // changes so nobody generates books with a stale cached build.
-const STUDIO_V = "2026-07-19-book-layout";
+const STUDIO_V = "2026-07-19-flipbook-first";
 
 function fmtSize(bytes: number) {
   if (!bytes) return "—";

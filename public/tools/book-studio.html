@@ -248,12 +248,12 @@
 
         <div class="opt full">
           <label class="h">Output bundle</label>
-          <p class="cap">How you get the result. <b>Images + ZIP</b>: separate image files in one zip. <b>CBZ</b>: a comic/picture-book reader file. <b>Single PDF</b>: all pages in one PDF document. <b>Flipbook (HTML)</b>: one self-contained page-turning web file (images baked in, no external libraries) — after generating, click <b>Host &amp; get embed code</b> and you get ready iframe code, no hosting needed.</p>
+          <p class="cap">How you get the result. <b>Flipbook</b> (the default): a page-turning book — generate, then click <b>Host &amp; get embed code</b> to publish it on your site with ready iframe code. <b>Images + ZIP</b>: separate image files (this is where the e-commerce export lives). <b>Single PDF</b> / <b>CBZ</b>: one document for print or comic readers.</p>
           <div class="seg" id="bundleSeg">
-            <button data-bundle="images" class="on">Images + ZIP</button>
-            <button data-bundle="cbz">CBZ</button>
+            <button data-bundle="flipbook" class="on">Flipbook (HTML)</button>
+            <button data-bundle="images">Images + ZIP</button>
             <button data-bundle="pdf">Single PDF</button>
-            <button data-bundle="flipbook">Flipbook (HTML)</button>
+            <button data-bundle="cbz">CBZ</button>
           </div>
         </div>
 
@@ -366,26 +366,10 @@
       <div class="gen-row" id="singleGenRow">
         <button id="generateBtn" class="btn-primary">Generate</button>
         <button id="generateEcomBtn" class="btn-ghost" title="Every image the same portrait page size (height 1200px, width from the book's real page shape), margins auto-cropped, white background, JPEG 90% — sharp enough to zoom on a product page, small enough to load fast">🛍 Generate for e-commerce</button>
-        <button id="extractTextBtn" class="btn-ghost" title="Pull the selectable text out of the ticked pages — for product titles &amp; descriptions">⧉ Extract text</button>
         <span class="selcount" id="selCount2"></span>
       </div>
       <div class="progress" id="progress"><div class="bar"><i id="bar"></i></div><div class="ptext" id="ptext">Starting…</div></div>
       <div class="err" id="err"></div>
-    </div>
-
-    <!-- extracted text -->
-    <div class="card" id="textPanel" style="display:none;margin-top:16px;padding:16px 18px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="font-weight:700">Extracted text</div>
-        <span class="note" id="textInfo" style="margin:0"></span>
-        <span style="flex:1"></span>
-        <button class="btn-ghost" id="copyTextBtn" style="padding:8px 14px">Copy all</button>
-        <button class="btn-ghost" id="closeTextBtn" style="padding:8px 14px">✕</button>
-      </div>
-      <p class="note" style="margin:6px 0 8px">Edit freely, then copy what you need for the product page (title, description…). Text follows the same order as your page selection.</p>
-      <textarea id="textOut" dir="auto" spellcheck="false"
-        style="width:100%;min-height:260px;resize:vertical;font:13.5px/1.7 var(--sans);border:1px solid var(--hair);border-radius:8px;padding:12px;background:#fff;color:var(--ink)"></textarea>
-      <p class="warn" id="textWarn" style="position:static;margin-top:10px">⚠ Very little selectable text was found — this book is probably scanned images, so the text isn't extractable (it would need OCR).</p>
     </div>
 
     <div class="results" id="results">
@@ -458,7 +442,7 @@
                 set(o){ try{localStorage.setItem("etc_settings",JSON.stringify(o));}catch(e){} } };
 
   /* ============================ state ============================ */
-  let zip=null, zipNames=null, blobURLs=new Map(), outURLs=[], book=null, busy=false, bundle="images", batch=null;
+  let zip=null, zipNames=null, blobURLs=new Map(), outURLs=[], book=null, busy=false, bundle="flipbook", batch=null;
 
   const E=id=>document.getElementById(id);
   const els={
@@ -1297,48 +1281,8 @@
       return out.join("\n").replace(/\s+/g," ").trim().slice(0,cap);
     }catch(e){ return ""; }
   }
-  async function extractText(){
-    if(busy||!book) return;
-    const selected=orderedPages().filter(p=>p.selected);
-    if(!selected.length){ showErr("Pick at least one page."); return; }
-    hideErr(); busy=true; els.generate.disabled=true; E("extractTextBtn").disabled=true;
-    els.progress.classList.add("show");
-    const chunks=[]; let plain=0, units=0;
-    try{
-      if(book.type==="pdf"){
-        const nums=[...new Set(selected.map(p=>p.pdfPage))]; units=nums.length;
-        for(let i=0;i<nums.length;i++){
-          setProgress(i/nums.length,"Extracting text — page "+nums[i]);
-          let t=""; try{ t=await pdfPageText(nums[i]); }catch(e){ console.error(e); }
-          plain+=t.length;
-          chunks.push("────  Page "+nums[i]+"  ────\n"+(t||"(no selectable text on this page)"));
-        }
-      } else {
-        const secs=[...new Set(selected.map(p=>p.sec))]; units=secs.length;
-        for(let i=0;i<secs.length;i++){
-          const s=book.sections[secs[i]];
-          setProgress(i/secs.length,"Extracting text — "+s.label);
-          let t=""; try{ t=await epubSectionText(s); }catch(e){ console.error(e); }
-          plain+=t.length;
-          chunks.push("────  "+s.label+"  ────\n"+(t||"(no selectable text in this section)"));
-        }
-      }
-      E("textOut").value=chunks.join("\n\n");
-      E("textInfo").textContent=units+(book.type==="pdf"?" page":" section")+(units!==1?"s":"")+" · "+plain.toLocaleString()+" characters";
-      E("textWarn").classList.toggle("show", plain<Math.min(40*units,400));
-      E("textPanel").style.display="";
-      setProgress(1,"Text ready — see the panel below.");
-      E("textPanel").scrollIntoView({behavior:"smooth",block:"nearest"});
-    }catch(e){ console.error(e); showErr("Text extraction failed: "+(e.message||e)); }
-    finally{ busy=false; els.generate.disabled=false; E("extractTextBtn").disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1200); }
-  }
-  function copyExtractedText(){
-    const v=E("textOut").value; if(!v) return;
-    const done=()=>{ const b=E("copyTextBtn"), o=b.textContent; b.textContent="Copied ✓"; setTimeout(()=>b.textContent=o,1500); };
-    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(v).then(done).catch(()=>{ E("textOut").select(); document.execCommand("copy"); done(); }); }
-    else { E("textOut").select(); document.execCommand("copy"); done(); }
-  }
-  function hideTextPanel(){ E("textPanel").style.display="none"; E("textOut").value=""; E("textWarn").classList.remove("show"); }
+  /* (the manual Extract-text panel was removed — collectBookText above still
+     harvests text silently at host time for the library's deep search) */
 
   /* ============================ bundles ============================ */
   async function buildZip(results,name,ext){ const z=new JSZip(); const folder=z.folder(name); results.forEach(r=>folder.file(r.name,r.blob)); const content=await z.generateAsync({type:"blob"}); triggerDownload(content,name+(ext||".zip")); }
@@ -1619,7 +1563,7 @@
       book=await parseBook(files[0]);
       els.title.textContent=book.title; els.author.textContent=book.author||"Unknown author";
       if(book.coverURL){ els.cover.src=book.coverURL; els.cover.style.display=""; } else els.cover.style.display="none";
-      els.drop.classList.add("hidden"); els.results.classList.remove("show"); hideTextPanel(); setView("single");
+      els.drop.classList.add("hidden"); els.results.classList.remove("show"); setView("single");
       applySettingsToUI();
       await rescan();
     }catch(e){ console.error(e);
@@ -1639,17 +1583,19 @@
       els.pageScanMsg.textContent="· "+pages.length+" detected"; renderGrid();
     }catch(e){ console.error(e); els.pageScanMsg.textContent=""; showErr("Scan failed: "+(e.message||e)); }
   }
-  function resetToDrop(){ book=null; batch=null; hideTextPanel(); blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
+  function resetToDrop(){ book=null; batch=null; blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
     els.bookPanel.classList.add("hidden"); els.batchPanel.classList.add("hidden"); els.drop.classList.remove("hidden","hot");
     els.drop.querySelector(".big").textContent="Drop one or more .epub or .pdf files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); const bem=E("batchEmbeds"); if(bem) bem.remove(); syncConditionalUI(); }
 
   /* ============================ settings persistence ============================ */
   const SETTING_IDS=["sens","dontSplit","splitSpreads","bookLang","reverse","pageW","scale","format","quality","bgMode","bgColor","trim","useOriginal","uniform","uniW","uniH","tiles","pageH","prefix","numbering","previewMode","previewPages","buyUrl","wmText"];
-  function saveSettings(){ const o={bundle,_v:2}; SETTING_IDS.forEach(id=>{ const el=E(id); if(!el)return; o[id]=el.type==="checkbox"?el.checked:el.value; }); store.set(o); }
+  function saveSettings(){ const o={bundle,_v:3}; SETTING_IDS.forEach(id=>{ const el=E(id); if(!el)return; o[id]=el.type==="checkbox"?el.checked:el.value; }); store.set(o); }
   function applySettingsToUI(){ const o=store.get(); if(!o)return;
-    // settings-version bump: JPEG 92% became the default format (was PNG) —
-    // drop the previously saved format/quality once so everyone lands on it
-    if(o._v!==2){ delete o.format; delete o.quality; }
+    // settings-version bump: v2 made JPEG 92% the default format (was PNG);
+    // v3 made Flipbook the default bundle — drop those saved values once so
+    // everyone lands on the new defaults
+    if(o._v!==2&&o._v!==3){ delete o.format; delete o.quality; }
+    if(o._v!==3){ delete o.bundle; }
     SETTING_IDS.forEach(id=>{ if(o[id]==null)return; const el=E(id); if(!el)return; if(el.type==="checkbox") el.checked=!!o[id]; else el.value=o[id]; });
     // migrate the old "rtl" checkbox setting to the language selector
     if(o.bookLang==null && o.rtl!=null) els.bookLang.value = o.rtl ? "ar" : "en";
@@ -1688,9 +1634,6 @@
   els.generate.addEventListener("click",()=>generate(false));
   E("generateEcomBtn").addEventListener("click",()=>generate(true));
   E("advToggle").addEventListener("click",()=>{ const a=E("advOpts"); const open=a.style.display!=="none"; a.style.display=open?"none":""; E("advToggle").textContent=open?"⚙ Advanced settings":"⚙ Hide advanced settings"; });
-  E("extractTextBtn").addEventListener("click",extractText);
-  E("copyTextBtn").addEventListener("click",copyExtractedText);
-  E("closeTextBtn").addEventListener("click",hideTextPanel);
   els.downloadMain.addEventListener("click",downloadMain);
   E("hostBtn").addEventListener("click",hostFlipbook);
   E("copyEmbedBtn").addEventListener("click",copyEmbedCode);
