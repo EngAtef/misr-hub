@@ -41,12 +41,24 @@ export function AlertsBar() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    supabase.rpc("fn_alerts").then(({ data }) => setData(data as AlertsData));
-    // persist red/amber alerts into the notification bell (deduped server-side)
-    supabase.rpc("sync_alert_notifications").then(
-      () => undefined,
-      () => undefined
-    );
+    // fn_alerts is a heavy query — run the bar's own fetch first, then the
+    // notification sync sequentially (never in parallel), and at most once
+    // per hour per browser so the dashboard doesn't double the load
+    supabase.rpc("fn_alerts").then(({ data }) => {
+      setData(data as AlertsData);
+      try {
+        const last = Number(localStorage.getItem("alertSyncAt") || 0);
+        if (Date.now() - last > 3600_000) {
+          localStorage.setItem("alertSyncAt", String(Date.now()));
+          supabase.rpc("sync_alert_notifications").then(
+            () => undefined,
+            () => undefined
+          );
+        }
+      } catch {
+        // private mode etc. — skip the sync rather than break the bar
+      }
+    });
   }, [supabase]);
 
   const alerts = useMemo<AlertItem[]>(() => {

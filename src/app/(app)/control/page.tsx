@@ -576,7 +576,8 @@ function SessionsTab() {
   async function terminateOne(sessionId: string) {
     if (!confirm(t("terminateConfirm"))) return;
     setBusy(true);
-    await supabase.rpc("owner_terminate_session", { p_session_id: sessionId });
+    const { error } = await supabase.rpc("owner_terminate_session", { p_session_id: sessionId });
+    if (error) alert(`${t("error")}: ${error.message}`);
     await load();
     setBusy(false);
   }
@@ -584,7 +585,8 @@ function SessionsTab() {
   async function terminateAll(uid: string) {
     if (!confirm(t("terminateConfirm"))) return;
     setBusy(true);
-    await supabase.rpc("owner_terminate_user_sessions", { p_user_id: uid });
+    const { error } = await supabase.rpc("owner_terminate_user_sessions", { p_user_id: uid });
+    if (error) alert(`${t("error")}: ${error.message}`);
     await load();
     setBusy(false);
   }

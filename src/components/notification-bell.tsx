@@ -41,6 +41,15 @@ export function NotificationBell({ profile }: { profile: Profile }) {
   const [sending, setSending] = useState(false);
 
   const refreshCounts = useCallback(async () => {
+    // enforcement hook for the owner's "terminate session": when this device's
+    // session has been deleted server-side, sign out right away instead of
+    // riding the access token until it expires
+    const { data: alive, error: aliveErr } = await supabase.rpc("fn_session_alive");
+    if (!aliveErr && alive === false) {
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+      return;
+    }
     const { data } = await supabase.rpc("fn_unread_counts");
     if (data) setCounts({ messages: Number(data.messages ?? 0), notifications: Number(data.notifications ?? 0) });
   }, [supabase]);
