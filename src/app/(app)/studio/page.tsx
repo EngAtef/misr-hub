@@ -319,7 +319,9 @@ export default function StudioPage() {
 
         const mime = CAN_WEBP ? "image/webp" : "image/jpeg";
         const ext = CAN_WEBP ? "webp" : "jpg";
-        const q = CAN_WEBP ? 0.8 : 0.85;
+        // matches the studio's hosted quality; legacy sources are 1600px wide,
+        // so upgrades keep that resolution (re-encoding can't add pixels)
+        const q = CAN_WEBP ? 0.85 : 0.9;
         const files: { name: string; blob: Blob }[] = [];
         let coverBlob: Blob | null = null;
         for (let i = 0; i < pages.length; i++) {

@@ -360,6 +360,7 @@
 
       <div class="gen-row" id="singleGenRow">
         <button id="generateBtn" class="btn-primary">Generate</button>
+        <button id="generateEcomBtn" class="btn-ghost" title="Every image the same dimensions with height capped at 1200px, white background, high-quality JPEG — sized for product pages: sharp enough to zoom, small enough to load fast">🛍 Generate for e-commerce</button>
         <button id="extractTextBtn" class="btn-ghost" title="Pull the selectable text out of the ticked pages — for product titles &amp; descriptions">⧉ Extract text</button>
         <span class="selcount" id="selCount2"></span>
       </div>
@@ -788,7 +789,7 @@
     });
     updateSel();
   }
-  function updateSel(){ const n=book.pages.filter(p=>p.selected).length; els.selCount.textContent=n+" selected"; let lbl=n+" page"+(n!==1?"s":"")+" → "+bundleLabel(); if(bundle==="flipbook"&&els.previewMode.checked) lbl+=" (preview: first "+clamp(int(els.previewPages.value,3),1,50)+")"; els.selCount2.textContent=lbl; els.generate.disabled=n===0||busy; }
+  function updateSel(){ const n=book.pages.filter(p=>p.selected).length; els.selCount.textContent=n+" selected"; let lbl=n+" page"+(n!==1?"s":"")+" → "+bundleLabel(); if(bundle==="flipbook"&&els.previewMode.checked) lbl+=" (preview: first "+clamp(int(els.previewPages.value,3),1,50)+")"; els.selCount2.textContent=lbl; els.generate.disabled=n===0||busy; { const ge=E("generateEcomBtn"); if(ge) ge.disabled=n===0||busy; } }
   function bundleLabel(){ return bundle==="pdf"?"PDF":bundle==="cbz"?"CBZ":bundle==="flipbook"?"flipbook":"images"; }
 
   /* ============================ export ============================ */
@@ -880,8 +881,14 @@
   async function finishExport(ordered,bk,opts,progress,pagesInOrder){
     let finalArr=ordered;
     if(opts.uniform && ordered.length){
-      const tW=opts.uniW>0?opts.uniW:Math.max(...ordered.map(r=>r.w));
+      /* aspectFit (e-commerce): only the height is fixed — the width follows
+         the widest page's aspect ratio instead of the largest raw pixel
+         width, so portrait books don't get giant white side bars. */
       const tH=opts.uniH>0?opts.uniH:Math.max(...ordered.map(r=>r.h));
+      const tW=opts.uniW>0?opts.uniW
+        :(opts.aspectFit&&opts.uniH>0
+          ?Math.max(...ordered.map(r=>Math.round(tH*r.w/Math.max(1,r.h))))
+          :Math.max(...ordered.map(r=>r.w)));
       finalArr=[];
       for(let i=0;i<ordered.length;i++){ if(progress) progress(i/ordered.length,"Standardising sizes "+(i+1)+"/"+ordered.length);
         const r=ordered[i]; const c=document.createElement("canvas"); c.width=tW;c.height=tH; const ctx=c.getContext("2d");
@@ -928,12 +935,12 @@
   async function blobToJpegDataURL(blob,q,maxW,wmText){
     return (await renderPageCanvas(blob,maxW,wmText)).toDataURL("image/jpeg", q);
   }
-  /* hosted (v2) pages: binary WebP at a fixed quality tuned for book pages —
-     WebP ~0.80 looks like JPEG ~0.90 at roughly 40% of the old base64-JPEG
-     footprint. Browsers that can't encode WebP (older Safari) fall back to
-     JPEG automatically. */
+  /* hosted (v2) pages: binary WebP at a fixed quality tuned for book pages,
+     2000px wide / q0.85 so text stays crisp on large screens and while
+     zooming — still far below the old base64-JPEG footprint. Browsers that
+     can't encode WebP (older Safari) fall back to JPEG automatically. */
   const WEBP_OK=(function(){ try{ return document.createElement("canvas").toDataURL("image/webp").indexOf("data:image/webp")===0; }catch(e){ return false; } })();
-  const HOST_MAXW=1600, HOST_Q_WEBP=0.80, HOST_Q_JPEG=0.85, COVER_W=480;
+  const HOST_MAXW=2000, HOST_Q_WEBP=0.85, HOST_Q_JPEG=0.90, COVER_W=480;
   /* diagonal watermark repeated three times — light enough to read through,
      visible on both light and dark pages (white fill + dark outline) */
   function drawWatermark(ctx,w,h,text){
@@ -1195,18 +1202,29 @@
   function triggerDownload(blob,filename){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),5000); }
 
   /* ============================ generate (single book) ============================ */
-  async function generate(){
+  async function generate(ecom){
+    ecom=ecom===true;
     if(busy||!book) return;
     const opts=optsFromUI(); book.opts=opts;
+    if(ecom){
+      /* e-commerce export: every image the same dimensions (height capped at
+         1200px, width follows the pages' aspect), white background,
+         high-quality JPEG — sharp enough to zoom on a product page, small
+         enough to load fast on the store. */
+      opts.format="image/jpeg"; opts.quality=0.85; opts.bgMode="white";
+      opts.useOriginal=false; opts.tiles=false;
+      opts.uniform=true; opts.uniW=0; opts.uniH=1200; opts.aspectFit=true;
+      opts.W=Math.min(opts.W,1400); opts.scale=Math.min(opts.scale||1,1.5);
+    }
     let selected=orderedPages().filter(p=>p.selected);
     if(!selected.length){ showErr("Pick at least one page."); return; }
     if(bundle==="flipbook" && opts.preview) selected=selected.slice(0,opts.previewPages);
-    hideErr(); busy=true; els.generate.disabled=true; els.progress.classList.add("show"); els.results.classList.remove("show");
+    hideErr(); busy=true; els.generate.disabled=true; E("generateEcomBtn").disabled=true; els.progress.classList.add("show"); els.results.classList.remove("show");
     outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[]; els.gallery.innerHTML=""; resetEmbedPanel();
     try{
       const results=await exportPages(book,selected,opts,(f,t)=>setProgress(f,t));
       saveSettings();
-      const slug=slugify(opts.prefix||book.title);
+      const slug=slugify(opts.prefix||book.title)+(ecom?"-ecom":"");
       if(bundle==="pdf"){ setProgress(1,"Building PDF…"); await buildPdf(results,slug); }
       else if(bundle==="cbz"){ setProgress(1,"Building CBZ…"); await buildZip(results,slug,".cbz"); }
       else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug,pages:selected}; }
@@ -1218,7 +1236,7 @@
       setProgress(1,"Done."); els.results.classList.add("show");
       E("hostBtn").style.display = bundle==="flipbook" ? "" : "none";
     }catch(e){ console.error(e); showErr("Generation failed: "+(e.message||e)+". Try 1× resolution or a smaller width."); }
-    finally{ busy=false; els.generate.disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1400); }
+    finally{ busy=false; els.generate.disabled=false; E("generateEcomBtn").disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1400); }
   }
   function addPlate(r){ const url=URL.createObjectURL(r.blob); outURLs.push(url); const div=document.createElement("div"); div.className="plate";
     div.innerHTML='<div class="imgwrap"><img loading="lazy" alt=""></div><div class="cap"><span class="fn" title="'+r.name+'">'+r.name+'</span><span class="dim">'+r.w+'×'+r.h+'</span><a download="'+r.name+'">save</a></div>';
@@ -1468,6 +1486,7 @@
     els.tileHeightOpt.style.display=els.tiles.checked?"":"none";
     els.uniformDims.style.opacity=els.uniform.checked?"1":".4"; els.uniW.disabled=els.uniH.disabled=!els.uniform.checked;
     els.previewOpt.style.display=bundle==="flipbook"?"":"none";
+    { const ge=E("generateEcomBtn"); if(ge) ge.style.display=bundle==="images"?"":"none"; }
     els.previewCtl.style.display=els.previewMode.checked?"":"none";
     els.previewHint.style.display=els.previewMode.checked?"":"none";
     const lbls=["High (more pages)","Medium","Low (fewer pages)"]; els.sensLbl.textContent=lbls[int(els.sens.value,1)];
@@ -1490,7 +1509,8 @@
   E("resetOrder").addEventListener("click",resetOrder);
   els.rangeApply.addEventListener("click",applyRange);
   els.rangeInput.addEventListener("keydown",e=>{ if(e.key==="Enter") applyRange(); });
-  els.generate.addEventListener("click",generate);
+  els.generate.addEventListener("click",()=>generate(false));
+  E("generateEcomBtn").addEventListener("click",()=>generate(true));
   E("extractTextBtn").addEventListener("click",extractText);
   E("copyTextBtn").addEventListener("click",copyExtractedText);
   E("closeTextBtn").addEventListener("click",hideTextPanel);
