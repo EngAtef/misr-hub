@@ -40,12 +40,13 @@ const CAN_WEBP = (() => {
   }
 })();
 
-async function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
+async function srcToCanvas(src: string): Promise<HTMLCanvasElement> {
   const img = new Image();
+  if (!src.startsWith("data:")) img.crossOrigin = "anonymous"; // v2 pages live on the storage CDN
   await new Promise<void>((res, rej) => {
     img.onload = () => res();
     img.onerror = () => rej(new Error("could not decode a page image"));
-    img.src = dataUrl;
+    img.src = src;
   });
   const c = document.createElement("canvas");
   c.width = Math.max(1, img.naturalWidth);
@@ -56,6 +57,93 @@ async function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0);
   return c;
+}
+
+// Paginate an endless-scroll page (a reflowable chapter hosted before smart
+// pagination existed) into 3:4-ish book pages, cutting on the emptiest pixel
+// row near each boundary so text lines aren't sawn in half.
+function sliceStrips(canvas: HTMLCanvasElement): HTMLCanvasElement[] {
+  const pageH = Math.round(canvas.width * 1.33);
+  let ink: number[] | null = null;
+  let ratio = 1;
+  try {
+    const SW = 160;
+    ratio = canvas.width / SW;
+    const sc = document.createElement("canvas");
+    sc.width = SW;
+    sc.height = Math.max(1, Math.round(canvas.height / ratio));
+    const x = sc.getContext("2d")!;
+    x.drawImage(canvas, 0, 0, sc.width, sc.height);
+    const d = x.getImageData(0, 0, sc.width, sc.height).data;
+    ink = new Array(sc.height).fill(0);
+    for (let y = 0; y < sc.height; y++) {
+      let n = 0;
+      for (let i = y * SW * 4; i < (y + 1) * SW * 4; i += 4) {
+        if (d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235) n++;
+      }
+      ink[y] = n;
+    }
+  } catch {
+    ink = null;
+  }
+  const parts: HTMLCanvasElement[] = [];
+  let sy = 0;
+  let guard = 0;
+  while (sy < canvas.height - 40 && guard++ < 80) {
+    let cut = Math.min(canvas.height, sy + pageH);
+    if (ink && cut < canvas.height) {
+      let best = cut;
+      let bestInk = Infinity;
+      for (let y = sy + Math.round(pageH * 0.6); y <= cut; y++) {
+        const iy = Math.min(ink.length - 1, Math.round(y / ratio));
+        if (ink[iy] < bestInk) {
+          bestInk = ink[iy];
+          best = y;
+        }
+      }
+      cut = best;
+    }
+    if (cut - sy < 40) cut = Math.min(canvas.height, sy + pageH);
+    const c = document.createElement("canvas");
+    c.width = canvas.width;
+    c.height = cut - sy;
+    c.getContext("2d")!.drawImage(canvas, 0, sy, canvas.width, cut - sy, 0, 0, canvas.width, cut - sy);
+    parts.push(c);
+    sy = cut;
+  }
+  return parts.length ? parts : [canvas];
+}
+
+// Fit every page into one per-book page box (median aspect) so the viewer
+// never jumps between page sizes. Returns changed=false when the book is
+// already uniform.
+function boxAll(list: HTMLCanvasElement[]): { list: HTMLCanvasElement[]; changed: boolean } {
+  if (list.length === 0) return { list, changed: false };
+  if (list.every((c) => c.width === list[0].width && c.height === list[0].height)) {
+    return { list, changed: false };
+  }
+  const aspects = list.map((c) => c.width / Math.max(1, c.height)).sort((a, b) => a - b);
+  const asp = Math.min(1.6, Math.max(0.5, aspects[aspects.length >> 1] || 0.75));
+  const boxW = Math.min(2000, Math.max(...list.map((c) => c.width)));
+  const boxH = Math.max(1, Math.round(boxW / asp));
+  return {
+    changed: true,
+    list: list.map((src) => {
+      if (src.width === boxW && src.height === boxH) return src;
+      const c = document.createElement("canvas");
+      c.width = boxW;
+      c.height = boxH;
+      const x = c.getContext("2d")!;
+      x.fillStyle = "#ffffff";
+      x.fillRect(0, 0, boxW, boxH);
+      const s = Math.min(boxW / src.width, boxH / src.height, 1);
+      const dw = Math.max(1, Math.round(src.width * s));
+      const dh = Math.max(1, Math.round(src.height * s));
+      x.imageSmoothingQuality = "high";
+      x.drawImage(src, Math.round((boxW - dw) / 2), Math.round((boxH - dh) / 2), dw, dh);
+      return c;
+    }),
+  };
 }
 
 function canvasBlob(c: HTMLCanvasElement, mime: string, q: number): Promise<Blob | null> {
@@ -296,9 +384,10 @@ export default function StudioPage() {
     }
   }
 
-  // Re-hosts a legacy single-file book as v2 (binary WebP pages) at the SAME
-  // id, so every existing embed and QR keeps working. The old file is parked
-  // in trash by the server once the new manifest is confirmed live.
+  // Check & repair a hosted book at the SAME id (embeds/QRs survive):
+  // loads its pages, paginates endless-scroll chapters, unifies page sizes,
+  // and (for legacy single-file books) converts to the light v2 format. A v2
+  // book whose pages are already healthy is left completely untouched.
   const upgradeBook = useCallback(
     async (b: HostedBook, silent = false) => {
       if (!silent && !window.confirm(t("upgradeConfirm"))) return false;
@@ -312,21 +401,40 @@ export default function StudioPage() {
         const marker = "var PAGES = ";
         const start = html.indexOf(marker);
         const end = start >= 0 ? html.indexOf("];", start) : -1;
-        if (start < 0 || end < 0) throw new Error("book pages not found — is it already upgraded?");
-        const pages: string[] = JSON.parse(html.slice(start + marker.length, end + 1));
-        if (!Array.isArray(pages) || pages.length === 0) throw new Error("no pages in this book");
+        if (start < 0 || end < 0) throw new Error("book pages not found");
+        const srcs: string[] = JSON.parse(html.slice(start + marker.length, end + 1));
+        if (!Array.isArray(srcs) || srcs.length === 0) throw new Error("no pages in this book");
         const rtl = /var RTL\s*=\s*true/.test(html);
+
+        // load + geometry repair: slice endless strips, then unify page sizes
+        let canvases: HTMLCanvasElement[] = [];
+        for (let i = 0; i < srcs.length; i++) {
+          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${srcs.length}`);
+          const c = await srcToCanvas(srcs[i]);
+          if (c.height > c.width * 2.2) canvases.push(...sliceStrips(c));
+          else canvases.push(c);
+        }
+        const sliced = canvases.length !== srcs.length;
+        const boxed = boxAll(canvases);
+        if (b.fmt === "v2" && !sliced && !boxed.changed) {
+          setUpgradeErrId(b.id);
+          setUpgradeMsg(t("repairHealthy"));
+          setTimeout(() => {
+            setUpgradeErrId("");
+            setUpgradeMsg("");
+          }, 4000);
+          return false; // healthy — nothing uploaded, no reload needed
+        }
+        canvases = boxed.list;
 
         const mime = CAN_WEBP ? "image/webp" : "image/jpeg";
         const ext = CAN_WEBP ? "webp" : "jpg";
-        // matches the studio's hosted quality; legacy sources are 1600px wide,
-        // so upgrades keep that resolution (re-encoding can't add pixels)
         const q = CAN_WEBP ? 0.85 : 0.9;
         const files: { name: string; blob: Blob }[] = [];
         let coverBlob: Blob | null = null;
-        for (let i = 0; i < pages.length; i++) {
-          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${pages.length}`);
-          const c = await dataUrlToCanvas(pages[i]);
+        for (let i = 0; i < canvases.length; i++) {
+          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${canvases.length}`);
+          const c = canvases[i];
           const blob = (await canvasBlob(c, mime, q)) || (await canvasBlob(c, "image/jpeg", 0.85));
           if (!blob) throw new Error(`could not encode page ${i + 1}`);
           files.push({ name: `p${i + 1}.${ext}`, blob });
@@ -335,7 +443,10 @@ export default function StudioPage() {
             const cc = document.createElement("canvas");
             cc.width = cw;
             cc.height = Math.max(1, Math.round((c.height * cw) / c.width));
-            cc.getContext("2d")!.drawImage(c, 0, 0, cc.width, cc.height);
+            const ccx = cc.getContext("2d")!;
+            ccx.fillStyle = "#ffffff";
+            ccx.fillRect(0, 0, cc.width, cc.height);
+            ccx.drawImage(c, 0, 0, cc.width, cc.height);
             coverBlob = await canvasBlob(cc, mime, 0.72);
           }
         }
@@ -351,7 +462,7 @@ export default function StudioPage() {
             migrate: true,
             filename: b.id,
             title: b.title || b.id,
-            pages: pages.length,
+            pages: canvases.length,
             ext,
             rtl,
             sizeBytes,
@@ -368,7 +479,7 @@ export default function StudioPage() {
           title: b.title || b.id,
           rtl,
           ext,
-          pages: pages.length,
+          pages: canvases.length,
           bytes: sizeBytes,
           cover: coverBlob ? `cover.${ext}` : "",
           buyUrl: b.buyUrl || "",
@@ -378,12 +489,15 @@ export default function StudioPage() {
           [{ name: "manifest", blob: new Blob([JSON.stringify(manifest)], { type: "application/json" }) }],
           mime
         );
-        const fin = await fetch("/api/flipbooks", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ finishMigrate: b.id }),
-        });
-        if (!fin.ok) throw new Error(`cleanup failed (HTTP ${fin.status})`);
+        // only a legacy single-file book has an old .html to park in trash
+        if (b.fmt !== "v2") {
+          const fin = await fetch("/api/flipbooks", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ finishMigrate: b.id }),
+          });
+          if (!fin.ok) throw new Error(`cleanup failed (HTTP ${fin.status})`);
+        }
         setUpgradeMsg("");
         return true;
       } catch (e) {
@@ -670,19 +784,17 @@ export default function StudioPage() {
                     <Settings2 size={13} />
                     {t("bookDetails")}
                   </button>
-                  {b.fmt !== "v2" && (
-                    <button
-                      className="btn-secondary !px-2.5 !py-1.5 !text-xs !text-emerald-700"
-                      onClick={async () => {
-                        if (await upgradeBook(b)) loadBooks();
-                      }}
-                      disabled={!!upgradingId}
-                      title={t("upgradeHint")}
-                    >
-                      <ArrowUpCircle size={13} />
-                      {t("upgradeBook")}
-                    </button>
-                  )}
+                  <button
+                    className="btn-secondary !px-2.5 !py-1.5 !text-xs !text-emerald-700"
+                    onClick={async () => {
+                      if (await upgradeBook(b)) loadBooks();
+                    }}
+                    disabled={!!upgradingId}
+                    title={t("upgradeHint")}
+                  >
+                    <ArrowUpCircle size={13} />
+                    {t("upgradeBook")}
+                  </button>
                   <a className="btn-secondary !px-2.5 !py-1.5 !text-xs" href={b.readerUrl} target="_blank" rel="noopener noreferrer">
                     <ExternalLink size={13} />
                     {t("openLink")}

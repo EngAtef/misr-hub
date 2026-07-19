@@ -94,14 +94,16 @@ export async function POST(request: NextRequest) {
     if (pages < 1 || pages > 2000) {
       return NextResponse.json({ error: "bad page count" }, { status: 400 });
     }
-    // An upgraded book inherits the legacy row's category/buy-link/visibility.
+    // An upgraded/repaired book keeps its category/buy-link/visibility:
+    // legacy→v2 inherits from the .html row, an in-place v2 repair from its
+    // own .json row.
     let inherited: { category?: string | null; buy_url?: string | null; is_public?: boolean } = {};
     if (migrate) {
-      const { data: old } = await user.supabase
+      const { data: rows } = await user.supabase
         .from("flipbooks")
-        .select("category, buy_url, is_public")
-        .eq("path", `${id}.html`)
-        .maybeSingle();
+        .select("path, category, buy_url, is_public")
+        .in("path", [`${id}.html`, `${id}.json`]);
+      const old = (rows || []).find((r) => r.path.endsWith(".json")) || (rows || [])[0];
       if (old) inherited = old;
     }
     const { error } = await user.supabase.from("flipbooks").upsert({

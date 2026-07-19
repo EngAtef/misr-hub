@@ -704,6 +704,39 @@
     return cropCanvas(src,X,Y,W,H);
   }
 
+  /* Paginate one very tall capture into book-page slices (3:4-ish). Each cut
+     is placed on the emptiest pixel row near the page boundary — found on a
+     downsampled ink map — so a line of text is never sawn in half. */
+  function sliceTallCanvas(canvas){
+    const pageH=Math.round(canvas.width*1.33);
+    let ink=null, ratio=1;
+    try{
+      const SW=160; ratio=canvas.width/SW;
+      const sc=document.createElement("canvas"); sc.width=SW; sc.height=Math.max(1,Math.round(canvas.height/ratio));
+      const sctx=sc.getContext("2d"); sctx.drawImage(canvas,0,0,sc.width,sc.height);
+      const d=sctx.getImageData(0,0,sc.width,sc.height).data;
+      ink=new Array(sc.height).fill(0);
+      for(let y=0;y<sc.height;y++){ let n=0; for(let x=0;x<SW;x++){ const i=(y*SW+x)*4; if(d[i]<235||d[i+1]<235||d[i+2]<235) n++; } ink[y]=n; }
+    }catch(e){ ink=null; }
+    const parts=[]; let sy=0, guard=0;
+    while(sy<canvas.height-40 && guard++<80){
+      let cut=Math.min(canvas.height, sy+pageH);
+      if(ink && cut<canvas.height){
+        /* search the lower half of the page window for the lightest row */
+        let best=cut, bestInk=Infinity;
+        for(let y=sy+Math.round(pageH*0.6); y<=cut; y++){
+          const iy=Math.min(ink.length-1,Math.round(y/ratio));
+          if(ink[iy]<bestInk){ bestInk=ink[iy]; best=y; }
+        }
+        cut=best;
+      }
+      if(cut-sy<40) cut=Math.min(canvas.height,sy+pageH);
+      parts.push(cropCanvas(canvas,0,sy,canvas.width,cut-sy));
+      sy=cut;
+    }
+    return parts.length?parts:[canvas];
+  }
+
   /* ============================ scan (per-page thumbnails) ============================ */
   function optsFromUI(){
     return { sens:int(els.sens.value,1), dontSplit:els.dontSplit.checked, splitSpreads:els.splitSpreads.checked,
@@ -897,15 +930,13 @@
             if(!canvas) canvas=await captureEl(w,opts);
             if(p.half){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
           }
-          /* e-commerce: a long reflowable text section renders as one very
-             tall capture — paginate it into book-page-shaped slices instead
-             of shrinking it into an unreadable column */
+          /* any over-tall reflowable capture gets paginated into book pages,
+             for EVERY output (images, e-commerce, flipbook, PDF): a chapter
+             must never become one endless strip — unreadable in a viewer, and
+             the WebP/canvas 16383px hard limit would truncate it anyway */
           let parts=[canvas];
-          if(opts.ecom && !p.single && canvas.height>Math.round(canvas.width*1.33)*1.6){
-            const pageHpx=Math.round(canvas.width*1.33);
-            parts=[]; const n=Math.min(16,Math.ceil(canvas.height/pageHpx));
-            for(let t=0;t<n;t++){ const sy=t*pageHpx, sl=Math.min(pageHpx,canvas.height-sy); if(sl>40) parts.push(cropCanvas(canvas,0,sy,canvas.width,sl)); }
-            if(!parts.length) parts=[canvas];
+          if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.6){
+            parts=sliceTallCanvas(canvas);
           }
           const outs=[];
           for(let pc of parts){
@@ -1330,12 +1361,12 @@
       const slug=slugify(opts.prefix||book.title)+(ecom?"-ecom":"");
       if(bundle==="pdf"){ setProgress(1,"Building PDF…"); await buildPdf(results,slug); }
       else if(bundle==="cbz"){ setProgress(1,"Building CBZ…"); await buildZip(results,slug,".cbz"); }
-      else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); triggerDownload(new Blob([html],{type:"text/html"}), slug+".html"); window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug,pages:selected}; }
+      else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); /* no auto-download — Host or the Download button below, on demand */ window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug,pages:selected}; }
       // gallery always
       results.forEach(addPlate);
       window._results=results; window._slug=slug;
-      els.resultSummary.textContent=results.length+" page"+(results.length!==1?"s":"")+(results.length?(" · "+results[0].w+"×"+results[0].h+(opts.uniform?" each":"")):"")+(bundle==="pdf"?" · PDF downloaded":bundle==="cbz"?" · CBZ downloaded":bundle==="flipbook"?(" · flipbook downloaded ("+slug+".html)"):"");
-      els.downloadMain.textContent = bundle==="pdf"?"Re-download PDF":bundle==="cbz"?"Re-download CBZ":bundle==="flipbook"?"Re-download flipbook":"Download all (ZIP)";
+      els.resultSummary.textContent=results.length+" page"+(results.length!==1?"s":"")+(results.length?(" · "+results[0].w+"×"+results[0].h+(opts.uniform?" each":"")):"")+(bundle==="pdf"?" · PDF downloaded":bundle==="cbz"?" · CBZ downloaded":bundle==="flipbook"?" · flipbook ready — host it or download it below":"");
+      els.downloadMain.textContent = bundle==="pdf"?"Re-download PDF":bundle==="cbz"?"Re-download CBZ":bundle==="flipbook"?"⬇ Download flipbook":"Download all (ZIP)";
       setProgress(1,"Done."); els.results.classList.add("show");
       E("hostBtn").style.display = bundle==="flipbook" ? "" : "none";
     }catch(e){ console.error(e); showErr("Generation failed: "+(e.message||e)+". Try 1× resolution or a smaller width."); }
