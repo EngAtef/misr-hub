@@ -962,21 +962,15 @@
   async function finishExport(ordered,bk,opts,progress,pagesInOrder){
     let finalArr=ordered;
     if(opts.uniform && ordered.length){
-      /* aspectFit (e-commerce): only the height is fixed — the width follows
-         the book's REAL page shape. Only pages that are actual page images
-         (embedded scans / PDF pages) vote, via their median aspect: text
-         wrappers from reflowable EPUBs have arbitrary shapes and used to
-         stretch everything into landscape banners. A pure-text book gets a
-         standard portrait book page (3:4). */
+      /* aspectFit (e-commerce): ONE standard 3:4 portrait product frame for
+         the entire library — every book, every page, identical dimensions
+         (900×1200 at the default height). Trim already removed excess
+         margins; landscape pages are letterboxed inside the frame, never
+         cropped. */
       const tH=opts.uniH>0?opts.uniH:Math.max(...ordered.map(r=>r.h));
       let tW;
       if(opts.uniW>0) tW=opts.uniW;
-      else if(opts.aspectFit&&opts.uniH>0){
-        const real=ordered.filter(r=>r.p&&(r.p.single||r.p.pdfPage!=null))
-          .map(r=>r.w/Math.max(1,r.h)).sort((a,b)=>a-b);
-        const asp=real.length?real[real.length>>1]:0.75;
-        tW=Math.round(tH*clamp(asp,0.5,1.6));
-      }
+      else if(opts.aspectFit&&opts.uniH>0) tW=Math.round(tH*0.75);
       else tW=Math.max(...ordered.map(r=>r.w));
       finalArr=[];
       for(let i=0;i<ordered.length;i++){ if(progress) progress(i/ordered.length,"Standardising sizes "+(i+1)+"/"+ordered.length);
@@ -1086,19 +1080,43 @@
     const bar='<a href="'+safe+'" target="_top" rel="noopener" style="position:fixed;bottom:72px;right:16px;z-index:50;background:linear-gradient(92deg,#f59e0b,#fbb43a);color:#3a2602;font-weight:800;font-family:-apple-system,\'Segoe UI\',Tahoma,Arial,sans-serif;font-size:14px;padding:11px 18px;border-radius:999px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.35)">🛒 احصل على الكتاب كاملاً</a>';
     return html.replace("</body>", bar+"\n</body>");
   }
-  async function resultsToFlipbookHtml(results,title,opts,progress){
-    let q=clamp(int(els.quality.value,82),10,100)/100; if(!(q>0)) q=0.82;
+  /* Shared flipbook page pipeline (hosted + downloaded): render each page,
+     trim excess surrounding margins (content-aware, safe fallbacks), then
+     fit every page into ONE per-book page box (median aspect of the trimmed
+     pages) — so the reader never jumps between page sizes and margins don't
+     eat the screen. */
+  async function flipbookPageCanvases(results,title,opts,maxW,progress){
     const preview=!!(opts&&opts.preview);
     const list=preview?results.slice(0,Math.max(1,(opts.previewPages||3))):results;
     const wm=preview?((opts.wmText||"").trim()||"Preview"):null;
-    const urls=[];
-    for(let i=0;i<list.length;i++){ if(progress) progress(i/list.length,"Embedding page "+(i+1)+"/"+list.length);
-      urls.push(await blobToJpegDataURL(list[i].blob, q, 1600, wm));
+    const trimOpts={bgMode:"white",bgColor:"#ffffff"};
+    const canvases=[];
+    for(let i=0;i<list.length;i++){
+      if(progress) progress(i/(list.length+1),"Rendering page "+(i+1)+"/"+list.length);
+      canvases.push(trimCanvas(await renderPageCanvas(list[i].blob,maxW,wm),trimOpts));
     }
-    if(preview&&list.length){
-      const pw=Math.min(1600,list[0].w||1000), ph=Math.round((list[0].h||1600)*pw/(list[0].w||1000));
-      urls.push(ctaPageDataURL(pw,ph,title,(opts.buyUrl||"").trim()));
-    }
+    if(!canvases.length) return canvases;
+    const aspects=canvases.map(c=>c.width/Math.max(1,c.height)).sort((a,b)=>a-b);
+    const asp=clamp(aspects[aspects.length>>1]||0.75,0.5,1.6);
+    const boxW=Math.min(maxW,Math.max(...canvases.map(c=>c.width)));
+    const boxH=Math.max(1,Math.round(boxW/asp));
+    const boxed=canvases.map(src=>{
+      if(src.width===boxW&&src.height===boxH) return src;
+      const c=document.createElement("canvas"); c.width=boxW; c.height=boxH;
+      const cx=c.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,boxW,boxH);
+      const s=Math.min(boxW/src.width,boxH/src.height,1);
+      const dw=Math.max(1,Math.round(src.width*s)), dh=Math.max(1,Math.round(src.height*s));
+      cx.imageSmoothingQuality="high"; cx.drawImage(src,Math.round((boxW-dw)/2),Math.round((boxH-dh)/2),dw,dh);
+      return c;
+    });
+    if(preview) boxed.push(ctaPageCanvas(boxW,boxH,title,(opts.buyUrl||"").trim()));
+    return boxed;
+  }
+  async function resultsToFlipbookHtml(results,title,opts,progress){
+    let q=clamp(int(els.quality.value,82),10,100)/100; if(!(q>0)) q=0.82;
+    const preview=!!(opts&&opts.preview);
+    const canvases=await flipbookPageCanvases(results,title,opts,1600,progress);
+    const urls=canvases.map(c=>c.toDataURL("image/jpeg",q));
     const tpl=flipbookTemplate();
     const safeTitle=(title||"Flipbook").replace(/[<>&\"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'\"':"&quot;"}[c]));
     let out=tpl.split("__TITLE__").join(safeTitle)
@@ -1115,14 +1133,12 @@
      half the storage per book, and pages lazy-load from the CDN while
      reading instead of downloading the whole book up front. */
   async function resultsToHostedPages(results,title,opts,progress){
-    const preview=!!(opts&&opts.preview);
-    const list=preview?results.slice(0,Math.max(1,(opts.previewPages||3))):results;
-    const wm=preview?((opts.wmText||"").trim()||"Preview"):null;
     let mime=WEBP_OK?"image/webp":"image/jpeg", q=WEBP_OK?HOST_Q_WEBP:HOST_Q_JPEG;
+    const canvases=await flipbookPageCanvases(results,title,opts,HOST_MAXW,progress);
     const blobs=[]; let cover=null;
-    for(let i=0;i<list.length;i++){
-      if(progress) progress(i/list.length,"Encoding page "+(i+1)+"/"+list.length);
-      const c=await renderPageCanvas(list[i].blob, HOST_MAXW, wm);
+    for(let i=0;i<canvases.length;i++){
+      if(progress) progress(i/canvases.length,"Encoding page "+(i+1)+"/"+canvases.length);
+      const c=canvases[i];
       let b=await canvasToBlob(c,mime,q);
       if(i===0){
         /* the WebP probe can lie on odd browsers — verify on the first page
@@ -1130,16 +1146,12 @@
         if(mime==="image/webp"&&(!b||b.type!=="image/webp")){ mime="image/jpeg"; q=HOST_Q_JPEG; b=await canvasToBlob(c,mime,q); }
         const cw=Math.min(COVER_W,c.width), ch=Math.max(1,Math.round(c.height*cw/c.width));
         const cc=document.createElement("canvas"); cc.width=cw; cc.height=ch;
-        const cx=cc.getContext("2d"); cx.imageSmoothingQuality="high"; cx.drawImage(c,0,0,cw,ch);
+        const cx=cc.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,cw,ch);
+        cx.imageSmoothingQuality="high"; cx.drawImage(c,0,0,cw,ch);
         cover=await canvasToBlob(cc,mime,0.72);
       }
       if(!b) throw new Error("Could not encode page "+(i+1)+" for hosting.");
       blobs.push(b);
-    }
-    if(preview&&list.length){
-      const pw=Math.min(HOST_MAXW,list[0].w||1000), ph=Math.round((list[0].h||1600)*pw/(list[0].w||1000));
-      const b=await canvasToBlob(ctaPageCanvas(pw,ph,title,(opts.buyUrl||"").trim()),mime,q);
-      if(b) blobs.push(b);
     }
     return { blobs:blobs, cover:cover, ext:mime==="image/webp"?"webp":"jpg", mime:mime };
   }
