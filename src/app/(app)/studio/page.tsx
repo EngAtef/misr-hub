@@ -23,6 +23,10 @@ interface HostedBook {
   isPublic?: boolean;
 }
 
+// Cache-buster for the embedded converter — bump when book-studio.html
+// changes so nobody generates books with a stale cached build.
+const STUDIO_V = "2026-07-19-book-layout";
+
 function fmtSize(bytes: number) {
   if (!bytes) return "—";
   const mb = bytes / 1048576;
@@ -550,7 +554,7 @@ export default function StudioPage() {
         title={t("studio")}
         subtitle={t("studioSubtitle")}
         actions={
-          <a href="/tools/book-studio.html" target="_blank" rel="noopener noreferrer" className="btn-secondary">
+          <a href={`/tools/book-studio.html?v=${STUDIO_V}`} target="_blank" rel="noopener noreferrer" className="btn-secondary">
             <Maximize2 size={16} />
             {t("openStudio")}
           </a>
@@ -558,7 +562,7 @@ export default function StudioPage() {
       />
 
       <div className="card overflow-hidden mb-6">
-        <iframe src="/tools/book-studio.html" title="Book Studio" className="w-full" style={{ height: "78vh", border: 0 }} />
+        <iframe src={`/tools/book-studio.html?v=${STUDIO_V}`} title="Book Studio" className="w-full" style={{ height: "78vh", border: 0 }} />
       </div>
 
       <div className="card p-5 mb-6">

@@ -588,7 +588,25 @@
 
   /* ============================ render a section ============================ */
   function rewriteCssUrls(css,cssDir){ return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g,(m,q,u)=>{ if(/^(data:|blob:|https?:|#)/i.test(u))return m; const b=getBlobURL(resolvePath(cssDir,u)); return b?'url("'+b+'")':m; }); }
-  async function buildSectionDoc(section){
+  /* ===================== book layout engine ===================== */
+  /* Reflowable EPUB text is re-typeset like a printed book page instead of
+     being captured with the EPUB's tiny device-tuned fonts on a huge canvas:
+     ~55-65 characters per line at a comfortable size, airy line height,
+     proper heading scale. This is what makes text books readable in the
+     flipbook and in exported images. */
+  const BOOK_W=800;
+  const BOOK_TYPO_CSS=[
+    "html{font-size:20px}",
+    "body{font-size:20px!important;line-height:1.85!important;padding:26px 40px!important;background:#fff!important;max-width:none!important;width:auto!important}",
+    "body p,body li,body dd,body dt,body blockquote,body td,body th,body figcaption,body div{font-size:20px!important;line-height:1.85!important}",
+    "body span,body a,body em,body strong,body b,body i,body u,body small{font-size:inherit!important;line-height:inherit!important}",
+    "body h1{font-size:33px!important;line-height:1.5!important;margin:20px 0 16px!important}",
+    "body h2{font-size:28px!important;line-height:1.5!important;margin:18px 0 14px!important}",
+    "body h3,body h4,body h5,body h6{font-size:24px!important;line-height:1.6!important;margin:16px 0 12px!important}",
+    "body p{margin:0 0 12px 0!important}",
+    "body img,body svg{max-width:100%!important;height:auto!important}"
+  ].join("\n");
+  async function buildSectionDoc(section,bookTypo){
     const html=await readText(section.full), baseDir=dirOf(section.full);
     const doc=new DOMParser().parseFromString(html,"text/html");
     doc.querySelectorAll("img[src]").forEach(img=>{ const b=getBlobURL(resolvePath(baseDir,img.getAttribute("src"))); if(b){ img.setAttribute("src",b); img.removeAttribute("srcset"); }});
@@ -598,12 +616,13 @@
     doc.querySelectorAll("style").forEach(st=>st.textContent=rewriteCssUrls(st.textContent,baseDir));
     const base=doc.createElement("style"); base.textContent="html,body{margin:0;padding:0;background:#fff;} img,svg{max-width:100%;height:auto;} .bp-page{position:relative;background:#fff;}";
     doc.head.insertBefore(base,doc.head.firstChild);
+    if(bookTypo){ const typo=doc.createElement("style"); typo.textContent=BOOK_TYPO_CSS; doc.head.appendChild(typo); }
     return "<!DOCTYPE html>"+doc.documentElement.outerHTML;
   }
   async function waitForImages(d){ await Promise.all([...d.images].map(img=>(img.complete&&img.naturalWidth>0)?Promise.resolve():new Promise(res=>{img.onload=img.onerror=()=>res();}))); }
-  async function loadStage(section,W){
+  async function loadStage(section,W,bookTypo){
     const ifr=els.stage; ifr.style.width=W+"px"; ifr.style.height="10px";
-    const docHtml=await buildSectionDoc(section);
+    const docHtml=await buildSectionDoc(section,bookTypo);
     await new Promise(res=>{ ifr.onload=()=>res(); ifr.srcdoc=docHtml; });
     const d=ifr.contentDocument; await waitForImages(d);
     try{ if(d.fonts&&d.fonts.ready) await Promise.race([d.fonts.ready,sleep(1500)]); }catch(e){}
@@ -704,11 +723,14 @@
     return cropCanvas(src,X,Y,W,H);
   }
 
-  /* Paginate one very tall capture into book-page slices (3:4-ish). Each cut
-     is placed on the emptiest pixel row near the page boundary — found on a
-     downsampled ink map — so a line of text is never sawn in half. */
+  /* Paginate one very tall capture into IDENTICAL book pages (3:4 portrait,
+     content top-anchored with an even margin, last page white-padded). Each
+     cut is placed on the emptiest pixel row near the page boundary — found
+     on a downsampled ink map — so a line of text is never sawn in half. */
   function sliceTallCanvas(canvas){
     const pageH=Math.round(canvas.width*1.33);
+    const pad=Math.round(pageH*0.035);
+    const innerH=pageH-pad*2;
     let ink=null, ratio=1;
     try{
       const SW=160; ratio=canvas.width/SW;
@@ -719,19 +741,22 @@
       for(let y=0;y<sc.height;y++){ let n=0; for(let x=0;x<SW;x++){ const i=(y*SW+x)*4; if(d[i]<235||d[i+1]<235||d[i+2]<235) n++; } ink[y]=n; }
     }catch(e){ ink=null; }
     const parts=[]; let sy=0, guard=0;
-    while(sy<canvas.height-40 && guard++<80){
-      let cut=Math.min(canvas.height, sy+pageH);
+    while(sy<canvas.height-20 && guard++<120){
+      let cut=Math.min(canvas.height, sy+innerH);
       if(ink && cut<canvas.height){
-        /* search the lower half of the page window for the lightest row */
+        /* search the lower part of the page window for the lightest row */
         let best=cut, bestInk=Infinity;
-        for(let y=sy+Math.round(pageH*0.6); y<=cut; y++){
+        for(let y=sy+Math.round(innerH*0.6); y<=cut; y++){
           const iy=Math.min(ink.length-1,Math.round(y/ratio));
           if(ink[iy]<bestInk){ bestInk=ink[iy]; best=y; }
         }
         cut=best;
       }
-      if(cut-sy<40) cut=Math.min(canvas.height,sy+pageH);
-      parts.push(cropCanvas(canvas,0,sy,canvas.width,cut-sy));
+      if(cut-sy<20) cut=Math.min(canvas.height,sy+innerH);
+      const page=document.createElement("canvas"); page.width=canvas.width; page.height=pageH;
+      const px=page.getContext("2d"); px.fillStyle="#ffffff"; px.fillRect(0,0,page.width,pageH);
+      px.drawImage(canvas,0,sy,canvas.width,cut-sy,0,pad,canvas.width,cut-sy);
+      parts.push(page);
       sy=cut;
     }
     return parts.length?parts:[canvas];
@@ -887,17 +912,22 @@
     const byGi=new Map();
     for(const sec of secOrder){
       const s=bk.sections[sec]; const list=bySec.get(sec);
-      let d; try{ d=await loadStage(s, bk.fixedLayout?Math.max(opts.W,int(await sectionViewport(s),opts.W)):opts.W); }catch(e){ continue; }
+      /* reflowable sections are staged through the book layout engine at
+         book width; the capture scale brings them back up to the requested
+         output resolution */
+      const textMode=!bk.fixedLayout;
+      let d; try{ d=await loadStage(s, textMode?BOOK_W:Math.max(opts.W,int(await sectionViewport(s),opts.W)), textMode); }catch(e){ continue; }
+      const capOpts=textMode?{...opts, W:BOOK_W, scale:clamp((opts.W*(opts.scale||1))/BOOK_W,1.25,2)}:opts;
       const useOpts={...opts, dontSplit:opts.dontSplit||bk.fixedLayout};
       let wraps=null, secCanvasFull=null;
-      if(opts.tiles && !bk.fixedLayout){ try{ secCanvasFull=await captureEl(d.body,opts); }catch(e){} }
+      if(opts.tiles && !bk.fixedLayout){ try{ secCanvasFull=await captureEl(d.body,capOpts); }catch(e){} }
       else { try{ wraps=splitIntoPages(d,useOpts);}catch(e){ wraps=[d.body]; } }
       for(const {p,gi} of list){
         if(progress) progress(done/total, "Rendering "+s.label+(p.half?(" ("+p.half+")"):"" ));
         let canvas=null, origBlob=null, origExt=null;
         try{
           if(opts.tiles && !bk.fixedLayout && secCanvasFull){
-            const step=Math.round(opts.tileH*opts.scale); const sy=p.idxInSec*step; const sh=Math.min(step,secCanvasFull.height-sy);
+            const step=Math.round(opts.tileH*(capOpts.scale||opts.scale)); const sy=p.idxInSec*step; const sh=Math.min(step,secCanvasFull.height-sy);
             canvas=cropCanvas(secCanvasFull,0,sy,secCanvasFull.width,Math.max(1,sh));
           } else {
             const w=(wraps&&wraps[p.idxInSec])?wraps[p.idxInSec]:d.body;
@@ -927,23 +957,24 @@
                 canvas=c;
               }catch(e){ canvas=null; }
             }
-            if(!canvas) canvas=await captureEl(w,opts);
+            if(!canvas) canvas=await captureEl(w,capOpts);
             if(p.half){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
           }
           /* any over-tall reflowable capture gets paginated into book pages,
              for EVERY output (images, e-commerce, flipbook, PDF): a chapter
              must never become one endless strip — unreadable in a viewer, and
              the WebP/canvas 16383px hard limit would truncate it anyway */
-          let parts=[canvas];
-          if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.6){
+          let parts=[canvas], laidOut=false;
+          if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.2){
             parts=sliceTallCanvas(canvas);
+            laidOut=true; /* pages are book-shaped with baked margins */
           }
           const outs=[];
           for(let pc of parts){
-            if(opts.trim) pc=trimCanvas(pc,opts);
+            if(opts.trim && !laidOut) pc=trimCanvas(pc,opts);
             if(p.rot) pc=rotateCanvas(pc,p.rot);
             const blob=await canvasToBlob(pc,opts.format,opts.format==="image/png"?undefined:opts.quality);
-            outs.push({name:"",blob,w:pc.width,h:pc.height,ext:extFromType(opts.format),p});
+            outs.push({name:"",blob,w:pc.width,h:pc.height,ext:extFromType(opts.format),p,laidOut});
           }
           byGi.set(gi,outs);
         }catch(e){ console.error("page failed",e); }
@@ -1124,7 +1155,9 @@
     const canvases=[];
     for(let i=0;i<list.length;i++){
       if(progress) progress(i/(list.length+1),"Rendering page "+(i+1)+"/"+list.length);
-      canvases.push(trimCanvas(await renderPageCanvas(list[i].blob,maxW,wm),trimOpts));
+      const src=await renderPageCanvas(list[i].blob,maxW,wm);
+      /* laid-out pages (paginated text) already carry their designed margins */
+      canvases.push(list[i].laidOut?src:trimCanvas(src,trimOpts));
     }
     if(!canvases.length) return canvases;
     const aspects=canvases.map(c=>c.width/Math.max(1,c.height)).sort((a,b)=>a-b);
@@ -1352,7 +1385,12 @@
     }
     let selected=orderedPages().filter(p=>p.selected);
     if(!selected.length){ showErr("Pick at least one page."); return; }
-    if(bundle==="flipbook" && opts.preview) selected=selected.slice(0,opts.previewPages);
+    if(bundle==="flipbook"){
+      /* the flipbook pipeline does its own per-book page box — a premature
+         uniform pass would only bake mismatched white bars into the pages */
+      opts.uniform=false;
+      if(opts.preview) selected=selected.slice(0,opts.previewPages);
+    }
     hideErr(); busy=true; els.generate.disabled=true; E("generateEcomBtn").disabled=true; els.progress.classList.add("show"); els.results.classList.remove("show");
     outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[]; els.gallery.innerHTML=""; resetEmbedPanel();
     try{
