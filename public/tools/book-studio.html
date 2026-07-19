@@ -297,7 +297,7 @@
             <select id="bgMode"><option value="white" selected>White</option><option value="transparent">Transparent</option><option value="custom">Custom</option></select>
             <input type="color" id="bgColor" value="#ffffff" style="display:none">
           </div>
-          <div class="check" style="margin-top:4px"><input type="checkbox" id="trim"><label for="trim">Trim surrounding whitespace</label></div>
+          <div class="check" style="margin-top:4px"><input type="checkbox" id="trim"><label for="trim">Trim surrounding whitespace (content-aware: ignores faint watermarks &amp; specks, keeps a small margin; always on for e-commerce export)</label></div>
           <p class="subhint">Auto-crop the blank margins so the page content fills the image edge to edge.</p>
         </div>
 
@@ -445,22 +445,7 @@
     });
     return set;
   }
-  function trimBBox(data,w,h,bg){
-    // bg: {r,g,b} to trim, or null => trim transparent pixels. tolerance 12.
-    const tol=14; let top=0,left=0,right=w-1,bottom=h-1; const at=(x,y)=>(y*w+x)*4;
-    const keep=(x,y)=>{ const i=at(x,y); const a=data[i+3];
-      if(!bg) return a>8;
-      if(a<8) return false;
-      return Math.abs(data[i]-bg.r)>tol||Math.abs(data[i+1]-bg.g)>tol||Math.abs(data[i+2]-bg.b)>tol;
-    };
-    let found=false;
-    outT: for(top=0; top<h; top++){ for(let x=0;x<w;x++){ if(keep(x,top)){found=true;break outT;} } }
-    if(!found) return {x:0,y:0,w,h,empty:true};
-    outB: for(bottom=h-1; bottom>=top; bottom--){ for(let x=0;x<w;x++){ if(keep(x,bottom)) break outB; } }
-    outL: for(left=0; left<w; left++){ for(let y=top;y<=bottom;y++){ if(keep(left,y)) break outL; } }
-    outR: for(right=w-1; right>=left; right--){ for(let y=top;y<=bottom;y++){ if(keep(right,y)) break outR; } }
-    return {x:left,y:top,w:Math.max(1,right-left+1),h:Math.max(1,bottom-top+1),empty:false};
-  }
+  /* trimBBox was replaced by the content-aware trimCanvas below */
   const hexToRgb=h=>{ h=(h||"#ffffff").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join(""); const n=parseInt(h,16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255}; };
 
   /* safe persistence (works when run as a local file; silently no-ops in restricted previews) */
@@ -654,7 +639,48 @@
   }
   function cropCanvas(src,x,y,w,h){ const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); c.getContext("2d").drawImage(src,Math.round(x),Math.round(y),Math.round(w),Math.round(h),0,0,c.width,c.height); return c; }
   function rotateCanvas(src,deg){ deg=((deg%360)+360)%360; if(!deg)return src; const c=document.createElement("canvas"); const swap=(deg===90||deg===270); c.width=swap?src.height:src.width; c.height=swap?src.width:src.height; const ctx=c.getContext("2d"); ctx.translate(c.width/2,c.height/2); ctx.rotate(deg*Math.PI/180); ctx.drawImage(src,-src.width/2,-src.height/2); return c; }
-  function trimCanvas(src,opts){ const ctx=src.getContext("2d"); let data; try{ data=ctx.getImageData(0,0,src.width,src.height).data; }catch(e){ return src; } const bg=opts.bgMode==="transparent"?null:hexToRgb(opts.bgMode==="custom"?opts.bgColor:"#ffffff"); const bb=trimBBox(data,src.width,src.height,bg); if(bb.empty||(bb.w>=src.width&&bb.h>=src.height)) return src; return cropCanvas(src,bb.x,bb.y,bb.w,bb.h); }
+  /* Content-aware trim — a designer's auto-crop without the designer:
+     - scans a downsampled copy (fast even on 3000px renders)
+     - a high opacity threshold ignores faint marks (light watermarks baked
+       into the PDF, paper tint) while keeping real light content
+     - rows/columns need a minimum density of content pixels, so stray
+       specks and dust can't block the crop
+     - the detected box gets a small even margin
+     - falls back to the untouched page whenever detection looks unsafe
+       (nearly-blank page, suspiciously tiny box, or nothing worth cropping) */
+  function trimCanvas(src,opts){
+    const SCAN_W=Math.min(400,src.width);
+    const ratio=src.width/SCAN_W, sh=Math.max(1,Math.round(src.height/ratio));
+    const sc=document.createElement("canvas"); sc.width=SCAN_W; sc.height=sh;
+    const sctx=sc.getContext("2d"); sctx.drawImage(src,0,0,SCAN_W,sh);
+    let data; try{ data=sctx.getImageData(0,0,SCAN_W,sh).data; }catch(e){ return src; }
+    const bg=opts.bgMode==="transparent"?null:hexToRgb(opts.bgMode==="custom"?opts.bgColor:"#ffffff");
+    const TOL=44;
+    const isContent=i=>{
+      const a=data[i+3];
+      if(!bg) return a>8;
+      if(a<8) return false;
+      return Math.abs(data[i]-bg.r)>TOL||Math.abs(data[i+1]-bg.g)>TOL||Math.abs(data[i+2]-bg.b)>TOL;
+    };
+    const rows=new Array(sh).fill(0), cols=new Array(SCAN_W).fill(0);
+    for(let y=0;y<sh;y++) for(let x=0;x<SCAN_W;x++){ if(isContent((y*SCAN_W+x)*4)){ rows[y]++; cols[x]++; } }
+    const minRow=Math.max(3,Math.round(SCAN_W*0.006)), minCol=Math.max(3,Math.round(sh*0.006));
+    let top=0,bottom=sh-1,left=0,right=SCAN_W-1;
+    while(top<sh && rows[top]<minRow) top++;
+    while(bottom>top && rows[bottom]<minRow) bottom--;
+    while(left<SCAN_W && cols[left]<minCol) left++;
+    while(right>left && cols[right]<minCol) right--;
+    if(top>=bottom||left>=right) return src;                          /* blank / undetectable */
+    if((bottom-top+1)*(right-left+1) < SCAN_W*sh*0.03) return src;    /* suspiciously tiny box */
+    const margin=Math.max(6,Math.round(Math.max(SCAN_W,sh)*0.025));
+    top=Math.max(0,top-margin); bottom=Math.min(sh-1,bottom+margin);
+    left=Math.max(0,left-margin); right=Math.min(SCAN_W-1,right+margin);
+    if((bottom-top+1)*(right-left+1) > SCAN_W*sh*0.96) return src;    /* nothing worth cropping */
+    const X=Math.round(left*ratio), Y=Math.round(top*ratio);
+    const W=Math.max(1,Math.min(src.width-X,Math.round((right-left+1)*ratio)));
+    const H=Math.max(1,Math.min(src.height-Y,Math.round((bottom-top+1)*ratio)));
+    return cropCanvas(src,X,Y,W,H);
+  }
 
   /* ============================ scan (per-page thumbnails) ============================ */
   function optsFromUI(){
@@ -1213,6 +1239,7 @@
          enough to load fast on the store. */
       opts.format="image/jpeg"; opts.quality=0.85; opts.bgMode="white";
       opts.useOriginal=false; opts.tiles=false;
+      opts.trim=true; /* auto-crop the page's built-in white margins */
       opts.uniform=true; opts.uniW=0; opts.uniH=1200; opts.aspectFit=true;
       opts.W=Math.min(opts.W,1400); opts.scale=Math.min(opts.scale||1,1.5);
     }
