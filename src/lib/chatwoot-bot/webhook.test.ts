@@ -104,30 +104,45 @@ test("agent_bot sender -> no reply (loop protection)", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
-test("within working hours: bot sends nothing, message routed to humans", async () => {
+test("within working hours: pending conversation is opened once, then handed to humans", async () => {
   const { ctx, rec } = makeCtx({ withinHours: () => true });
-  const res = await handleWebhook("secret-token", incoming("كام الشحن؟"), ctx);
+  const payload = {
+    ...incoming("كام الشحن؟"),
+    conversation: { id: 42, status: "pending" },
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
   assert.equal(res.status, 200);
   assert.equal(res.body.skipped, "working_hours");
   assert.equal(rec.sent.length, 0); // fully silent — the team replies
   assert.deepEqual(rec.opened, [42]);
-
-  // Follow-up messages stay silent too.
-  await handleWebhook("secret-token", incoming("طيب هستني"), ctx);
-  assert.equal(rec.sent.length, 0);
+  // toggle_status self-assigns the bot — must be cleared right away.
+  assert.deepEqual(rec.unassigned, [42]);
 });
 
-test("within hours: bot-owned conversation is handed back to the unassigned queue", async () => {
+test("within hours: open unassigned conversation is not touched at all (no churn)", async () => {
+  const { ctx, rec } = makeCtx({ withinHours: () => true });
+  const payload = {
+    ...incoming("طيب هستني"),
+    conversation: { id: 42, status: "open" },
+  };
+  const res = await handleWebhook("secret-token", payload, ctx);
+  assert.equal(res.body.skipped, "working_hours");
+  assert.equal(rec.sent.length, 0);
+  assert.deepEqual(rec.opened, []);     // already open — no toggle_status
+  assert.deepEqual(rec.unassigned, []); // nothing to hand back — no timeline noise
+});
+
+test("within hours: bot-owned open conversation is unassigned once, not reopened", async () => {
   const { ctx, rec } = makeCtx({ withinHours: () => true });
   const payload = {
     ...incoming("السلام عليكم"),
-    conversation: { id: 42, meta: { assignee: { id: 55 } } }, // assigned to the bot itself
+    conversation: { id: 42, status: "open", meta: { assignee: { id: 55 } } }, // assigned to the bot itself
   };
   const res = await handleWebhook("secret-token", payload, ctx);
   assert.equal(res.body.skipped, "working_hours");
   assert.equal(rec.sent.length, 0); // silent even while handing back
   assert.deepEqual(rec.unassigned, [42]); // handed back so agents see it
-  assert.deepEqual(rec.opened, [42]);
+  assert.deepEqual(rec.opened, []); // already open — reopening would re-self-assign the bot
 });
 
 test("within hours: a human agent's conversation is never unassigned", async () => {

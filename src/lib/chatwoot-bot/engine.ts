@@ -421,6 +421,7 @@ interface ChatwootPayload {
   attachments?: unknown[];
   conversation?: {
     id?: number;
+    status?: string;
     meta?: { assignee?: { id?: number } | null };
     custom_attributes?: Record<string, unknown>;
   };
@@ -493,16 +494,23 @@ export async function handleWebhook(
       await setAttrs({ order_number: details.orderNumber });
     }
 
-    // During working hours, humans answer — the bot sends nothing at all.
-    // Make sure the customer's message sits in the open queue; if the bot
-    // itself still owns the conversation (from an overnight chat), hand it
-    // back so agents see it.
+    // During working hours, humans answer — the bot sends nothing at all
+    // and touches the conversation only when it has to. Chatwoot
+    // auto-assigns a conversation to whoever calls toggle_status, so a
+    // blanket "open it" on every message caused an unassign/self-assign
+    // loop in the timeline. Open only when the conversation isn't open
+    // yet (agent-bot inboxes start conversations as "pending"), then
+    // immediately clear the self-assignment that open creates — unless a
+    // human agent owns the conversation, which the bot never touches.
     if (withinHours) {
-      if (assigneeId) {
-        const botId = await ctx.getBotAgentId();
-        if (botId && assigneeId === botId) await ctx.unassignConversation(convId);
+      const status = data.conversation?.status;
+      const botId = assigneeId ? await ctx.getBotAgentId() : null;
+      const humanAssigned = Boolean(assigneeId && (!botId || assigneeId !== botId));
+      if (assigneeId && !humanAssigned) await ctx.unassignConversation(convId);
+      if (status !== "open") {
+        await ctx.openConversation(convId);
+        if (!humanAssigned) await ctx.unassignConversation(convId);
       }
-      await ctx.openConversation(convId);
       ctx.log(`conv=${convId} skipped=working_hours`);
       return { status: 200, body: { ok: true, skipped: "working_hours" } };
     }
