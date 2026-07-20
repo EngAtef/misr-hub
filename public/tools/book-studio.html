@@ -581,7 +581,7 @@
   const BOOK_W=800;
   const BOOK_TYPO_CSS=[
     "html{font-size:20px}",
-    "body{font-size:20px!important;line-height:1.85!important;padding:26px 40px!important;background:#fff!important;max-width:none!important;width:auto!important}",
+    "body{font-size:20px!important;line-height:1.85!important;padding:8px 36px!important;background:#fff!important;max-width:none!important;width:auto!important}",
     "body p,body li,body dd,body dt,body blockquote,body td,body th,body figcaption,body div{font-size:20px!important;line-height:1.85!important}",
     "body span,body a,body em,body strong,body b,body i,body u,body small{font-size:inherit!important;line-height:inherit!important}",
     "body h1{font-size:33px!important;line-height:1.5!important;margin:20px 0 16px!important}",
@@ -642,8 +642,46 @@
   function bgFor(opts){ if(opts.bgMode==="transparent") return null; if(opts.bgMode==="custom") return opts.bgColor; return "#ffffff"; }
   async function captureEl(el,opts){
     const r=el.getBoundingClientRect();
-    const w=Math.max(1,Math.ceil(r.width)),h=Math.max(1,Math.ceil(r.height));
+    const w=Math.max(1,Math.ceil(r.width));
+    /* rect.height can be a line SHORTER than the painted content (margin
+       collapse, tight line-height) and would clip the last caption line —
+       honor scrollHeight too, plus a small descender pad; surplus white is
+       trimmed later by the layout engine */
+    const h=Math.max(1,Math.ceil(r.height),el.scrollHeight||0)+6;
     return await html2canvas(el,{ backgroundColor:bgFor(opts), scale:opts.scale, useCORS:true, logging:false, width:w, height:h, windowWidth:opts.W, windowHeight:h, scrollX:0, scrollY:0, x:0, y:0 });
+  }
+  /* capture an element that may be MUCH taller than the browser's ~32,767px
+     canvas ceiling (above it the browser silently returns an EMPTY canvas —
+     blank pages). Normal elements come back as [one canvas]; an over-tall
+     chapter is split at block (paragraph) boundaries into sequential chunk
+     wraps captured one by one at FULL scale, so long chapters stay sharp
+     instead of blank or scaled-down-blurry. Cuts land between blocks, so a
+     line of text is never sawn in half. */
+  async function captureTallEl(d,el,opts,onChunk){
+    const scale=opts.scale||1;
+    const cssH=Math.max(1,Math.ceil(el.getBoundingClientRect().height));
+    const budget=Math.floor(30000/scale);
+    if(cssH<=budget) return await captureEl(el,opts);
+    const kids=[...el.children];
+    if(kids.length<2) /* one unsplittable giant block — degrade gracefully */
+      return await captureEl(el,{...opts,scale:Math.max(0.5,Math.min(scale,30000/cssH))});
+    const groups=[]; let cur=[], curH=0;
+    kids.forEach(k=>{
+      const h=(k.getBoundingClientRect()||{}).height||0;
+      if(curH+h>budget && cur.length){ groups.push(cur); cur=[]; curH=0; }
+      cur.push(k); curH+=h;
+    });
+    if(cur.length) groups.push(cur);
+    for(const g of groups){
+      const div=d.createElement("div"); div.className="bp-chunk";
+      el.appendChild(div); g.forEach(k=>div.appendChild(k));
+      await raf2();
+      const h=Math.max(1,Math.ceil(div.getBoundingClientRect().height));
+      const sc=(h*scale>32000)?Math.max(0.5,30000/h):scale;
+      const cap=await captureEl(div,{...opts,scale:sc});
+      await onChunk(cap); /* chunk canvas is released before the next capture */
+    }
+    return null;
   }
   function cropCanvas(src,x,y,w,h){ const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); c.getContext("2d").drawImage(src,Math.round(x),Math.round(y),Math.round(w),Math.round(h),0,0,c.width,c.height); return c; }
   function rotateCanvas(src,deg){ deg=((deg%360)+360)%360; if(!deg)return src; const c=document.createElement("canvas"); const swap=(deg===90||deg===270); c.width=swap?src.height:src.width; c.height=swap?src.width:src.height; const ctx=c.getContext("2d"); ctx.translate(c.width/2,c.height/2); ctx.rotate(deg*Math.PI/180); ctx.drawImage(src,-src.width/2,-src.height/2); return c; }
@@ -656,12 +694,15 @@
      - the detected box gets a small even margin
      - falls back to the untouched page whenever detection looks unsafe
        (nearly-blank page, suspiciously tiny box, or nothing worth cropping) */
-  function trimCanvas(src,opts){
+  /* exact content bounding box (scan-space, no margin). Returns null when
+     detection is unsafe (blank page, unreadable canvas, or a suspiciously
+     tiny box). Shared by trimCanvas and the flipbook layout engine. */
+  function contentBox(src,opts){
     const SCAN_W=Math.min(400,src.width);
     const ratio=src.width/SCAN_W, sh=Math.max(1,Math.round(src.height/ratio));
     const sc=document.createElement("canvas"); sc.width=SCAN_W; sc.height=sh;
     const sctx=sc.getContext("2d"); sctx.drawImage(src,0,0,SCAN_W,sh);
-    let data; try{ data=sctx.getImageData(0,0,SCAN_W,sh).data; }catch(e){ return src; }
+    let data; try{ data=sctx.getImageData(0,0,SCAN_W,sh).data; }catch(e){ return null; }
     const TOL=44;
     let bg=opts.bgMode==="transparent"?null:hexToRgb(opts.bgMode==="custom"?opts.bgColor:"#ffffff");
     if(bg){
@@ -695,16 +736,41 @@
     while(bottom>top && rows[bottom]<minRow) bottom--;
     while(left<SCAN_W && cols[left]<minCol) left++;
     while(right>left && cols[right]<minCol) right--;
-    if(top>=bottom||left>=right) return src;                          /* blank / undetectable */
-    if((bottom-top+1)*(right-left+1) < SCAN_W*sh*0.03) return src;    /* suspiciously tiny box */
-    const margin=Math.max(6,Math.round(Math.max(SCAN_W,sh)*0.025));
-    top=Math.max(0,top-margin); bottom=Math.min(sh-1,bottom+margin);
-    left=Math.max(0,left-margin); right=Math.min(SCAN_W-1,right+margin);
-    if((bottom-top+1)*(right-left+1) > SCAN_W*sh*0.96) return src;    /* nothing worth cropping */
-    const X=Math.round(left*ratio), Y=Math.round(top*ratio);
-    const W=Math.max(1,Math.min(src.width-X,Math.round((right-left+1)*ratio)));
-    const H=Math.max(1,Math.min(src.height-Y,Math.round((bottom-top+1)*ratio)));
+    if(top>=bottom||left>=right) return null;                         /* blank / undetectable */
+    if((bottom-top+1)*(right-left+1) < SCAN_W*sh*0.03) return null;   /* suspiciously tiny box */
+    return {top,bottom,left,right,SCAN_W,sh,ratio};
+  }
+  function trimCanvas(src,opts){
+    const b=contentBox(src,opts);
+    if(!b) return src;
+    const margin=Math.max(6,Math.round(Math.max(b.SCAN_W,b.sh)*0.025));
+    const top=Math.max(0,b.top-margin), bottom=Math.min(b.sh-1,b.bottom+margin);
+    const left=Math.max(0,b.left-margin), right=Math.min(b.SCAN_W-1,b.right+margin);
+    if((bottom-top+1)*(right-left+1) > b.SCAN_W*b.sh*0.96) return src; /* nothing worth cropping */
+    const X=Math.round(left*b.ratio), Y=Math.round(top*b.ratio);
+    const W=Math.max(1,Math.min(src.width-X,Math.round((right-left+1)*b.ratio)));
+    const H=Math.max(1,Math.min(src.height-Y,Math.round((bottom-top+1)*b.ratio)));
     return cropCanvas(src,X,Y,W,H);
+  }
+  /* measure a page blob at scan size (≤400px) — true content box as
+     FRACTIONS of the page, so the compose pass can crop at any resolution.
+     Constant memory: one small canvas, nothing retained. Blank/undetectable
+     pages come back whole with blank:true so they never count as full-bleed. */
+  async function measureBlob(blob,trimOpts){
+    let im=null;
+    try{ im=await blobToImage(blob); }catch(e){ return {fx:0,fy:0,fw:1,fh:1,coverage:1,blank:true,w:1,h:1}; }
+    const w=im.naturalWidth||im.width||1, h=im.naturalHeight||im.height||1;
+    const sw=Math.min(400,w), sh=Math.max(1,Math.round(h*sw/w));
+    const c=document.createElement("canvas"); c.width=sw; c.height=sh;
+    const x=c.getContext("2d"); x.fillStyle="#ffffff"; x.fillRect(0,0,sw,sh); x.drawImage(im,0,0,sw,sh);
+    try{ URL.revokeObjectURL(im.src); }catch(e){}
+    const b=contentBox(c,trimOpts);
+    if(!b) return {fx:0,fy:0,fw:1,fh:1,coverage:1,blank:true,w,h};
+    const fx=b.left/b.SCAN_W, fy=b.top/b.sh;
+    const fw=(b.right-b.left+1)/b.SCAN_W, fh=(b.bottom-b.top+1)/b.sh;
+    const coverage=fw*fh;
+    if(coverage>0.985) return {fx:0,fy:0,fw:1,fh:1,coverage:1,blank:false,w,h};
+    return {fx,fy,fw,fh,coverage,blank:false,w,h};
   }
 
   /* Paginate one very tall capture into IDENTICAL book pages (3:4 portrait,
@@ -713,7 +779,9 @@
      on a downsampled ink map — so a line of text is never sawn in half. */
   function sliceTallCanvas(canvas){
     const pageH=Math.round(canvas.width*1.33);
-    const pad=Math.round(pageH*0.035);
+    /* 4.5% of the width — the SAME margin the flipbook layout engine gives
+       image pages, so text pages and picture pages line up perfectly */
+    const pad=Math.round(canvas.width*0.045);
     const innerH=pageH-pad*2;
     let ink=null, ratio=1;
     try{
@@ -728,11 +796,13 @@
     while(sy<canvas.height-20 && guard++<120){
       let cut=Math.min(canvas.height, sy+innerH);
       if(ink && cut<canvas.height){
-        /* search the lower part of the page window for the lightest row */
+        /* search the lower part of the page window for the lightest row —
+           ties go to the DEEPEST row (<=), so a paragraph gap high up can't
+           steal the cut and leave the page 40% empty */
         let best=cut, bestInk=Infinity;
         for(let y=sy+Math.round(innerH*0.6); y<=cut; y++){
           const iy=Math.min(ink.length-1,Math.round(y/ratio));
-          if(ink[iy]<bestInk){ bestInk=ink[iy]; best=y; }
+          if(ink[iy]<=bestInk){ bestInk=ink[iy]; best=y; }
         }
         cut=best;
       }
@@ -908,7 +978,7 @@
       else { try{ wraps=splitIntoPages(d,useOpts);}catch(e){ wraps=[d.body]; } }
       for(const {p,gi} of list){
         if(progress) progress(done/total, "Rendering "+s.label+(p.half?(" ("+p.half+")"):"" ));
-        let canvas=null, origBlob=null, origExt=null;
+        let canvas=null, origBlob=null, origExt=null, chunkParts=null;
         try{
           if(opts.tiles && !bk.fixedLayout && secCanvasFull){
             const step=Math.round(opts.tileH*(capOpts.scale||opts.scale)); const sy=p.idxInSec*step; const sh=Math.min(step,secCanvasFull.height-sy);
@@ -941,17 +1011,25 @@
                 canvas=c;
               }catch(e){ canvas=null; }
             }
-            if(!canvas) canvas=await captureEl(w,capOpts);
-            if(p.half){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
+            if(!canvas && !chunkParts){
+              const acc=[];
+              const one=await captureTallEl(d,w,capOpts,async cp=>{ acc.push(...sliceTallCanvas(cp)); });
+              if(one) canvas=one; else chunkParts=acc;
+            }
+            if(p.half&&canvas){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
           }
           /* any over-tall reflowable capture gets paginated into book pages,
              for EVERY output (images, e-commerce, flipbook, PDF): a chapter
              must never become one endless strip — unreadable in a viewer, and
              the WebP/canvas 16383px hard limit would truncate it anyway */
-          let parts=[canvas], laidOut=false;
-          if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.2){
-            parts=sliceTallCanvas(canvas);
-            laidOut=true; /* pages are book-shaped with baked margins */
+          let parts, laidOut=false;
+          if(chunkParts){ parts=chunkParts; laidOut=true; }
+          else {
+            parts=[canvas];
+            if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.2){
+              parts=sliceTallCanvas(canvas);
+              laidOut=true; /* pages are book-shaped with baked margins */
+            }
           }
           const outs=[];
           for(let pc of parts){
@@ -1022,7 +1100,9 @@
       for(let i=0;i<ordered.length;i++){ if(progress) progress(i/ordered.length,"Standardising sizes "+(i+1)+"/"+ordered.length);
         const r=ordered[i]; const c=document.createElement("canvas"); c.width=tW;c.height=tH; const ctx=c.getContext("2d");
         if(opts.bgMode!=="transparent"){ ctx.fillStyle=(opts.bgMode==="custom"?opts.bgColor:"#ffffff"); ctx.fillRect(0,0,tW,tH); }
-        const img=await blobToImage(r.blob); const sc=Math.min(tW/r.w,tH/r.h,1); const dw=Math.round(r.w*sc),dh=Math.round(r.h*sc);
+        /* scale UP as well as down (capped 3×) so a small page fills the
+           frame like every other page instead of floating tiny in white */
+        const img=await blobToImage(r.blob); const sc=Math.min(tW/r.w,tH/r.h,3); const dw=Math.round(r.w*sc),dh=Math.round(r.h*sc);
         ctx.imageSmoothingQuality="high"; ctx.drawImage(img,Math.round((tW-dw)/2),Math.round((tH-dh)/2),dw,dh);
         const blob=await canvasToBlob(c,opts.format,opts.format==="image/png"?undefined:opts.quality);
         finalArr.push({blob,w:tW,h:tH,ext:extFromType(opts.format),p:r.p});
@@ -1126,45 +1206,82 @@
     const bar='<a href="'+safe+'" target="_top" rel="noopener" style="position:fixed;bottom:72px;right:16px;z-index:50;background:linear-gradient(92deg,#f59e0b,#fbb43a);color:#3a2602;font-weight:800;font-family:-apple-system,\'Segoe UI\',Tahoma,Arial,sans-serif;font-size:14px;padding:11px 18px;border-radius:999px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.35)">🛒 احصل على الكتاب كاملاً</a>';
     return html.replace("</body>", bar+"\n</body>");
   }
-  /* Shared flipbook page pipeline (hosted + downloaded): render each page,
-     trim excess surrounding margins (content-aware, safe fallbacks), then
-     fit every page into ONE per-book page box (median aspect of the trimmed
-     pages) — so the reader never jumps between page sizes and margins don't
-     eat the screen. */
-  async function flipbookPageCanvases(results,title,opts,maxW,progress){
+  /* ===================== unified page layout engine =====================
+     ONE design for every book and every page (hosted + downloaded):
+     1. every rendered page is measured and cropped to its TRUE content box
+        (content-aware detector, safe fallbacks — same as trim);
+     2. the book gets ONE standard frame: the dominant content shape snapped
+        to portrait 3:4, square 1:1, or landscape 4:3 — so the whole library
+        shares the same look instead of a different box per book;
+     3. every page's content is scaled UP as well as down (capped at 3× so a
+        thumbnail never turns to mush) to fill the frame behind one uniform
+        4.5% margin, and centered — no more tiny pages floating in a sea of
+        white next to edge-to-edge pages;
+     4. photo books (most pages are full-bleed illustrations) keep their
+        edge-to-edge look: the margin is dropped for the WHOLE book, never
+        per page, so the design stays consistent inside the book;
+     5. laid-out text pages (paginated chapters) carry the same 4.5% margin
+        baked in, so they fill the frame directly and line up with image
+        pages. */
+  async function flipbookComposePages(results,title,opts,maxW,progress,sink){
     const preview=!!(opts&&opts.preview);
     const list=preview?results.slice(0,Math.max(1,(opts.previewPages||3))):results;
     const wm=preview?((opts.wmText||"").trim()||"Preview"):null;
     const trimOpts={bgMode:"white",bgColor:"#ffffff"};
-    const canvases=[];
+    /* pass 1 — measure every page at scan size. Constant memory: books can
+       run to hundreds of pages, and holding full-res canvases for all of
+       them blows the browser's canvas budget (pages silently turn black). */
+    const meas=[];
     for(let i=0;i<list.length;i++){
-      if(progress) progress(i/(list.length+1),"Rendering page "+(i+1)+"/"+list.length);
-      const src=await renderPageCanvas(list[i].blob,maxW,wm);
-      /* laid-out pages (paginated text) already carry their designed margins */
-      canvases.push(list[i].laidOut?src:trimCanvas(src,trimOpts));
+      if(progress) progress(0.2*i/list.length,"Measuring page "+(i+1)+"/"+list.length);
+      if(list[i].laidOut){ meas.push({laidOut:true,fx:0,fy:0,fw:1,fh:1,w:list[i].w||900,h:list[i].h||1200,full:false}); continue; }
+      const m=await measureBlob(list[i].blob,trimOpts);
+      m.laidOut=false; m.full=!m.blank&&m.coverage>=0.90;
+      meas.push(m);
     }
-    if(!canvases.length) return canvases;
-    const aspects=canvases.map(c=>c.width/Math.max(1,c.height)).sort((a,b)=>a-b);
-    const asp=clamp(aspects[aspects.length>>1]||0.75,0.5,1.6);
-    const boxW=Math.min(maxW,Math.max(...canvases.map(c=>c.width)));
+    if(!meas.length) return 0;
+    /* the book's ONE frame: dominant content shape, snapped to a standard */
+    const aspects=meas.map(m=>m.laidOut?0.75:(m.fw*m.w)/Math.max(1,m.fh*m.h)).sort((a,b)=>a-b);
+    const med=aspects[aspects.length>>1]||0.75;
+    const asp=med<=0.85?0.75:(med<=1.15?1:4/3);
+    const widths=meas.map(m=>Math.round(Math.min(m.w,maxW)*m.fw)).sort((a,b)=>a-b);
+    const boxW=clamp(Math.round(widths[Math.min(widths.length-1,Math.floor(widths.length*0.75))]||900),900,maxW);
     const boxH=Math.max(1,Math.round(boxW/asp));
-    const boxed=canvases.map(src=>{
-      if(src.width===boxW&&src.height===boxH) return src;
+    const nonLaid=meas.filter(m=>!m.laidOut);
+    const photoBook=nonLaid.length>0 && nonLaid.filter(m=>m.full).length>=nonLaid.length*0.6;
+    /* photo books keep a hairline 2% frame (reads as a paper edge and stops
+       captions sitting flush on the cut); document books get the full 4.5% */
+    const M=photoBook?Math.round(boxW*0.02):Math.round(boxW*0.045);
+    const total=list.length+(preview?1:0);
+    /* pass 2 — compose ONE page at a time and hand it straight to the sink
+       (encode + drop), so only a single full-res canvas is ever alive */
+    for(let i=0;i<list.length;i++){
+      if(progress) progress(0.2+0.8*i/total,"Composing page "+(i+1)+"/"+total);
+      const src=await renderPageCanvas(list[i].blob,maxW,wm);
+      const mi=meas[i];
+      let content=src;
+      if(!mi.laidOut && (mi.fw<0.999||mi.fh<0.999)){
+        content=cropCanvas(src,Math.round(mi.fx*src.width),Math.round(mi.fy*src.height),
+          Math.max(1,Math.round(mi.fw*src.width)),Math.max(1,Math.round(mi.fh*src.height)));
+      }
       const c=document.createElement("canvas"); c.width=boxW; c.height=boxH;
       const cx=c.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,boxW,boxH);
-      const s=Math.min(boxW/src.width,boxH/src.height,1);
-      const dw=Math.max(1,Math.round(src.width*s)), dh=Math.max(1,Math.round(src.height*s));
-      cx.imageSmoothingQuality="high"; cx.drawImage(src,Math.round((boxW-dw)/2),Math.round((boxH-dh)/2),dw,dh);
-      return c;
-    });
-    if(preview) boxed.push(ctaPageCanvas(boxW,boxH,title,(opts.buyUrl||"").trim()));
-    return boxed;
+      cx.imageSmoothingQuality="high";
+      const m=mi.laidOut?0:M, aw=boxW-2*m, ah=boxH-2*m;
+      const s=Math.min(aw/content.width,ah/content.height,3);
+      const dw=Math.max(1,Math.round(content.width*s)), dh=Math.max(1,Math.round(content.height*s));
+      cx.drawImage(content,Math.round((boxW-dw)/2),Math.round((boxH-dh)/2),dw,dh);
+      await sink(c,i,total);
+      if(i%10===9) await sleep(1); /* let GC breathe on long books */
+    }
+    if(preview) await sink(ctaPageCanvas(boxW,boxH,title,(opts.buyUrl||"").trim()),list.length,total);
+    return total;
   }
   async function resultsToFlipbookHtml(results,title,opts,progress){
     let q=clamp(int(els.quality.value,82),10,100)/100; if(!(q>0)) q=0.82;
     const preview=!!(opts&&opts.preview);
-    const canvases=await flipbookPageCanvases(results,title,opts,1600,progress);
-    const urls=canvases.map(c=>c.toDataURL("image/jpeg",q));
+    const urls=[];
+    await flipbookComposePages(results,title,opts,1600,progress,async c=>{ urls.push(c.toDataURL("image/jpeg",q)); });
     const tpl=flipbookTemplate();
     const safeTitle=(title||"Flipbook").replace(/[<>&\"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'\"':"&quot;"}[c]));
     let out=tpl.split("__TITLE__").join(safeTitle)
@@ -1182,11 +1299,8 @@
      reading instead of downloading the whole book up front. */
   async function resultsToHostedPages(results,title,opts,progress){
     let mime=WEBP_OK?"image/webp":"image/jpeg", q=WEBP_OK?HOST_Q_WEBP:HOST_Q_JPEG;
-    const canvases=await flipbookPageCanvases(results,title,opts,HOST_MAXW,progress);
     const blobs=[]; let cover=null;
-    for(let i=0;i<canvases.length;i++){
-      if(progress) progress(i/canvases.length,"Encoding page "+(i+1)+"/"+canvases.length);
-      const c=canvases[i];
+    await flipbookComposePages(results,title,opts,HOST_MAXW,progress,async (c,i)=>{
       let b=await canvasToBlob(c,mime,q);
       if(i===0){
         /* the WebP probe can lie on odd browsers — verify on the first page
@@ -1200,7 +1314,7 @@
       }
       if(!b) throw new Error("Could not encode page "+(i+1)+" for hosting.");
       blobs.push(b);
-    }
+    });
     return { blobs:blobs, cover:cover, ext:mime==="image/webp"?"webp":"jpg", mime:mime };
   }
   async function uploadFlipbookV2(hp,filename,title,opts,progress,searchText){
@@ -1460,6 +1574,7 @@
   async function hostAllBooks(){
     if(busy||!batch) return; busy=true; E("batchHostBtn").disabled=true; E("batchExportBtn").disabled=true;
     const opts=optsFromUI();
+    opts.uniform=false; /* the flipbook layout engine builds its own frame */
     const prog=(f,t)=>{ E("bbar").style.width=Math.round(f*100)+"%"; E("bptext").textContent=t; };
     E("bprog").classList.add("show"); E("batchEmbeds").innerHTML="";
     const hosted=[];
@@ -1505,6 +1620,7 @@
   async function exportBatch(){
     if(busy) return; busy=true; E("batchExportBtn").disabled=true;
     const opts=optsFromUI(); const z=new JSZip();
+    if(bundle==="flipbook") opts.uniform=false; /* the flipbook layout engine builds its own frame */
     const prog=(f,t)=>{ E("bbar").style.width=Math.round(f*100)+"%"; E("bptext").textContent=t; };
     E("bprog").classList.add("show");
     try{
