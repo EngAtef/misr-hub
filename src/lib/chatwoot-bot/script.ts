@@ -516,13 +516,11 @@ export const INTENTS: Record<string, Intent> = {
         ar:
           "🚫 *الإضافة أو التعديل على طلب مؤكد*\n\n" +
           "للأسف مش متاح تعديل الطلب أو الإضافة عليه بعد تأكيده 🙏\n" +
-          "الحل: *تلغي الطلب الحالي وتعمل طلب جديد* بكل المنتجات اللي محتاجها.\n\n" +
-          "ولو مش قادر تلغي الطلب، اكتب *مش قادر ألغي* وهقولك الحل.",
+          "الحل: *تلغي الطلب الحالي وتعمل طلب جديد* بكل المنتجات اللي محتاجها.",
         en:
           "🚫 *Adding to or changing a confirmed order*\n\n" +
           "Unfortunately an order can't be changed or added to once it's placed 🙏\n" +
-          "The solution: *cancel the current order and place a new one* with everything you need.\n\n" +
-          "If you can't cancel it, reply *can't cancel* and I'll tell you what to do.",
+          "The solution: *cancel the current order and place a new one* with everything you need.",
       },
     },
   },
