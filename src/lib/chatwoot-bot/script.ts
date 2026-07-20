@@ -464,26 +464,67 @@ export const INTENTS: Record<string, Intent> = {
     title_en: "Cancel order",
     open: true,
     keywords_ar: ["الغي", "الغاء", "يلغي", "تلغي", "الغيه", "كنسل", "الغي الاوردر",
-      "الغي الطلب", "الغاء الطلب", "الغاء الاوردر", "اعدل", "تعديل", "اغير"],
-    keywords_en: ["cancel", "cancellation", "cancel my order", "cancel order", "modify", "change my order"],
+      "الغي الطلب", "الغاء الطلب", "الغاء الاوردر", "اعدل", "تعديل", "اغير",
+      "اضيف", "اضيف عليه", "ازود", "ازود عليه", "اضافه",
+      "مش قادر الغي", "مش عارف الغي", "معرفش الغي", "مقدرتش الغي"],
+    keywords_en: ["cancel", "cancellation", "cancel my order", "cancel order", "modify", "change my order",
+      "add to my order", "add another", "add more", "add item", "add a book", "add a product",
+      "edit my order", "edit order",
+      "cant cancel", "can't cancel", "cannot cancel", "unable to cancel", "not able to cancel"],
     ar:
-      "🚫 *إلغاء أو تعديل طلب*\n\n" +
+      "🚫 *إلغاء طلب*\n\n" +
       "تمام، هسجّل طلبك للفريق. علشان نظبطها بسرعة، من فضلك اكتب في رسالة واحدة:\n" +
       "• *رقم الطلب*\n" +
       "• *رقم الهاتف*\n" +
-      "• التعديل المطلوب أو سبب الإلغاء (اختياري)\n\n" +
+      "• سبب الإلغاء (اختياري)\n\n" +
       "الفريق هيتواصل معاك أول ما الدوام يبدأ (الأحد – الخميس، 9 ص – 6 م). " +
       `وللأمور العاجلة: الخط الساخن ${HOTLINE}.\n\n` +
-      "ملحوظة: لو الطلب وصلك بالفعل، تقدر تسترجعه خلال 14 يوم — اكتب *3* للتفاصيل.",
+      "ملحوظة: مش متاح تعديل الطلب بعد تأكيده — تقدر تلغيه وتعمل طلب جديد. " +
+      "ولو الطلب وصلك بالفعل، تقدر تسترجعه خلال 14 يوم — اكتب *3* للتفاصيل.",
     en:
-      "🚫 *Cancel or change an order*\n\n" +
+      "🚫 *Cancel an order*\n\n" +
       "Got it — I'm flagging this for the team. To sort it quickly, please send in one message:\n" +
       "• *Order number*\n" +
       "• *Phone number*\n" +
-      "• The change you need, or the reason (optional)\n\n" +
+      "• The reason (optional)\n\n" +
       "The team will contact you as soon as we're back (Sun–Thu, 9 AM – 6 PM). " +
       `Urgent? Hotline ${HOTLINE}.\n\n` +
-      "Note: if the order already arrived, you can return it within 14 days — reply *3* for details.",
+      "Note: orders can't be changed once placed — you can cancel and place a new one. " +
+      "If the order already arrived, you can return it within 14 days — reply *3* for details.",
+    variants: {
+      // "I can't cancel it" — checked first so it wins over generic modify words.
+      cant_cancel: {
+        keywords_ar: ["مش قادر الغي", "مش قادره الغي", "مش عارف الغي", "مش عارفه الغي",
+          "معرفش الغي", "مقدرتش الغي", "مش راضي يتلغي", "مفيش الغاء", "مش لاقي الغاء"],
+        keywords_en: ["cant cancel", "can't cancel", "cannot cancel", "unable to cancel",
+          "not able to cancel", "wont let me cancel", "won't let me cancel"],
+        ar:
+          "🚚 *لو مش قادر تلغي الطلب*\n\n" +
+          "استنى مكالمة مندوب الشحن، ولما يتواصل معاك *ارفض استلام الشحنة*، " +
+          "وبعدها اعمل طلب جديد بكل المنتجات اللي محتاجها.",
+        en:
+          "🚚 *If you can't cancel the order*\n\n" +
+          "Wait for the courier's call and *refuse the shipment* when they contact you, " +
+          "then place a new order with everything you need.",
+      },
+      // "add to / change my existing order" — policy: not possible after checkout.
+      modify: {
+        keywords_ar: ["اضيف", "اضيف عليه", "ازود", "اضافه", "اعدل", "تعديل", "اغير",
+          "عايز اضيف", "عايزه اضيف"],
+        keywords_en: ["add", "add to my order", "add another", "add more", "add item",
+          "add a book", "add a product", "edit", "modify", "change my order"],
+        ar:
+          "🚫 *الإضافة أو التعديل على طلب مؤكد*\n\n" +
+          "للأسف مش متاح تعديل الطلب أو الإضافة عليه بعد تأكيده 🙏\n" +
+          "الحل: *تلغي الطلب الحالي وتعمل طلب جديد* بكل المنتجات اللي محتاجها.\n\n" +
+          "ولو مش قادر تلغي الطلب، اكتب *مش قادر ألغي* وهقولك الحل.",
+        en:
+          "🚫 *Adding to or changing a confirmed order*\n\n" +
+          "Unfortunately an order can't be changed or added to once it's placed 🙏\n" +
+          "The solution: *cancel the current order and place a new one* with everything you need.\n\n" +
+          "If you can't cancel it, reply *can't cancel* and I'll tell you what to do.",
+      },
+    },
   },
   // greet/thanks have no menu digit and sit last so real topics win score ties.
   greet: {

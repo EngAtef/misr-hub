@@ -266,6 +266,26 @@ test("malformed payload -> 200, nothing sent", async () => {
   assert.equal(rec.sent.length, 0);
 });
 
+test("add-to-order gets the no-edits policy: cancel and reorder", async () => {
+  const { ctx, rec } = makeCtx();
+  // Real customer message from Chatwoot.
+  const res = await handleWebhook("secret-token", incoming("عملت اوردر وعايزه أضيف عليه حاجه قبل الشحن"), ctx);
+  assert.equal(res.body.intent, "cancel");
+  assert.ok(rec.sent[0].content.includes("مش متاح تعديل الطلب"));
+  assert.ok(rec.sent[0].content.includes("تعمل طلب جديد"));
+
+  // Follow-up "I can't cancel it" → refuse the shipment on the courier's call.
+  await handleWebhook("secret-token", incoming("مش قادر الغيه"), ctx);
+  assert.ok(rec.sent[1].content.includes("ارفض استلام الشحنة"));
+  assert.ok(rec.sent[1].content.includes("مندوب الشحن"));
+});
+
+test("English can't-cancel gets the refuse-shipment answer", async () => {
+  const { ctx, rec } = makeCtx();
+  await handleWebhook("secret-token", incoming("i can't cancel my order, what do I do?"), ctx);
+  assert.ok(rec.sent[0].content.includes("refuse the shipment"));
+});
+
 test("cancel intent replies, labels, unassigns, and opens the conversation", async () => {
   const { ctx, rec } = makeCtx();
   const res = await handleWebhook("secret-token", incoming("عايزه الغي"), ctx);

@@ -57,6 +57,11 @@ const CASES: Array<[string, string | null]> = [
   ["عايزه الغي", "cancel"],       // real customer message that used to hit fallback
   ["عايز الغي الاوردر", "cancel"], // must beat track on "الاوردر"
   ["cancel my order please", "cancel"],
+  // Real customer message: add to an existing order — must beat shipping
+  // ("الشحن") and track ("اوردر") on score.
+  ["عملت اوردر وعايزه أضيف عليه حاجه قبل الشحن", "cancel"],
+  ["مش قادر الغيه", "cancel"],
+  ["i can't cancel my order", "cancel"],
   // Bare order number → tracking, not "I don't understand"
   ["٢٢٠٠٢", "track"],              // real customer message (Arabic-Indic digits)
   ["22002", "track"],
