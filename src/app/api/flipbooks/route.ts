@@ -199,6 +199,7 @@ export async function GET(request: NextRequest) {
       category: b.category,
       buyUrl: b.buyUrl,
       isPublic: b.isPublic,
+      createdBy: b.createdBy,
     };
   });
 

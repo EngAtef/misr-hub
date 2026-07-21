@@ -21,11 +21,12 @@ interface HostedBook {
   category?: string | null;
   buyUrl?: string | null;
   isPublic?: boolean;
+  createdBy?: string | null;
 }
 
 // Cache-buster for the embedded converter — bump when book-studio.html
 // changes so nobody generates books with a stale cached build.
-const STUDIO_V = "2026-07-20-layout-engine";
+const STUDIO_V = "2026-07-21-page-select";
 
 function fmtSize(bytes: number) {
   if (!bytes) return "—";
@@ -118,36 +119,115 @@ function sliceStrips(canvas: HTMLCanvasElement): HTMLCanvasElement[] {
   return parts.length ? parts : [canvas];
 }
 
-// Fit every page into one per-book page box (median aspect) so the viewer
-// never jumps between page sizes. Returns changed=false when the book is
-// already uniform.
-function boxAll(list: HTMLCanvasElement[]): { list: HTMLCanvasElement[]; changed: boolean } {
-  if (list.length === 0) return { list, changed: false };
-  if (list.every((c) => c.width === list[0].width && c.height === list[0].height)) {
-    return { list, changed: false };
+// ===== unified layout engine — mirror of Book Studio's flipbookComposePages =====
+// Hosted manifests are stamped with layoutV; repair re-lays out any book whose
+// stamp is older than this, so "healthy" genuinely means "matches the current
+// layout engine", not just "pages are the same size".
+const LAYOUT_V = 3;
+
+interface PageMeasure {
+  w: number; h: number;
+  strip: boolean; // endless-scroll chapter, needs pagination
+  fx: number; fy: number; fw: number; fh: number; // content box, fractions
+  coverage: number; blank: boolean;
+}
+
+// Measure one hosted page at scan size (≤400px) — constant memory, so books
+// with hundreds of pages can be checked without holding full-res canvases.
+async function measureSrc(src: string): Promise<PageMeasure> {
+  const img = new Image();
+  if (!src.startsWith("data:")) img.crossOrigin = "anonymous";
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("could not decode a page image"));
+    img.src = src;
+  });
+  const w = Math.max(1, img.naturalWidth);
+  const h = Math.max(1, img.naturalHeight);
+  const strip = h > w * 2.2;
+  const sw = Math.min(400, w);
+  const sh = Math.max(1, Math.round((h * sw) / w));
+  const c = document.createElement("canvas");
+  c.width = sw;
+  c.height = sh;
+  const x = c.getContext("2d")!;
+  x.fillStyle = "#ffffff";
+  x.fillRect(0, 0, sw, sh);
+  x.drawImage(img, 0, 0, sw, sh);
+  let data: Uint8ClampedArray;
+  try {
+    data = x.getImageData(0, 0, sw, sh).data;
+  } catch {
+    return { w, h, strip, fx: 0, fy: 0, fw: 1, fh: 1, coverage: 1, blank: true };
   }
-  const aspects = list.map((c) => c.width / Math.max(1, c.height)).sort((a, b) => a - b);
-  const asp = Math.min(1.6, Math.max(0.5, aspects[aspects.length >> 1] || 0.75));
-  const boxW = Math.min(2000, Math.max(...list.map((c) => c.width)));
+  const TOL = 44; // hosted pages were composed on white — plain white test
+  const rows = new Array(sh).fill(0);
+  const cols = new Array(sw).fill(0);
+  for (let y = 0; y < sh; y++)
+    for (let xx = 0; xx < sw; xx++) {
+      const i = (y * sw + xx) * 4;
+      if (data[i] < 255 - TOL || data[i + 1] < 255 - TOL || data[i + 2] < 255 - TOL) {
+        rows[y]++;
+        cols[xx]++;
+      }
+    }
+  const minRow = Math.max(3, Math.round(sw * 0.006));
+  const minCol = Math.max(3, Math.round(sh * 0.006));
+  let top = 0, bottom = sh - 1, left = 0, right = sw - 1;
+  while (top < sh && rows[top] < minRow) top++;
+  while (bottom > top && rows[bottom] < minRow) bottom--;
+  while (left < sw && cols[left] < minCol) left++;
+  while (right > left && cols[right] < minCol) right--;
+  if (top >= bottom || left >= right || (bottom - top + 1) * (right - left + 1) < sw * sh * 0.03) {
+    return { w, h, strip, fx: 0, fy: 0, fw: 1, fh: 1, coverage: 1, blank: true };
+  }
+  const fx = left / sw, fy = top / sh;
+  const fw = (right - left + 1) / sw, fh = (bottom - top + 1) / sh;
+  const coverage = fw * fh;
+  if (coverage > 0.985) return { w, h, strip, fx: 0, fy: 0, fw: 1, fh: 1, coverage: 1, blank: false };
+  return { w, h, strip, fx, fy, fw, fh, coverage, blank: false };
+}
+
+// The book's ONE frame: dominant content shape snapped to 3:4 / 1:1 / 4:3,
+// uniform margin (4.5% documents, hairline 2% for photo books).
+function frameFor(metas: PageMeasure[]): { boxW: number; boxH: number; margin: number } {
+  const aspects = metas
+    .map((m) => (m.strip ? 0.75 : (m.fw * m.w) / Math.max(1, m.fh * m.h)))
+    .sort((a, b) => a - b);
+  const med = aspects[aspects.length >> 1] || 0.75;
+  const asp = med <= 0.85 ? 0.75 : med <= 1.15 ? 1 : 4 / 3;
+  const widths = metas
+    .map((m) => Math.round(Math.min(m.w, 2000) * (m.strip ? 1 : m.fw)))
+    .sort((a, b) => a - b);
+  const boxW = Math.min(2000, Math.max(900, widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.75))] || 900));
   const boxH = Math.max(1, Math.round(boxW / asp));
-  return {
-    changed: true,
-    list: list.map((src) => {
-      if (src.width === boxW && src.height === boxH) return src;
-      const c = document.createElement("canvas");
-      c.width = boxW;
-      c.height = boxH;
-      const x = c.getContext("2d")!;
-      x.fillStyle = "#ffffff";
-      x.fillRect(0, 0, boxW, boxH);
-      const s = Math.min(boxW / src.width, boxH / src.height, 1);
-      const dw = Math.max(1, Math.round(src.width * s));
-      const dh = Math.max(1, Math.round(src.height * s));
-      x.imageSmoothingQuality = "high";
-      x.drawImage(src, Math.round((boxW - dw) / 2), Math.round((boxH - dh) / 2), dw, dh);
-      return c;
-    }),
-  };
+  const nonStrip = metas.filter((m) => !m.strip);
+  const photo =
+    nonStrip.length > 0 && nonStrip.filter((m) => !m.blank && m.coverage >= 0.9).length >= nonStrip.length * 0.6;
+  const margin = Math.round(boxW * (photo ? 0.02 : 0.045));
+  return { boxW, boxH, margin };
+}
+
+function composePage(
+  content: HTMLCanvasElement,
+  frame: { boxW: number; boxH: number; margin: number },
+  topAnchor: boolean
+): HTMLCanvasElement {
+  const { boxW, boxH, margin } = frame;
+  const c = document.createElement("canvas");
+  c.width = boxW;
+  c.height = boxH;
+  const x = c.getContext("2d")!;
+  x.fillStyle = "#ffffff";
+  x.fillRect(0, 0, boxW, boxH);
+  const aw = boxW - 2 * margin;
+  const ah = boxH - 2 * margin;
+  const s = Math.min(aw / content.width, ah / content.height, 3); // upscale allowed, capped
+  const dw = Math.max(1, Math.round(content.width * s));
+  const dh = Math.max(1, Math.round(content.height * s));
+  x.imageSmoothingQuality = "high";
+  x.drawImage(content, Math.round((boxW - dw) / 2), topAnchor ? margin : Math.round((boxH - dh) / 2), dw, dh);
+  return c;
 }
 
 function canvasBlob(c: HTMLCanvasElement, mime: string, q: number): Promise<Blob | null> {
@@ -410,17 +490,31 @@ export default function StudioPage() {
         if (!Array.isArray(srcs) || srcs.length === 0) throw new Error("no pages in this book");
         const rtl = /var RTL\s*=\s*true/.test(html);
 
-        // load + geometry repair: slice endless strips, then unify page sizes
-        let canvases: HTMLCanvasElement[] = [];
+        // Which layout engine produced this book? v2 manifests carry a
+        // layoutV stamp; older books (or legacy html) have none and always
+        // get re-laid-out with the current engine.
+        let layoutV = 0;
+        if (b.fmt === "v2" && /^https?:/i.test(srcs[0] || "")) {
+          try {
+            const cutAt = srcs[0].indexOf(`/${b.id}/`);
+            if (cutAt > 0) {
+              const mr = await fetch(srcs[0].slice(0, cutAt) + `/${b.id}.json`, { cache: "no-store" });
+              if (mr.ok) layoutV = Number((await mr.json())?.layoutV) || 0;
+            }
+          } catch {
+            layoutV = 0;
+          }
+        }
+
+        // pass 1 — measure every page at scan size (constant memory)
+        const metas: PageMeasure[] = [];
         for (let i = 0; i < srcs.length; i++) {
           setUpgradeMsg(`${t("upgrading")} ${i + 1}/${srcs.length}`);
-          const c = await srcToCanvas(srcs[i]);
-          if (c.height > c.width * 2.2) canvases.push(...sliceStrips(c));
-          else canvases.push(c);
+          metas.push(await measureSrc(srcs[i]));
         }
-        const sliced = canvases.length !== srcs.length;
-        const boxed = boxAll(canvases);
-        if (b.fmt === "v2" && !sliced && !boxed.changed) {
+        const hasStrips = metas.some((m) => m.strip);
+        const uniform = metas.every((m) => m.w === metas[0].w && m.h === metas[0].h);
+        if (b.fmt === "v2" && layoutV >= LAYOUT_V && !hasStrips && uniform) {
           setUpgradeErrId(b.id);
           setUpgradeMsg(t("repairHealthy"));
           setTimeout(() => {
@@ -429,29 +523,57 @@ export default function StudioPage() {
           }, 4000);
           return false; // healthy — nothing uploaded, no reload needed
         }
-        canvases = boxed.list;
 
+        // pass 2 — re-lay out and encode ONE page at a time (a full-res
+        // canvas per page, never the whole book in memory)
+        const frame = frameFor(metas);
         const mime = CAN_WEBP ? "image/webp" : "image/jpeg";
         const ext = CAN_WEBP ? "webp" : "jpg";
         const q = CAN_WEBP ? 0.85 : 0.9;
         const files: { name: string; blob: Blob }[] = [];
         let coverBlob: Blob | null = null;
-        for (let i = 0; i < canvases.length; i++) {
-          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${canvases.length}`);
-          const c = canvases[i];
-          const blob = (await canvasBlob(c, mime, q)) || (await canvasBlob(c, "image/jpeg", 0.85));
-          if (!blob) throw new Error(`could not encode page ${i + 1}`);
-          files.push({ name: `p${i + 1}.${ext}`, blob });
-          if (i === 0) {
-            const cw = Math.min(480, c.width);
+        let pageNo = 0;
+        const pushPage = async (page: HTMLCanvasElement) => {
+          pageNo++;
+          const blob = (await canvasBlob(page, mime, q)) || (await canvasBlob(page, "image/jpeg", 0.85));
+          if (!blob) throw new Error(`could not encode page ${pageNo}`);
+          files.push({ name: `p${pageNo}.${ext}`, blob });
+          if (pageNo === 1) {
+            const cw = Math.min(480, page.width);
             const cc = document.createElement("canvas");
             cc.width = cw;
-            cc.height = Math.max(1, Math.round((c.height * cw) / c.width));
+            cc.height = Math.max(1, Math.round((page.height * cw) / page.width));
             const ccx = cc.getContext("2d")!;
             ccx.fillStyle = "#ffffff";
             ccx.fillRect(0, 0, cc.width, cc.height);
-            ccx.drawImage(c, 0, 0, cc.width, cc.height);
+            ccx.drawImage(page, 0, 0, cc.width, cc.height);
             coverBlob = await canvasBlob(cc, mime, 0.72);
+          }
+        };
+        for (let i = 0; i < srcs.length; i++) {
+          setUpgradeMsg(`${t("upgrading")} ${i + 1}/${srcs.length}`);
+          const m = metas[i];
+          const full = await srcToCanvas(srcs[i]);
+          if (m.strip) {
+            // endless-scroll chapter → book pages, top-anchored like text
+            for (const sl of sliceStrips(full)) await pushPage(composePage(sl, frame, true));
+          } else {
+            let content = full;
+            if (m.fw < 0.999 || m.fh < 0.999) {
+              const cx = Math.round(m.fx * full.width);
+              const cy = Math.round(m.fy * full.height);
+              const cwid = Math.max(1, Math.round(m.fw * full.width));
+              const chgt = Math.max(1, Math.round(m.fh * full.height));
+              const cc = document.createElement("canvas");
+              cc.width = cwid;
+              cc.height = chgt;
+              cc.getContext("2d")!.drawImage(full, cx, cy, cwid, chgt, 0, 0, cwid, chgt);
+              content = cc;
+            }
+            // a page whose content hugged the top with empty space below is a
+            // chapter end — keep it top-anchored instead of re-centering it
+            const topAnchor = m.fy < 0.12 && 1 - m.fy - m.fh > 0.25;
+            await pushPage(composePage(content, frame, topAnchor));
           }
         }
         if (coverBlob) files.push({ name: `cover.${ext}`, blob: coverBlob });
@@ -466,7 +588,7 @@ export default function StudioPage() {
             migrate: true,
             filename: b.id,
             title: b.title || b.id,
-            pages: canvases.length,
+            pages: pageNo,
             ext,
             rtl,
             sizeBytes,
@@ -480,10 +602,11 @@ export default function StudioPage() {
         );
         const manifest = {
           v: 2,
+          layoutV: LAYOUT_V,
           title: b.title || b.id,
           rtl,
           ext,
-          pages: canvases.length,
+          pages: pageNo,
           bytes: sizeBytes,
           cover: coverBlob ? `cover.${ext}` : "",
           buyUrl: b.buyUrl || "",
@@ -754,6 +877,11 @@ export default function StudioPage() {
                     {fmtSize(b.size)}
                     {(b.pages || 0) > 0 && <> · {b.pages} {t("bookPages")}</>}
                   </div>
+                  {b.createdBy && (
+                    <div className="text-xs text-slate-400">
+                      {t("hostedBy")} <span className="font-medium text-slate-500">{b.createdBy}</span>
+                    </div>
+                  )}
                   {(upgradingId === b.id || upgradeErrId === b.id) && upgradeMsg && (
                     <div className={`mt-0.5 text-xs font-medium ${upgradeMsg.startsWith("✗") ? "text-red-600" : "text-emerald-600"}`}>
                       {upgradeMsg}

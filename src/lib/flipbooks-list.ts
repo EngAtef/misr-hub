@@ -20,6 +20,7 @@ export interface FlipbookEntry {
   category: string | null;
   buyUrl: string | null;
   isPublic: boolean;
+  createdBy: string | null; // display name of whoever hosted it (auth clients only)
 }
 
 interface RootObject {
@@ -47,9 +48,24 @@ export async function listAllRootObjects(supabase: SupabaseClient): Promise<Root
 export async function listFlipbooks(supabase: SupabaseClient): Promise<FlipbookEntry[]> {
   const [objects, metaRes] = await Promise.all([
     listAllRootObjects(supabase),
-    supabase.from("flipbooks").select("path, title, fmt, size_bytes, page_count, rtl, cover, created_at, category, buy_url, is_public"),
+    supabase.from("flipbooks").select("path, title, fmt, size_bytes, page_count, rtl, cover, created_at, category, buy_url, is_public, created_by"),
   ]);
   const meta = new Map((metaRes.data || []).map((m) => [m.path as string, m]));
+
+  // Resolve creator names, best-effort: profiles are readable to signed-in
+  // users only — the anon library client simply gets null names.
+  const names = new Map<string, string>();
+  const creatorIds = [...new Set((metaRes.data || []).map((m) => m.created_by as string | null).filter(Boolean))] as string[];
+  if (creatorIds.length) {
+    try {
+      const { data: profs } = await supabase.from("profiles").select("id, full_name").in("id", creatorIds);
+      (profs || []).forEach((p) => {
+        if (p.full_name) names.set(p.id as string, p.full_name as string);
+      });
+    } catch {
+      /* no profile access — leave names empty */
+    }
+  }
 
   const books: FlipbookEntry[] = [];
   for (const o of objects) {
@@ -71,6 +87,7 @@ export async function listFlipbooks(supabase: SupabaseClient): Promise<FlipbookE
       category: (m?.category as string) || null,
       buyUrl: (m?.buy_url as string) || null,
       isPublic: m?.is_public !== false,
+      createdBy: m?.created_by ? names.get(m.created_by as string) || null : null,
     });
   }
   books.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));

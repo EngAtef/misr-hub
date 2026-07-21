@@ -125,7 +125,10 @@
   .results{margin-top:22px; display:none}
   .results.show{display:block}
   .gallery{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; margin-top:6px}
-  .plate{background:#fff; border:1px solid var(--hair); border-radius:8px; overflow:hidden; display:flex; flex-direction:column}
+  .plate{background:#fff; border:1px solid var(--hair); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; position:relative}
+  .plate .pchk2{position:absolute; top:6px; left:6px; width:20px; height:20px; accent-color:var(--brand); cursor:pointer; z-index:2}
+  .plate.off .imgwrap img{opacity:.3}
+  .plate.off{border-style:dashed}
   .plate .imgwrap{aspect-ratio:3/4; background:#f3f5f7; display:flex; align-items:center; justify-content:center; overflow:hidden}
   .plate img{width:100%; height:100%; object-fit:contain}
   .plate .cap{padding:8px 9px; border-top:1px solid var(--hair); display:flex; align-items:center; justify-content:space-between; gap:6px}
@@ -582,6 +585,12 @@
   const BOOK_TYPO_CSS=[
     "html{font-size:20px}",
     "body{font-size:20px!important;line-height:1.85!important;padding:8px 36px!important;background:#fff!important;max-width:none!important;width:auto!important}",
+    /* the capture targets are the wraps, not body — the margin must be INSIDE
+       them or every book's side margins depend on its own stylesheet */
+    ".bp-page,.bp-chunk{padding:2px 36px!important;box-sizing:border-box!important}",
+    /* a lone image in a paragraph is a figure — center it; images mixed with
+       text (inline ornaments, icons) must stay inline or headings break */
+    "body p>img:only-child{display:block;margin:14px auto!important}",
     "body p,body li,body dd,body dt,body blockquote,body td,body th,body figcaption,body div{font-size:20px!important;line-height:1.85!important}",
     "body span,body a,body em,body strong,body b,body i,body u,body small{font-size:inherit!important;line-height:inherit!important}",
     "body h1{font-size:33px!important;line-height:1.5!important;margin:20px 0 16px!important}",
@@ -777,7 +786,7 @@
      content top-anchored with an even margin, last page white-padded). Each
      cut is placed on the emptiest pixel row near the page boundary — found
      on a downsampled ink map — so a line of text is never sawn in half. */
-  function sliceTallCanvas(canvas){
+  function sliceTallCanvas(canvas,allowCenter){
     const pageH=Math.round(canvas.width*1.33);
     /* 4.5% of the width — the SAME margin the flipbook layout engine gives
        image pages, so text pages and picture pages line up perfectly */
@@ -792,6 +801,19 @@
       ink=new Array(sc.height).fill(0);
       for(let y=0;y<sc.height;y++){ let n=0; for(let x=0;x<SW;x++){ const i=(y*SW+x)*4; if(d[i]<235||d[i+1]<235||d[i+2]<235) n++; } ink[y]=n; }
     }catch(e){ ink=null; }
+    /* content that fits ONE page becomes one standard page directly: sparse
+       content (title, dedication, publisher pages) is vertically centered —
+       when allowCenter is on — instead of hugging the top of a mostly-empty
+       page; fuller single pages stay top-anchored like every chapter page */
+    let contentBottom=canvas.height;
+    if(ink){ let last=ink.length-1; while(last>0&&ink[last]===0) last--; contentBottom=Math.min(canvas.height,Math.round((last+1)*ratio)); }
+    if(contentBottom<=innerH){
+      const page=document.createElement("canvas"); page.width=canvas.width; page.height=pageH;
+      const px=page.getContext("2d"); px.fillStyle="#ffffff"; px.fillRect(0,0,page.width,pageH);
+      const y=(allowCenter!==false&&contentBottom<pageH*0.55)?Math.round((pageH-contentBottom)/2):pad;
+      px.drawImage(canvas,0,0,canvas.width,contentBottom,0,y,canvas.width,contentBottom);
+      return [page];
+    }
     const parts=[]; let sy=0, guard=0;
     while(sy<canvas.height-20 && guard++<120){
       let cut=Math.min(canvas.height, sy+innerH);
@@ -803,6 +825,15 @@
         for(let y=sy+Math.round(innerH*0.6); y<=cut; y++){
           const iy=Math.min(ink.length-1,Math.round(y/ratio));
           if(ink[iy]<=bestInk){ bestInk=ink[iy]; best=y; }
+        }
+        /* no clean break there (an image/table spans the window)? widen the
+           hunt upward for the deepest near-white row rather than sawing
+           through a picture (ink counts are out of 160 scan columns) */
+        if(bestInk>40){
+          for(let y=cut; y>=sy+Math.round(innerH*0.35); y--){
+            const iy=Math.min(ink.length-1,Math.round(y/ratio));
+            if(ink[iy]<=10){ best=y; break; }
+          }
         }
         cut=best;
       }
@@ -1013,7 +1044,9 @@
             }
             if(!canvas && !chunkParts){
               const acc=[];
-              const one=await captureTallEl(d,w,capOpts,async cp=>{ acc.push(...sliceTallCanvas(cp)); });
+              /* chunk slices never center — a short last chunk is a chapter
+                 end, not a title page */
+              const one=await captureTallEl(d,w,capOpts,async cp=>{ acc.push(...sliceTallCanvas(cp,false)); });
               if(one) canvas=one; else chunkParts=acc;
             }
             if(p.half&&canvas){ const halfW=canvas.width/2; canvas=cropCanvas(canvas, p.half==="L"?0:halfW, 0, halfW, canvas.height); }
@@ -1026,8 +1059,13 @@
           if(chunkParts){ parts=chunkParts; laidOut=true; }
           else {
             parts=[canvas];
-            if(!p.single && !opts.tiles && canvas.height>Math.round(canvas.width*1.33)*1.2){
-              parts=sliceTallCanvas(canvas);
+            /* reflowable sections ALWAYS paginate — short ones (title,
+               publisher, dedication pages) become one standard book page so
+               the whole book shares one frame, one margin, one text size.
+               Fixed-layout pages only paginate when over-tall (endless
+               strips would be unreadable and break the canvas ceiling). */
+            if(!p.single && !opts.tiles && (textMode || canvas.height>Math.round(canvas.width*1.33)*1.2)){
+              parts=sliceTallCanvas(canvas,true);
               laidOut=true; /* pages are book-shaped with baked margins */
             }
           }
@@ -1339,8 +1377,10 @@
         done++; if(progress) progress(done/(files.length+1),"Uploading "+done+"/"+files.length+"…");
       }));
     }
-    /* manifest last — the reader only sees the book once this lands */
-    const manifest={ v:2, title:title||"", rtl:!!opts.rtl, ext:hp.ext, pages:hp.blobs.length, bytes:total,
+    /* manifest last — the reader only sees the book once this lands.
+       layoutV stamps which layout engine composed the pages, so the studio's
+       Check & repair knows whether a re-layout would change anything. */
+    const manifest={ v:2, layoutV:3, title:title||"", rtl:!!opts.rtl, ext:hp.ext, pages:hp.blobs.length, bytes:total,
       cover:hp.cover?("cover."+hp.ext):"", buyUrl:(opts.preview?(opts.buyUrl||"").trim():"") };
     const ms=await fetch("/api/flipbooks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sign:info.id,files:["manifest"]})});
     if(!ms.ok) throw new Error("Couldn't sign the manifest upload (HTTP "+ms.status+").");
@@ -1459,24 +1499,52 @@
       else if(bundle==="cbz"){ setProgress(1,"Building CBZ…"); await buildZip(results,slug,".cbz"); }
       else if(bundle==="flipbook"){ const fbTitle=(opts.prefix||book.title)+(opts.preview?" — معاينة":""); const html=await resultsToFlipbookHtml(results,fbTitle,opts,(f,t)=>setProgress(0.5+0.5*f,t)); /* no auto-download — Host or the Download button below, on demand */ window._flipHtml=html; window._flipName=slug+".html"; window._flipTitle=fbTitle; window._flipSrc={results:results,opts:opts,title:fbTitle,slug:slug,pages:selected}; }
       // gallery always
+      results.forEach(r=>{ r._sel=true; });
       results.forEach(addPlate);
       window._results=results; window._slug=slug;
-      els.resultSummary.textContent=results.length+" page"+(results.length!==1?"s":"")+(results.length?(" · "+results[0].w+"×"+results[0].h+(opts.uniform?" each":"")):"")+(bundle==="pdf"?" · PDF downloaded":bundle==="cbz"?" · CBZ downloaded":bundle==="flipbook"?" · flipbook ready — host it or download it below":"");
+      els.resultSummary.textContent=results.length+" page"+(results.length!==1?"s":"")+(results.length?(" · "+results[0].w+"×"+results[0].h+(opts.uniform?" each":"")):"")+(bundle==="pdf"?" · PDF downloaded":bundle==="cbz"?" · CBZ downloaded":bundle==="flipbook"?" · flipbook ready — untick any pages you don't want, then host or download":"");
+      { const note=document.createElement("span"); note.id="outSelNote"; els.resultSummary.appendChild(note); }
       els.downloadMain.textContent = bundle==="pdf"?"Re-download PDF":bundle==="cbz"?"Re-download CBZ":bundle==="flipbook"?"⬇ Download flipbook":"Download all (ZIP)";
       setProgress(1,"Done."); els.results.classList.add("show");
       E("hostBtn").style.display = bundle==="flipbook" ? "" : "none";
     }catch(e){ console.error(e); showErr("Generation failed: "+(e.message||e)+". Try 1× resolution or a smaller width."); }
     finally{ busy=false; els.generate.disabled=false; E("generateEcomBtn").disabled=false; setTimeout(()=>els.progress.classList.remove("show"),1400); }
   }
+  /* every generated page carries a checkbox — Host, Download and the
+     ZIP/PDF/CBZ re-downloads use only the ticked pages, so unwanted pages
+     (ads, blanks, ISBN pages…) can be dropped AFTER seeing the real output */
   function addPlate(r){ const url=URL.createObjectURL(r.blob); outURLs.push(url); const div=document.createElement("div"); div.className="plate";
-    div.innerHTML='<div class="imgwrap"><img loading="lazy" alt=""></div><div class="cap"><span class="fn" title="'+r.name+'">'+r.name+'</span><span class="dim">'+r.w+'×'+r.h+'</span><a download="'+r.name+'">save</a></div>';
-    div.querySelector("img").src=url; const a=div.querySelector("a"); a.href=url; els.gallery.appendChild(div); }
+    div.innerHTML='<input class="pchk2" type="checkbox" checked title="Include this page">'+
+      '<div class="imgwrap"><img loading="lazy" alt=""></div><div class="cap"><span class="fn" title="'+r.name+'">'+r.name+'</span><span class="dim">'+r.w+'×'+r.h+'</span><a download="'+r.name+'">save</a></div>';
+    div.querySelector("img").src=url; const a=div.querySelector("a"); a.href=url;
+    const chk=div.querySelector(".pchk2");
+    chk.addEventListener("change",()=>{ r._sel=chk.checked; div.classList.toggle("off",!chk.checked); updateOutSel(); });
+    div.querySelector(".imgwrap").addEventListener("click",()=>{ chk.checked=!chk.checked; chk.dispatchEvent(new Event("change")); });
+    els.gallery.appendChild(div); }
+  const selectedResults=()=>((window._results||[]).filter(r=>r._sel!==false));
+  function updateOutSel(){
+    const all=window._results||[]; const n=selectedResults().length;
+    const note=E("outSelNote"); if(!note) return;
+    note.textContent = n===all.length ? "" : " · using "+n+" of "+all.length+" pages — Host / Download follow the ticked pages";
+  }
   async function downloadMain(){
-    if(bundle==="flipbook"){ if(window._flipHtml) triggerDownload(new Blob([window._flipHtml],{type:"text/html"}), window._flipName||"flipbook.html"); return; }
-    const results=window._results||[]; if(!results.length)return;
-    if(bundle==="pdf"){ await buildPdf(results,window._slug||"book"); }
-    else if(bundle==="cbz"){ await buildZip(results,window._slug||"book",".cbz"); }
-    else { await buildZip(results,window._slug||"book",".zip"); } }
+    const all=window._results||[]; const use=selectedResults();
+    if(bundle==="flipbook"){
+      if(!window._flipSrc){ if(window._flipHtml) triggerDownload(new Blob([window._flipHtml],{type:"text/html"}), window._flipName||"flipbook.html"); return; }
+      if(!use.length){ showErr("All pages are unticked — tick at least one page."); return; }
+      if(use.length===all.length && window._flipHtml){ triggerDownload(new Blob([window._flipHtml],{type:"text/html"}), window._flipName||"flipbook.html"); return; }
+      /* selection changed — rebuild the flipbook from the ticked pages */
+      const s=window._flipSrc; els.downloadMain.disabled=true;
+      try{ const html=await resultsToFlipbookHtml(use,s.title,s.opts,(f,t)=>setProgress(f,t));
+        triggerDownload(new Blob([html],{type:"text/html"}), window._flipName||"flipbook.html"); }
+      catch(e){ showErr("Rebuild failed: "+(e.message||e)); }
+      finally{ els.downloadMain.disabled=false; }
+      return;
+    }
+    if(!use.length){ showErr("All pages are unticked — tick at least one page."); return; }
+    if(bundle==="pdf"){ await buildPdf(use,window._slug||"book"); }
+    else if(bundle==="cbz"){ await buildZip(use,window._slug||"book",".cbz"); }
+    else { await buildZip(use,window._slug||"book",".zip"); } }
 
   /* ============================ host & embed ============================ */
   /* Uploads generated flipbooks to the app's own storage (Supabase bucket
@@ -1527,7 +1595,10 @@
       let url,mb;
       if(window._flipSrc){
         const s=window._flipSrc;
-        const hp=await resultsToHostedPages(s.results,title,s.opts,function(f,t){ st.textContent=t; });
+        /* hosting follows the ticked pages in the output gallery */
+        const use=(s.results||[]).filter(function(r){ return r._sel!==false; });
+        if(!use.length) throw new Error("All pages are unticked — tick at least one page.");
+        const hp=await resultsToHostedPages(use,title,s.opts,function(f,t){ st.textContent=t; });
         st.textContent="Collecting book text…";
         const searchText=await collectBookText(book,s.pages||[],150000);
         const up2=await uploadFlipbookV2(hp,s.slug||"book",title,s.opts,function(f,t){ st.textContent=t; },searchText);
