@@ -54,6 +54,21 @@ export interface OrderItem {
   price: number | null;
 }
 
+// fn_category_buyers — buyer aggregates within selected categories
+export interface CategoryBuyer {
+  customer_key: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  city: string | null;
+  orders_count: number;
+  units: number | null;
+  spend: number | null;
+  categories: string[] | null;
+  first_order: string | null;
+  last_order: string | null;
+}
+
 export interface OrderEvent {
   order_number: string;
   seq: number;

@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
   const payment = params.getAll("payment").filter(Boolean);
   const city = params.getAll("city").filter(Boolean);
   const source = params.getAll("source").filter(Boolean);
+  const category = params.getAll("category").filter(Boolean);
   const q = params.get("q");
 
   const admin = user.supabase;
@@ -57,8 +58,10 @@ export async function GET(request: NextRequest) {
   const lines: string[] = [EXPORT_COLUMNS.join(",")];
 
   for (;;) {
+    // the view adds a categories[] column computed from product_sales;
+    // only pay for it when the category filter is actually in use
     let query = admin
-      .from("orders")
+      .from(category.length ? "orders_with_categories" : "orders")
       .select(EXPORT_COLUMNS.join(","))
       .order("order_date", { ascending: false })
       .range(offset, offset + pageSize - 1);
@@ -68,6 +71,7 @@ export async function GET(request: NextRequest) {
     if (payment.length) query = query.in("payment_method", payment);
     if (city.length) query = query.in("city", city);
     if (source.length) query = query.in("source", source);
+    if (category.length) query = query.overlaps("categories", category);
     if (q) {
       const s = q.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
       if (s) {
@@ -93,7 +97,7 @@ export async function GET(request: NextRequest) {
     user_id: user.id,
     user_email: user.email,
     action: "export_orders",
-    details: { from, to, rows: lines.length - 1 },
+    details: { from, to, category, rows: lines.length - 1 },
   });
 
   const csv = "﻿" + lines.join("\r\n");

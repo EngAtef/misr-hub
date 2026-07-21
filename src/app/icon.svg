@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Nahdet Misr Bookstore favicon: simplified logo mark.
+       Navy (#2b3990) statue pair — seated sphinx with nemes headdress
+       beside the standing colossus — over the teal bookstore band. -->
+  <rect width="64" height="64" rx="12" fill="#ffffff"/>
+  <g fill="#2b3990">
+    <!-- standing colossus (right) -->
+    <path d="M39 46V15.5C39 11.4 42.1 8 46 8s7 3.4 7 7.5V46Z"/>
+    <!-- seated sphinx (left): nemes headdress flaring to the sides,
+         face, chest and forelegs base -->
+    <path d="M22.5 13c-4 0-6.8 2.6-6.8 6.2 0 1.6.4 3 1.2 4.1L10 34.6c-.6 1-.9 2-.9 3.2V46h27v-8.2c0-1.2-.3-2.2-.9-3.2l-6.9-11.3c.8-1.1 1.2-2.5 1.2-4.1 0-3.6-2.8-6.2-7-6.2Zm0 4c1.9 0 3 1 3 2.4 0 1.5-1.1 2.6-3 2.6s-2.9-1.1-2.9-2.6c0-1.4 1-2.4 2.9-2.4Z"/>
+  </g>
+  <rect x="9" y="49" width="46" height="7.5" rx="1.5" fill="#4e7f76"/>
+</svg>

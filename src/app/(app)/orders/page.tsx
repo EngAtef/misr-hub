@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import type { Order, OrderItem, OrderEvent } from "@/lib/types";
+import type { Order, OrderItem, OrderEvent, CategoryBuyer } from "@/lib/types";
 
 const PAGE_SIZE = 25;
 
@@ -26,26 +26,33 @@ export default function OrdersPage() {
   const [payment, setPayment] = useState<string[]>([]);
   const [city, setCity] = useState<string[]>([]);
   const [source, setSource] = useState<string[]>([]);
+  const [category, setCategory] = useState<string[]>([]);
+  const [view, setView] = useState<"orders" | "buyers">("orders");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Order | null>(null);
   const { sort, toggle } = useSort<Order>();
-  const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[] }>({
+  const [buyers, setBuyers] = useState<CategoryBuyer[]>([]);
+  const [buyersLoading, setBuyersLoading] = useState(false);
+  const { sort: bSort, toggle: bToggle, apply: bApply } = useSort<CategoryBuyer>();
+  const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[]; categories: string[] }>({
     statuses: [],
     payments: [],
     cities: [],
     sources: [],
+    categories: [],
   });
 
   useEffect(() => {
     async function loadOptions() {
-      const [s, p, c, src] = await Promise.all([
+      const [s, p, c, src, cat] = await Promise.all([
         supabase.rpc("fn_breakdown", { p_dim: "order_status", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "payment_method", p_from: null, p_to: null, p_limit: 20 }),
         supabase.rpc("fn_breakdown", { p_dim: "city", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "source", p_from: null, p_to: null, p_limit: 10 }),
+        supabase.rpc("fn_product_sales_breakdown", { p_by: "category", p_from: null, p_to: null }),
       ]);
       const labels = (d: unknown) =>
         ((d as { label: string }[] | null) ?? []).map((x) => x.label).filter((x) => x !== "(none)");
@@ -54,6 +61,7 @@ export default function OrdersPage() {
         payments: labels(p.data),
         cities: labels(c.data),
         sources: labels(src.data),
+        categories: ((cat.data as { key: string }[] | null) ?? []).map((x) => x.key).filter((x) => x !== "—"),
       });
     }
     loadOptions();
@@ -62,16 +70,22 @@ export default function OrdersPage() {
   // guarded against overlapping fetches: a slow stale response must never
   // overwrite the rows of a newer filter selection
   useEffect(() => {
+    if (view !== "orders") return;
     let cancelled = false;
     setLoading(true);
     (async () => {
-      let query = supabase.from("orders").select("*", { count: "exact" });
+      // category lives on order lines (product_sales); the view exposes it
+      // as an array per order — only used when the filter is active
+      let query = supabase
+        .from(category.length ? "orders_with_categories" : "orders")
+        .select("*", { count: "exact" });
       if (range.from) query = query.gte("order_date", `${range.from}T00:00:00Z`);
       if (range.to) query = query.lte("order_date", `${range.to}T23:59:59Z`);
       if (status.length) query = query.in("order_status", status);
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
+      if (category.length) query = query.overlaps("categories", category);
       if (search) {
         const s = sanitizeSearch(search);
         if (s) {
@@ -92,7 +106,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, range.from, range.to, status, payment, city, source, search, page, sort]);
+  }, [supabase, view, range.from, range.to, status, payment, city, source, category, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -102,13 +116,16 @@ export default function OrdersPage() {
     }
     let cancelled = false;
     (async () => {
-      let query = supabase.from("orders").select("order_number", { count: "exact", head: true });
+      let query = supabase
+        .from(category.length ? "orders_with_categories" : "orders")
+        .select("order_number", { count: "exact", head: true });
       if (compare.from) query = query.gte("order_date", `${compare.from}T00:00:00Z`);
       if (compare.to) query = query.lte("order_date", `${compare.to}T23:59:59Z`);
       if (status.length) query = query.in("order_status", status);
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
+      if (category.length) query = query.overlaps("categories", category);
       if (search) {
         const s = sanitizeSearch(search);
         if (s) {
@@ -123,7 +140,60 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, compare, status, payment, city, source, search]);
+  }, [supabase, compare, status, payment, city, source, category, search]);
+
+  // buyers view: per-customer aggregates within the selected categories
+  // and period (fn_category_buyers). PostgREST caps RPC results at
+  // max-rows, so page until exhausted (10k safety cap), then sort and
+  // search client-side so any column can be arranged instantly.
+  useEffect(() => {
+    if (view !== "buyers") return;
+    let cancelled = false;
+    setBuyersLoading(true);
+    (async () => {
+      const pageSize = 1000;
+      const all: CategoryBuyer[] = [];
+      for (let i = 0; i < 10; i++) {
+        const { data } = await supabase
+          .rpc("fn_category_buyers", {
+            p_categories: category.length ? category : null,
+            p_from: range.from ? `${range.from}T00:00:00Z` : null,
+            p_to: range.to ? `${range.to}T23:59:59Z` : null,
+          })
+          .range(i * pageSize, i * pageSize + pageSize - 1);
+        if (cancelled) return;
+        const batch = (data as CategoryBuyer[] | null) ?? [];
+        all.push(...batch);
+        if (batch.length < pageSize) break;
+      }
+      setBuyers(all);
+      setBuyersLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, view, category, range.from, range.to]);
+
+  const filteredBuyers = useMemo(() => {
+    let list = buyers;
+    if (search) {
+      const s = search.toLowerCase();
+      list = list.filter(
+        (b) =>
+          (b.customer_name ?? "").toLowerCase().includes(s) ||
+          (b.customer_phone ?? "").includes(s)
+      );
+    }
+    return bApply(list, {
+      customer_name: (b) => b.customer_name,
+      city: (b) => b.city,
+      orders_count: (b) => b.orders_count,
+      units: (b) => b.units,
+      spend: (b) => b.spend,
+      first_order: (b) => b.first_order,
+      last_order: (b) => b.last_order,
+    });
+  }, [buyers, search, bApply]);
 
   // changing the date range must restart pagination
   useEffect(() => {
@@ -145,10 +215,18 @@ export default function OrdersPage() {
     return () => window.removeEventListener("popstate", onNav);
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages =
+    view === "orders"
+      ? Math.max(1, Math.ceil(total / PAGE_SIZE))
+      : Math.max(1, Math.ceil(filteredBuyers.length / PAGE_SIZE));
 
   function onSort(key: string) {
     toggle(key);
+    setPage(0);
+  }
+
+  function onBuyersSort(key: string) {
+    bToggle(key);
     setPage(0);
   }
 
@@ -160,20 +238,53 @@ export default function OrdersPage() {
     for (const p of payment) params.append("payment", p);
     for (const c of city) params.append("city", c);
     for (const s of source) params.append("source", s);
+    for (const c of category) params.append("category", c);
     if (search) params.set("q", search);
     window.open(`/api/export?${params.toString()}`, "_blank");
+  }
+
+  function exportBuyersCsv() {
+    const params = new URLSearchParams();
+    if (range.from) params.set("from", `${range.from}T00:00:00Z`);
+    if (range.to) params.set("to", `${range.to}T23:59:59Z`);
+    for (const c of category) params.append("category", c);
+    window.open(`/api/export/buyers?${params.toString()}`, "_blank");
   }
 
   return (
     <div>
       <PageHeader
         title={t("orders")}
-        subtitle={`${formatNumber(total)} ${t("ordersLabel")}`}
+        subtitle={
+          view === "orders"
+            ? `${formatNumber(total)} ${t("ordersLabel")}`
+            : `${formatNumber(filteredBuyers.length)} ${t("buyersLbl")}`
+        }
         actions={
-          <button onClick={exportCsv} className="btn-secondary">
-            <Download size={16} />
-            {t("exportCsv")}
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+              {(["orders", "buyers"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => {
+                    setView(v);
+                    setPage(0);
+                  }}
+                  className={
+                    view === v
+                      ? "rounded-md bg-brand-700 px-3 py-1.5 text-sm font-semibold text-white"
+                      : "rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-brand-700"
+                  }
+                >
+                  {t(v === "orders" ? "ordersView" : "buyersView")}
+                </button>
+              ))}
+            </div>
+            <button onClick={view === "orders" ? exportCsv : exportBuyersCsv} className="btn-secondary">
+              <Download size={16} />
+              {view === "orders" ? t("exportCsv") : t("exportBuyers")}
+            </button>
+          </div>
         }
       />
 
@@ -189,7 +300,7 @@ export default function OrdersPage() {
           setCustomCompare={setCustomCompare}
           compare={compare}
         />
-        {compare && compareTotal !== null && (
+        {view === "orders" && compare && compareTotal !== null && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2.5 text-sm text-violet-900">
             <span className="font-semibold">{t("results")}:</span>
             <span className="font-bold" dir="ltr">{formatNumber(total)}</span>
@@ -199,10 +310,10 @@ export default function OrdersPage() {
             </span>
           </div>
         )}
-        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+        <div className={view === "orders" ? "grid gap-2 md:grid-cols-3 lg:grid-cols-7" : "grid gap-2 md:grid-cols-3 lg:grid-cols-4"}>
           <SearchBox
             className="md:col-span-3 lg:col-span-2"
-            placeholder={t("searchOrders")}
+            placeholder={view === "orders" ? t("searchOrders") : t("searchBuyers")}
             value={searchInput}
             onChange={setSearchInput}
             onCommit={(v) => {
@@ -211,35 +322,97 @@ export default function OrdersPage() {
             }}
             active={!!search}
           />
+          {view === "orders" && (
+            <>
+              <MultiSelect
+                options={filterOptions.statuses}
+                values={status}
+                onChange={(v) => { setStatus(v); setPage(0); }}
+                placeholder={t("allStatuses")}
+              />
+              <MultiSelect
+                options={filterOptions.payments}
+                values={payment}
+                onChange={(v) => { setPayment(v); setPage(0); }}
+                placeholder={t("allPayments")}
+              />
+              <MultiSelect
+                options={filterOptions.cities}
+                values={city}
+                onChange={(v) => { setCity(v); setPage(0); }}
+                placeholder={t("allCities")}
+              />
+              <MultiSelect
+                options={filterOptions.sources}
+                values={source}
+                onChange={(v) => { setSource(v); setPage(0); }}
+                placeholder={t("allSources")}
+              />
+            </>
+          )}
           <MultiSelect
-            options={filterOptions.statuses}
-            values={status}
-            onChange={(v) => { setStatus(v); setPage(0); }}
-            placeholder={t("allStatuses")}
-          />
-          <MultiSelect
-            options={filterOptions.payments}
-            values={payment}
-            onChange={(v) => { setPayment(v); setPage(0); }}
-            placeholder={t("allPayments")}
-          />
-          <MultiSelect
-            options={filterOptions.cities}
-            values={city}
-            onChange={(v) => { setCity(v); setPage(0); }}
-            placeholder={t("allCities")}
-          />
-          <MultiSelect
-            options={filterOptions.sources}
-            values={source}
-            onChange={(v) => { setSource(v); setPage(0); }}
-            placeholder={t("allSources")}
+            className={view === "buyers" ? "lg:col-span-2" : undefined}
+            options={filterOptions.categories}
+            values={category}
+            onChange={(v) => { setCategory(v); setPage(0); }}
+            placeholder={t("allCategories")}
           />
         </div>
+        {view === "buyers" && (
+          <div className="text-xs text-slate-500">{t("buyersHint")}</div>
+        )}
       </div>
 
       <div className="card overflow-x-auto">
-        {loading ? (
+        {view === "buyers" ? (
+          buyersLoading ? (
+            <Spinner />
+          ) : filteredBuyers.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">
+              <div>{t("noResults")}</div>
+              <div className="mt-1 text-xs">{t("buyersNeedSales")}</div>
+            </div>
+          ) : (
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <SortTh label={t("customer")} k="customer_name" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("city")} k="city" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("orders")} k="orders_count" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("units")} k="units" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("spendInCategory")} k="spend" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("firstOrder")} k="first_order" sort={bSort} onToggle={onBuyersSort} />
+                  <SortTh label={t("lastOrder")} k="last_order" sort={bSort} onToggle={onBuyersSort} />
+                  <th>{t("categoryCol")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredBuyers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((b, i) => (
+                  <tr key={b.customer_key}>
+                    <td className="text-slate-400">{page * PAGE_SIZE + i + 1}</td>
+                    <td>
+                      <div className="font-medium">{b.customer_name ?? "—"}</div>
+                      <div className="text-xs text-slate-400" dir="ltr">{b.customer_phone ?? ""}</div>
+                    </td>
+                    <td>{b.city ?? "—"}</td>
+                    <td className="text-center font-semibold">{formatNumber(b.orders_count)}</td>
+                    <td className="text-center">{formatNumber(b.units ?? 0)}</td>
+                    <td className="font-semibold">{formatMoney(b.spend, lang)}</td>
+                    <td className="text-xs text-slate-500">{b.first_order ? formatDateTime(b.first_order) : "—"}</td>
+                    <td className="text-xs text-slate-500">{b.last_order ? formatDateTime(b.last_order) : "—"}</td>
+                    <td
+                      className="text-xs text-slate-500 max-w-[220px] truncate"
+                      title={(b.categories ?? []).join("، ")}
+                    >
+                      {(b.categories ?? []).join("، ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : loading ? (
           <Spinner />
         ) : rows.length === 0 ? (
           <div className="p-12 text-center text-slate-500">{t("noResults")}</div>
