@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import type { Order, OrderItem, OrderEvent, CategoryBuyer, PromoCode } from "@/lib/types";
+import type { Order, OrderItem, OrderEvent, CategoryBuyer, PromoCode, SalesLine } from "@/lib/types";
 
 const PAGE_SIZE = 25;
 
@@ -27,6 +27,8 @@ export default function OrdersPage() {
   const [city, setCity] = useState<string[]>([]);
   const [source, setSource] = useState<string[]>([]);
   const [category, setCategory] = useState<string[]>([]);
+  const [subCategory, setSubCategory] = useState<string[]>([]);
+  const [brand, setBrand] = useState<string[]>([]);
   const [promo, setPromo] = useState<string[]>([]);
   const [view, setView] = useState<"orders" | "buyers">("orders");
   const [page, setPage] = useState(0);
@@ -37,34 +39,51 @@ export default function OrdersPage() {
   const { sort, toggle } = useSort<Order>();
   const [buyers, setBuyers] = useState<CategoryBuyer[]>([]);
   const [buyersLoading, setBuyersLoading] = useState(false);
+  const [selectedBuyer, setSelectedBuyer] = useState<CategoryBuyer | null>(null);
   const { sort: bSort, toggle: bToggle, apply: bApply } = useSort<CategoryBuyer>();
-  const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[]; categories: string[]; promos: string[] }>({
+  const [filterOptions, setFilterOptions] = useState<{
+    statuses: string[];
+    payments: string[];
+    cities: string[];
+    sources: string[];
+    categories: string[];
+    subCategories: string[];
+    brands: string[];
+    promos: string[];
+  }>({
     statuses: [],
     payments: [],
     cities: [],
     sources: [],
     categories: [],
+    subCategories: [],
+    brands: [],
     promos: [],
   });
 
   useEffect(() => {
     async function loadOptions() {
-      const [s, p, c, src, cat, prm] = await Promise.all([
+      const [s, p, c, src, cat, sub, br, prm] = await Promise.all([
         supabase.rpc("fn_breakdown", { p_dim: "order_status", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "payment_method", p_from: null, p_to: null, p_limit: 20 }),
         supabase.rpc("fn_breakdown", { p_dim: "city", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "source", p_from: null, p_to: null, p_limit: 10 }),
         supabase.rpc("fn_product_sales_breakdown", { p_by: "category", p_from: null, p_to: null }),
+        supabase.rpc("fn_product_sales_breakdown", { p_by: "sub_category", p_from: null, p_to: null }),
+        supabase.rpc("fn_product_sales_breakdown", { p_by: "brand", p_from: null, p_to: null }),
         supabase.rpc("fn_breakdown", { p_dim: "applied_offer", p_from: null, p_to: null, p_limit: 200 }),
       ]);
       const labels = (d: unknown) =>
         ((d as { label: string }[] | null) ?? []).map((x) => x.label).filter((x) => x !== "(none)");
+      const keys = (d: unknown) => ((d as { key: string }[] | null) ?? []).map((x) => x.key).filter((x) => x !== "—");
       setFilterOptions({
         statuses: labels(s.data),
         payments: labels(p.data),
         cities: labels(c.data),
         sources: labels(src.data),
-        categories: ((cat.data as { key: string }[] | null) ?? []).map((x) => x.key).filter((x) => x !== "—"),
+        categories: keys(cat.data),
+        subCategories: keys(sub.data),
+        brands: keys(br.data),
         promos: labels(prm.data),
       });
     }
@@ -80,8 +99,9 @@ export default function OrdersPage() {
     (async () => {
       // category lives on order lines (product_sales); the view exposes it
       // as an array per order — only used when the filter is active
+      const needsView = category.length > 0 || subCategory.length > 0 || brand.length > 0;
       let query = supabase
-        .from(category.length ? "orders_with_categories" : "orders")
+        .from(needsView ? "orders_with_categories" : "orders")
         .select("*", { count: "exact" });
       if (range.from) query = query.gte("order_date", `${range.from}T00:00:00Z`);
       if (range.to) query = query.lte("order_date", `${range.to}T23:59:59Z`);
@@ -90,6 +110,8 @@ export default function OrdersPage() {
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
       if (category.length) query = query.overlaps("categories", category);
+      if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
+      if (brand.length) query = query.overlaps("brands", brand);
       if (promo.length) query = query.in("applied_offer", promo);
       if (search) {
         const s = sanitizeSearch(search);
@@ -111,7 +133,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, view, range.from, range.to, status, payment, city, source, category, promo, search, page, sort]);
+  }, [supabase, view, range.from, range.to, status, payment, city, source, category, subCategory, brand, promo, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -121,8 +143,9 @@ export default function OrdersPage() {
     }
     let cancelled = false;
     (async () => {
+      const needsView = category.length > 0 || subCategory.length > 0 || brand.length > 0;
       let query = supabase
-        .from(category.length ? "orders_with_categories" : "orders")
+        .from(needsView ? "orders_with_categories" : "orders")
         .select("order_number", { count: "exact", head: true });
       if (compare.from) query = query.gte("order_date", `${compare.from}T00:00:00Z`);
       if (compare.to) query = query.lte("order_date", `${compare.to}T23:59:59Z`);
@@ -131,6 +154,8 @@ export default function OrdersPage() {
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
       if (category.length) query = query.overlaps("categories", category);
+      if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
+      if (brand.length) query = query.overlaps("brands", brand);
       if (promo.length) query = query.in("applied_offer", promo);
       if (search) {
         const s = sanitizeSearch(search);
@@ -146,7 +171,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, compare, status, payment, city, source, category, promo, search]);
+  }, [supabase, compare, status, payment, city, source, category, subCategory, brand, promo, search]);
 
   // buyers view: per-customer aggregates within the selected categories
   // and period (fn_category_buyers). PostgREST caps RPC results at
@@ -163,6 +188,8 @@ export default function OrdersPage() {
         const { data } = await supabase
           .rpc("fn_category_buyers", {
             p_categories: category.length ? category : null,
+            p_sub_categories: subCategory.length ? subCategory : null,
+            p_brands: brand.length ? brand : null,
             p_from: range.from ? `${range.from}T00:00:00Z` : null,
             p_to: range.to ? `${range.to}T23:59:59Z` : null,
           })
@@ -178,7 +205,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, view, category, range.from, range.to]);
+  }, [supabase, view, category, subCategory, brand, range.from, range.to]);
 
   const filteredBuyers = useMemo(() => {
     let list = buyers;
@@ -245,6 +272,8 @@ export default function OrdersPage() {
     for (const c of city) params.append("city", c);
     for (const s of source) params.append("source", s);
     for (const c of category) params.append("category", c);
+    for (const sc of subCategory) params.append("sub_category", sc);
+    for (const b of brand) params.append("brand", b);
     for (const p of promo) params.append("promo", p);
     if (search) params.set("q", search);
     window.open(`/api/export?${params.toString()}`, "_blank");
@@ -255,6 +284,8 @@ export default function OrdersPage() {
     if (range.from) params.set("from", `${range.from}T00:00:00Z`);
     if (range.to) params.set("to", `${range.to}T23:59:59Z`);
     for (const c of category) params.append("category", c);
+    for (const sc of subCategory) params.append("sub_category", sc);
+    for (const b of brand) params.append("brand", b);
     window.open(`/api/export/buyers?${params.toString()}`, "_blank");
   }
 
@@ -358,11 +389,22 @@ export default function OrdersPage() {
             </>
           )}
           <MultiSelect
-            className={view === "buyers" ? "lg:col-span-2" : undefined}
             options={filterOptions.categories}
             values={category}
             onChange={(v) => { setCategory(v); setPage(0); }}
             placeholder={t("allCategories")}
+          />
+          <MultiSelect
+            options={filterOptions.subCategories}
+            values={subCategory}
+            onChange={(v) => { setSubCategory(v); setPage(0); }}
+            placeholder={t("allSubCategories")}
+          />
+          <MultiSelect
+            options={filterOptions.brands}
+            values={brand}
+            onChange={(v) => { setBrand(v); setPage(0); }}
+            placeholder={t("allVendors")}
           />
           {view === "orders" && (
             <MultiSelect
@@ -374,7 +416,9 @@ export default function OrdersPage() {
           )}
         </div>
         {view === "buyers" && (
-          <div className="text-xs text-slate-500">{t("buyersHint")}</div>
+          <div className="text-xs text-slate-500">
+            {t("buyersHint")} · {t("purchasesHint")}
+          </div>
         )}
       </div>
 
@@ -404,7 +448,7 @@ export default function OrdersPage() {
               </thead>
               <tbody>
                 {filteredBuyers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((b, i) => (
-                  <tr key={b.customer_key}>
+                  <tr key={b.customer_key} onClick={() => setSelectedBuyer(b)} className="cursor-pointer">
                     <td className="text-slate-400">{page * PAGE_SIZE + i + 1}</td>
                     <td>
                       <div className="font-medium">{b.customer_name ?? "—"}</div>
@@ -491,6 +535,16 @@ export default function OrdersPage() {
       </div>
 
       {selected && <OrderDetail order={selected} onClose={() => setSelected(null)} />}
+      {selectedBuyer && (
+        <BuyerDetail
+          buyer={selectedBuyer}
+          categories={category}
+          subCategories={subCategory}
+          brands={brand}
+          range={range}
+          onClose={() => setSelectedBuyer(null)}
+        />
+      )}
     </div>
   );
 }
@@ -510,25 +564,39 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [events, setEvents] = useState<OrderEvent[]>([]);
+  const [salesLines, setSalesLines] = useState<SalesLine[]>([]);
   const [promoInfo, setPromoInfo] = useState<PromoCode | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const [i, e, p] = await Promise.all([
+      const [i, e, sl, p] = await Promise.all([
         supabase.from("order_items").select("*").eq("order_number", order.order_number).order("position"),
         supabase.from("order_events").select("*").eq("order_number", order.order_number).order("seq"),
+        // ProductSalesExport lines carry quantity + discount detail the
+        // OrderExport items lack; prefer them when uploaded
+        supabase.from("product_sales").select("*").eq("order_id", order.order_number).order("product_name"),
         order.applied_offer
           ? supabase.from("promo_codes").select("*").eq("name", order.applied_offer).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
       setItems((i.data as OrderItem[]) ?? []);
       setEvents((e.data as OrderEvent[]) ?? []);
+      setSalesLines((sl.data as SalesLine[]) ?? []);
       setPromoInfo((p.data as PromoCode | null) ?? null);
       setLoading(false);
     }
     load();
   }, [supabase, order.order_number, order.applied_offer]);
+
+  const lineTotals = useMemo(
+    () => ({
+      qty: salesLines.reduce((s, l) => s + (l.quantity ?? 0), 0),
+      price: salesLines.reduce((s, l) => s + (l.price ?? 0), 0),
+      discounted: salesLines.reduce((s, l) => s + (l.price_after_discount ?? l.price ?? 0), 0),
+    }),
+    [salesLines]
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-6">
@@ -643,28 +711,76 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           ) : (
             <>
               <div>
-                <h3 className="text-sm font-bold mb-2">{t("orderItems")} ({items.length})</h3>
+                <h3 className="text-sm font-bold mb-2">
+                  {t("orderItems")} ({salesLines.length || items.length})
+                </h3>
                 <div className="card overflow-x-auto">
-                  <table className="table-base">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>{t("products")}</th>
-                        <th>SKU</th>
-                        <th>{t("amount")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((it) => (
-                        <tr key={it.position}>
-                          <td className="text-slate-400">{it.position}</td>
-                          <td className="!whitespace-normal">{it.product_name ?? "—"}</td>
-                          <td dir="ltr" className="text-xs text-slate-500">{it.sku ?? "—"}</td>
-                          <td>{formatMoney(it.price, lang)}</td>
+                  {salesLines.length > 0 ? (
+                    <table className="table-base">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{t("products")}</th>
+                          <th>SKU</th>
+                          <th>{t("qty")}</th>
+                          <th>{t("unitPriceCol")}</th>
+                          <th>{t("amount")}</th>
+                          <th>{t("afterDiscountCol")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {salesLines.map((l, i) => (
+                          <tr key={l.sku ?? i}>
+                            <td className="text-slate-400">{i + 1}</td>
+                            <td className="!whitespace-normal">
+                              {l.product_name ?? "—"}
+                              <div className="text-[10px] text-slate-400">
+                                {[l.category, l.sub_category, l.brand].filter(Boolean).join(" · ")}
+                                {l.promotion ? ` · ${l.promotion}` : ""}
+                              </div>
+                            </td>
+                            <td dir="ltr" className="text-xs text-slate-500">{l.sku ?? "—"}</td>
+                            <td className="text-center font-bold">{formatNumber(l.quantity ?? 1)}</td>
+                            <td className="text-xs">{formatMoney(l.unit_price, lang)}</td>
+                            <td>{formatMoney(l.price, lang)}</td>
+                            <td className="font-semibold text-emerald-700">
+                              {formatMoney(l.price_after_discount ?? l.price, lang)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="font-bold bg-slate-50">
+                          <td colSpan={3}>{t("results")}</td>
+                          <td className="text-center">{formatNumber(lineTotals.qty)}</td>
+                          <td />
+                          <td>{formatMoney(lineTotals.price, lang)}</td>
+                          <td className="text-emerald-700">{formatMoney(lineTotals.discounted, lang)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  ) : (
+                    <table className="table-base">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{t("products")}</th>
+                          <th>SKU</th>
+                          <th>{t("amount")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((it) => (
+                          <tr key={it.position}>
+                            <td className="text-slate-400">{it.position}</td>
+                            <td className="!whitespace-normal">{it.product_name ?? "—"}</td>
+                            <td dir="ltr" className="text-xs text-slate-500">{it.sku ?? "—"}</td>
+                            <td>{formatMoney(it.price, lang)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
 
@@ -689,6 +805,160 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                 </div>
               </div>
             </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Buyer drill-down: every book this customer bought (within the active
+// category/sub-category/brand/date filters), grouped per order with
+// quantity and discount detail from the ProductSalesExport lines.
+function BuyerDetail({
+  buyer,
+  categories,
+  subCategories,
+  brands,
+  range,
+  onClose,
+}: {
+  buyer: CategoryBuyer;
+  categories: string[];
+  subCategories: string[];
+  brands: string[];
+  range: { from: string | null; to: string | null };
+  onClose: () => void;
+}) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [lines, setLines] = useState<SalesLine[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.rpc("fn_customer_purchases", {
+        p_customer_key: buyer.customer_key,
+        p_categories: categories.length ? categories : null,
+        p_sub_categories: subCategories.length ? subCategories : null,
+        p_brands: brands.length ? brands : null,
+        p_from: range.from ? `${range.from}T00:00:00Z` : null,
+        p_to: range.to ? `${range.to}T23:59:59Z` : null,
+      });
+      if (cancelled) return;
+      setLines((data as SalesLine[]) ?? []);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, buyer.customer_key, categories, subCategories, brands, range.from, range.to]);
+
+  // group lines per order, newest first (RPC is already sorted)
+  const orders = useMemo(() => {
+    const map = new Map<string, SalesLine[]>();
+    for (const l of lines) {
+      const list = map.get(l.order_id) ?? [];
+      list.push(l);
+      map.set(l.order_id, list);
+    }
+    return Array.from(map.entries());
+  }, [lines]);
+
+  const totals = useMemo(
+    () => ({
+      qty: lines.reduce((s, l) => s + (l.quantity ?? 0), 0),
+      spend: lines.reduce((s, l) => s + (l.price_after_discount ?? l.price ?? 0), 0),
+    }),
+    [lines]
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-6">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl">
+        <div className="sticky top-0 flex items-center justify-between bg-white border-b border-slate-200 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold">
+              {t("buyerPurchases")} — {buyer.customer_name ?? buyer.customer_phone ?? buyer.customer_key}
+            </h2>
+            <div className="text-xs text-slate-500" dir="ltr">
+              {buyer.customer_phone ?? ""}
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">
+              {formatNumber(orders.length)} {t("ordersLabel")}
+            </span>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">
+              {t("units")}: {formatNumber(totals.qty)}
+            </span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+              {t("totalSpent")}: {formatMoney(totals.spend, lang)}
+            </span>
+            <div className="ms-auto">
+              <ContactActions
+                phone={buyer.customer_phone}
+                name={buyer.customer_name}
+                waReason="general"
+                compact={false}
+              />
+            </div>
+          </div>
+
+          {loading ? (
+            <Spinner />
+          ) : orders.length === 0 ? (
+            <div className="p-8 text-center text-slate-500">{t("noResults")}</div>
+          ) : (
+            orders.map(([orderId, orderLines]) => (
+              <div key={orderId}>
+                <div className="mb-1.5 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-bold text-brand-700" dir="ltr">#{orderId}</span>
+                  <span className="text-xs text-slate-500">{formatDateTime(orderLines[0].order_date)}</span>
+                  <StatusBadge status={orderLines[0].order_status} />
+                </div>
+                <div className="card overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
+                      <tr>
+                        <th>{t("products")}</th>
+                        <th>SKU</th>
+                        <th>{t("qty")}</th>
+                        <th>{t("unitPriceCol")}</th>
+                        <th>{t("afterDiscountCol")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderLines.map((l, i) => (
+                        <tr key={`${l.sku ?? i}`}>
+                          <td className="!whitespace-normal">
+                            {l.product_name ?? "—"}
+                            <div className="text-[10px] text-slate-400">
+                              {[l.category, l.sub_category, l.brand].filter(Boolean).join(" · ")}
+                              {l.promotion ? ` · ${l.promotion}` : ""}
+                            </div>
+                          </td>
+                          <td dir="ltr" className="text-xs text-slate-500">{l.sku ?? "—"}</td>
+                          <td className="text-center font-bold">{formatNumber(l.quantity ?? 1)}</td>
+                          <td className="text-xs">{formatMoney(l.unit_price, lang)}</td>
+                          <td className="font-semibold text-emerald-700">
+                            {formatMoney(l.price_after_discount ?? l.price, lang)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>

@@ -51,8 +51,11 @@ export async function GET(request: NextRequest) {
   const city = params.getAll("city").filter(Boolean);
   const source = params.getAll("source").filter(Boolean);
   const category = params.getAll("category").filter(Boolean);
+  const subCategory = params.getAll("sub_category").filter(Boolean);
+  const brand = params.getAll("brand").filter(Boolean);
   const promo = params.getAll("promo").filter(Boolean);
   const q = params.get("q");
+  const needsView = category.length > 0 || subCategory.length > 0 || brand.length > 0;
 
   const admin = user.supabase;
   const pageSize = 1000;
@@ -63,7 +66,7 @@ export async function GET(request: NextRequest) {
     // the view adds a categories[] column computed from product_sales;
     // only pay for it when the category filter is actually in use
     let query = admin
-      .from(category.length ? "orders_with_categories" : "orders")
+      .from(needsView ? "orders_with_categories" : "orders")
       .select(EXPORT_COLUMNS.join(","))
       .order("order_date", { ascending: false })
       .range(offset, offset + pageSize - 1);
@@ -74,6 +77,8 @@ export async function GET(request: NextRequest) {
     if (city.length) query = query.in("city", city);
     if (source.length) query = query.in("source", source);
     if (category.length) query = query.overlaps("categories", category);
+    if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
+    if (brand.length) query = query.overlaps("brands", brand);
     if (promo.length) query = query.in("applied_offer", promo);
     if (q) {
       const s = q.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
@@ -100,7 +105,7 @@ export async function GET(request: NextRequest) {
     user_id: user.id,
     user_email: user.email,
     action: "export_orders",
-    details: { from, to, category, promo, rows: lines.length - 1 },
+    details: { from, to, category, sub_category: subCategory, brand, promo, rows: lines.length - 1 },
   });
 
   const csv = "﻿" + lines.join("\r\n");

@@ -72,6 +72,24 @@ export interface PromoCode {
   active: boolean | null;
 }
 
+// fn_customer_purchases + order-detail enrichment — one product_sales
+// line: a book in an order with quantity and discount detail
+export interface SalesLine {
+  order_id: string;
+  order_date: string | null;
+  order_status: string | null;
+  sku: string | null;
+  product_name: string | null;
+  category: string | null;
+  sub_category: string | null;
+  brand: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  price: number | null;
+  price_after_discount: number | null;
+  promotion: string | null;
+}
+
 // fn_category_buyers — buyer aggregates within selected categories
 export interface CategoryBuyer {
   customer_key: string;

@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
   const from = params.get("from");
   const to = params.get("to");
   const category = params.getAll("category").filter(Boolean);
+  const subCategory = params.getAll("sub_category").filter(Boolean);
+  const brand = params.getAll("brand").filter(Boolean);
 
   const pageSize = 1000;
   let offset = 0;
@@ -43,6 +45,8 @@ export async function GET(request: NextRequest) {
     const { data, error } = await user.supabase
       .rpc("fn_category_buyers", {
         p_categories: category.length ? category : null,
+        p_sub_categories: subCategory.length ? subCategory : null,
+        p_brands: brand.length ? brand : null,
         p_from: from,
         p_to: to,
       })
@@ -62,7 +66,7 @@ export async function GET(request: NextRequest) {
     user_id: user.id,
     user_email: user.email,
     action: "export_category_buyers",
-    details: { from, to, category, rows: lines.length - 1 },
+    details: { from, to, category, sub_category: subCategory, brand, rows: lines.length - 1 },
   });
 
   const csv = "﻿" + lines.join("\r\n");
