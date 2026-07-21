@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import type { Order, OrderItem, OrderEvent, CategoryBuyer } from "@/lib/types";
+import type { Order, OrderItem, OrderEvent, CategoryBuyer, PromoCode } from "@/lib/types";
 
 const PAGE_SIZE = 25;
 
@@ -27,6 +27,7 @@ export default function OrdersPage() {
   const [city, setCity] = useState<string[]>([]);
   const [source, setSource] = useState<string[]>([]);
   const [category, setCategory] = useState<string[]>([]);
+  const [promo, setPromo] = useState<string[]>([]);
   const [view, setView] = useState<"orders" | "buyers">("orders");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<Order[]>([]);
@@ -37,22 +38,24 @@ export default function OrdersPage() {
   const [buyers, setBuyers] = useState<CategoryBuyer[]>([]);
   const [buyersLoading, setBuyersLoading] = useState(false);
   const { sort: bSort, toggle: bToggle, apply: bApply } = useSort<CategoryBuyer>();
-  const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[]; categories: string[] }>({
+  const [filterOptions, setFilterOptions] = useState<{ statuses: string[]; payments: string[]; cities: string[]; sources: string[]; categories: string[]; promos: string[] }>({
     statuses: [],
     payments: [],
     cities: [],
     sources: [],
     categories: [],
+    promos: [],
   });
 
   useEffect(() => {
     async function loadOptions() {
-      const [s, p, c, src, cat] = await Promise.all([
+      const [s, p, c, src, cat, prm] = await Promise.all([
         supabase.rpc("fn_breakdown", { p_dim: "order_status", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "payment_method", p_from: null, p_to: null, p_limit: 20 }),
         supabase.rpc("fn_breakdown", { p_dim: "city", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "source", p_from: null, p_to: null, p_limit: 10 }),
         supabase.rpc("fn_product_sales_breakdown", { p_by: "category", p_from: null, p_to: null }),
+        supabase.rpc("fn_breakdown", { p_dim: "applied_offer", p_from: null, p_to: null, p_limit: 200 }),
       ]);
       const labels = (d: unknown) =>
         ((d as { label: string }[] | null) ?? []).map((x) => x.label).filter((x) => x !== "(none)");
@@ -62,6 +65,7 @@ export default function OrdersPage() {
         cities: labels(c.data),
         sources: labels(src.data),
         categories: ((cat.data as { key: string }[] | null) ?? []).map((x) => x.key).filter((x) => x !== "—"),
+        promos: labels(prm.data),
       });
     }
     loadOptions();
@@ -86,6 +90,7 @@ export default function OrdersPage() {
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
       if (category.length) query = query.overlaps("categories", category);
+      if (promo.length) query = query.in("applied_offer", promo);
       if (search) {
         const s = sanitizeSearch(search);
         if (s) {
@@ -106,7 +111,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, view, range.from, range.to, status, payment, city, source, category, search, page, sort]);
+  }, [supabase, view, range.from, range.to, status, payment, city, source, category, promo, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -126,6 +131,7 @@ export default function OrdersPage() {
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
       if (category.length) query = query.overlaps("categories", category);
+      if (promo.length) query = query.in("applied_offer", promo);
       if (search) {
         const s = sanitizeSearch(search);
         if (s) {
@@ -140,7 +146,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, compare, status, payment, city, source, category, search]);
+  }, [supabase, compare, status, payment, city, source, category, promo, search]);
 
   // buyers view: per-customer aggregates within the selected categories
   // and period (fn_category_buyers). PostgREST caps RPC results at
@@ -239,6 +245,7 @@ export default function OrdersPage() {
     for (const c of city) params.append("city", c);
     for (const s of source) params.append("source", s);
     for (const c of category) params.append("category", c);
+    for (const p of promo) params.append("promo", p);
     if (search) params.set("q", search);
     window.open(`/api/export?${params.toString()}`, "_blank");
   }
@@ -310,7 +317,7 @@ export default function OrdersPage() {
             </span>
           </div>
         )}
-        <div className={view === "orders" ? "grid gap-2 md:grid-cols-3 lg:grid-cols-7" : "grid gap-2 md:grid-cols-3 lg:grid-cols-4"}>
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-4">
           <SearchBox
             className="md:col-span-3 lg:col-span-2"
             placeholder={view === "orders" ? t("searchOrders") : t("searchBuyers")}
@@ -357,6 +364,14 @@ export default function OrdersPage() {
             onChange={(v) => { setCategory(v); setPage(0); }}
             placeholder={t("allCategories")}
           />
+          {view === "orders" && (
+            <MultiSelect
+              options={filterOptions.promos}
+              values={promo}
+              onChange={(v) => { setPromo(v); setPage(0); }}
+              placeholder={t("allPromos")}
+            />
+          )}
         </div>
         {view === "buyers" && (
           <div className="text-xs text-slate-500">{t("buyersHint")}</div>
@@ -427,6 +442,7 @@ export default function OrdersPage() {
                 <SortTh label={t("status")} k="order_status" sort={sort} onToggle={onSort} />
                 <SortTh label={t("paymentMethod")} k="payment_method" sort={sort} onToggle={onSort} />
                 <SortTh label={t("amount")} k="total_order_amount" sort={sort} onToggle={onSort} />
+                <SortTh label={t("promoCode")} k="applied_offer" sort={sort} onToggle={onSort} />
                 <SortTh label={t("itemsCount")} k="items_count" sort={sort} onToggle={onSort} />
               </tr>
             </thead>
@@ -443,6 +459,15 @@ export default function OrdersPage() {
                   <td><StatusBadge status={o.order_status} /></td>
                   <td className="text-xs">{o.payment_method ?? "—"}</td>
                   <td className="font-semibold">{formatMoney(o.total_order_amount, lang)}</td>
+                  <td>
+                    {o.applied_offer ? (
+                      <span className="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700" dir="ltr">
+                        {o.applied_offer}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
                   <td className="text-center">{o.items_count ?? "—"}</td>
                 </tr>
               ))}
@@ -470,25 +495,40 @@ export default function OrdersPage() {
   );
 }
 
+// human label for a promo's value: 1 = fixed EGP, 2 = percent,
+// 3 = free delivery, 4 = gift
+function promoValueLabel(p: PromoCode, lang: "ar" | "en", labels: { freeDelivery: string; gift: string }): string {
+  if (p.type === 2 && p.amount != null) return `${p.amount}%`;
+  if (p.type === 1 && p.amount != null) return formatMoney(p.amount, lang);
+  if (p.type === 3 || p.free_delivery) return labels.freeDelivery;
+  if (p.type === 4) return labels.gift;
+  return p.amount != null ? String(p.amount) : "—";
+}
+
 function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [events, setEvents] = useState<OrderEvent[]>([]);
+  const [promoInfo, setPromoInfo] = useState<PromoCode | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const [i, e] = await Promise.all([
+      const [i, e, p] = await Promise.all([
         supabase.from("order_items").select("*").eq("order_number", order.order_number).order("position"),
         supabase.from("order_events").select("*").eq("order_number", order.order_number).order("seq"),
+        order.applied_offer
+          ? supabase.from("promo_codes").select("*").eq("name", order.applied_offer).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
       setItems((i.data as OrderItem[]) ?? []);
       setEvents((e.data as OrderEvent[]) ?? []);
+      setPromoInfo((p.data as PromoCode | null) ?? null);
       setLoading(false);
     }
     load();
-  }, [supabase, order.order_number]);
+  }, [supabase, order.order_number, order.applied_offer]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-6">
@@ -540,6 +580,37 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                 <div className="font-bold text-lg">{formatMoney(order.total_order_amount, lang)}</div>
                 {order.cod_amount != null && order.cod_amount > 0 && (
                   <div className="text-xs text-amber-700">COD: {formatMoney(order.cod_amount, lang)}</div>
+                )}
+                {order.applied_offer && (
+                  <div className="rounded-lg bg-violet-50 border border-violet-100 px-2.5 py-1.5 text-xs text-violet-900 space-y-0.5">
+                    <div>
+                      <span className="font-semibold">{t("promoCode")}:</span>{" "}
+                      <span className="font-bold" dir="ltr">{order.applied_offer}</span>
+                      {promoInfo && <> — {promoValueLabel(promoInfo, lang, { freeDelivery: t("freeDeliveryLbl"), gift: t("giftLbl") })}</>}
+                      {promoInfo && (
+                        <span
+                          className={
+                            promoInfo.active
+                              ? "ms-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                              : "ms-1.5 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                          }
+                        >
+                          {promoInfo.active ? t("promoActiveLbl") : t("promoInactiveLbl")}
+                        </span>
+                      )}
+                    </div>
+                    {promoInfo?.minimum_order_amount != null && promoInfo.minimum_order_amount > 0 && (
+                      <div className="text-violet-600">
+                        {t("minOrderLbl")}: {formatMoney(promoInfo.minimum_order_amount, lang)}
+                        {promoInfo.expiration_date && <> · {t("validUntil")}: {formatDateTime(promoInfo.expiration_date)}</>}
+                      </div>
+                    )}
+                    {order.promo_amount != null && order.promo_amount > 0 && (
+                      <div className="text-violet-600">
+                        {t("promoDiscountLbl")}: {formatMoney(order.promo_amount, lang)}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {order.awb_number && (
                   <div className="text-xs text-slate-500" dir="ltr">

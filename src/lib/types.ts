@@ -54,6 +54,24 @@ export interface OrderItem {
   price: number | null;
 }
 
+// promo_codes — platform Promos export; orders join via applied_offer = name.
+// type: 1 = fixed EGP, 2 = percent, 3 = free delivery, 4 = gift
+export interface PromoCode {
+  id: number;
+  name: string;
+  description: string | null;
+  amount: number | null;
+  minimum_order_amount: number | null;
+  type: number | null;
+  uses: number | null;
+  start_date: string | null;
+  expiration_date: string | null;
+  max_uses_per_user: number | null;
+  max_usage_limit: number | null;
+  free_delivery: boolean | null;
+  active: boolean | null;
+}
+
 // fn_category_buyers — buyer aggregates within selected categories
 export interface CategoryBuyer {
   customer_key: string;

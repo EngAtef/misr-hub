@@ -24,6 +24,7 @@ const EXPORT_COLUMNS = [
   "delivery_date",
   "cancellation_reason",
   "applied_promotion",
+  "applied_offer",
   "campaign_id",
   "customer_rating",
   "driver_rating",
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
   const city = params.getAll("city").filter(Boolean);
   const source = params.getAll("source").filter(Boolean);
   const category = params.getAll("category").filter(Boolean);
+  const promo = params.getAll("promo").filter(Boolean);
   const q = params.get("q");
 
   const admin = user.supabase;
@@ -72,6 +74,7 @@ export async function GET(request: NextRequest) {
     if (city.length) query = query.in("city", city);
     if (source.length) query = query.in("source", source);
     if (category.length) query = query.overlaps("categories", category);
+    if (promo.length) query = query.in("applied_offer", promo);
     if (q) {
       const s = q.replace(/[,()*%\\:]/g, " ").trim().slice(0, 80);
       if (s) {
@@ -97,7 +100,7 @@ export async function GET(request: NextRequest) {
     user_id: user.id,
     user_email: user.email,
     action: "export_orders",
-    details: { from, to, category, rows: lines.length - 1 },
+    details: { from, to, category, promo, rows: lines.length - 1 },
   });
 
   const csv = "﻿" + lines.join("\r\n");

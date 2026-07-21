@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -17,6 +17,7 @@ import { parseProductSalesFile, type ProductSaleRow } from "@/lib/import/parse-p
 import { parseCatalogFile, parseCatalogHtml, type CatalogBook } from "@/lib/import/parse-catalog";
 import { syncCatalogUpload } from "@/lib/import/catalog-sync";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
+import { parsePromosFile, type PromoRow } from "@/lib/import/parse-promos";
 
 const CHUNK_SIZE = 250;
 
@@ -37,6 +38,7 @@ type UploadType =
   | "customer_stats"
   | "products"
   | "product_sales"
+  | "promos"
   | "stock"
   | "costs"
   | "ga4_pages"
@@ -68,6 +70,10 @@ const TEMPLATES: Record<string, string> = {
     "Order ID,Status,Order Date,Month / Year,Payment Method,Product Sku,Product Name,Category,Sub Category,Group,Brand,Unit Price,Unit Price After Discount,Quantity,Price,Price After Discount,Total Amount,Branch Name,Promotion,Custom Discount\r\n" +
     "21984,Confirmed,2026-07-14 09:01:35,Jul-26,Cash On Delivery,SKU001,Book A,Kids,Educational books,Non-Fiction,Publisher X,145.00,101.50,1,145,101.5,101.5,,,\r\n" +
     "# This is the platform ProductSalesExport — one line per product in every order.",
+  promos:
+    "id,name,description,amount,minimum_order_amount,type,uses,start_date,expiration_date,max_uses_per_user,max_usage_limit,free_delivery,active\r\n" +
+    "5,DIS5,5% extra discount,5,300.00,2,188,2025-05-06 00:00:00,2025-06-11 00:00:00,,,0,1\r\n" +
+    "# This is the platform Promos export. type: 1 = fixed EGP / 2 = percent / 3 = free delivery / 4 = gift.",
   stock:
     "Sku,product name,ecom,sap,category\r\n" +
     "SKU001,Book A,50,120,Kids\r\n" +
@@ -114,6 +120,7 @@ interface Pending {
   customerStats?: CustomerStatsRow[];
   products?: CatalogBook[];
   productSales?: ProductSaleRow[];
+  promos?: PromoRow[];
   stock?: StockRow[];
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
@@ -166,6 +173,7 @@ export default function DataCenterPage() {
     { key: "customer_stats", icon: History, title: t("uploadCustomerStats"), hint: t("uploadCustomerStatsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "products", icon: Package, title: t("uploadProducts"), hint: t("uploadProductsHint"), accept: ".xlsx,.xls,.csv,.html" },
     { key: "product_sales", icon: Tags, title: t("uploadProductSales"), hint: t("uploadProductSalesHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "promos", icon: TicketPercent, title: t("uploadPromos"), hint: t("uploadPromosHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
@@ -204,6 +212,11 @@ export default function DataCenterPage() {
         const rows = parseProductSalesFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "product_sales", fileName: file.name, productSales: rows, count: rows.length });
+      } else if (activeType === "promos") {
+        const buffer = await file.arrayBuffer();
+        const rows = parsePromosFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "promos", fileName: file.name, promos: rows, count: rows.length });
       } else if (activeType === "stock") {
         const buffer = await file.arrayBuffer();
         const rows = parseStockFile(buffer);
@@ -341,6 +354,17 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.productSales.length) * 100));
         }
         await recordUpload(pending.fileName, pending.productSales.length, ok, 0);
+      } else if (pending.type === "promos" && pending.promos) {
+        let ok = 0;
+        for (let i = 0; i < pending.promos.length; i += 2000) {
+          const chunk = pending.promos.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_promo_codes", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.promos.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.promos.length, ok, 0);
       } else if (pending.type === "stock" && pending.stock) {
         const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
         if (error) throw new Error(error.message);
