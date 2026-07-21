@@ -87,6 +87,7 @@ const dict = {
   allCities: { ar: "كل المحافظات", en: "All cities" },
   allSources: { ar: "كل المصادر", en: "All sources" },
   allPromos: { ar: "كل أكواد الخصم", en: "All promo codes" },
+  pageNumber: { ar: "رقم الصفحة", en: "Page #" },
   allSubCategories: { ar: "كل التصنيفات الفرعية", en: "All sub-categories" },
   subCategoryCol: { ar: "التصنيف الفرعي", en: "Sub-category" },
   unitPriceCol: { ar: "سعر النسخة", en: "Unit Price" },

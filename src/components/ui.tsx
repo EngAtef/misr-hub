@@ -193,3 +193,90 @@ export function Spinner() {
 export function EmptyState({ message }: { message: string }) {
   return <div className="card p-12 text-center text-slate-500">{message}</div>;
 }
+
+// ---- Numbered pagination -------------------------------------------
+// Windowed page buttons (1 … 5 6 [7] 8 9 … 40) with previous/next and
+// a jump-to-page box. `page` is 0-based; clamps everything it emits.
+export function Pagination({
+  page,
+  totalPages,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  onPage: (p: number) => void;
+}) {
+  const { t } = useLang();
+  const [jump, setJump] = useState("");
+
+  const current = page + 1;
+  const wanted = new Set<number>([1, totalPages]);
+  for (let i = current - 2; i <= current + 2; i++) {
+    if (i >= 1 && i <= totalPages) wanted.add(i);
+  }
+  const sorted = Array.from(wanted).sort((a, b) => a - b);
+  const items: (number | "gap")[] = [];
+  let prev = 0;
+  for (const n of sorted) {
+    if (n - prev === 2) items.push(n - 1);
+    else if (n - prev > 2) items.push("gap");
+    items.push(n);
+    prev = n;
+  }
+
+  function go(p: number) {
+    const clamped = Math.min(Math.max(p, 1), totalPages);
+    if (clamped !== current) onPage(clamped - 1);
+  }
+
+  function commitJump() {
+    const n = parseInt(jump, 10);
+    if (!isNaN(n)) go(n);
+    setJump("");
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button className="btn-secondary !px-2.5 !py-1.5 text-xs" disabled={current <= 1} onClick={() => go(current - 1)}>
+        {t("previous")}
+      </button>
+      {items.map((it, i) =>
+        it === "gap" ? (
+          <span key={`g${i}`} className="px-1 text-slate-400 select-none">
+            …
+          </span>
+        ) : (
+          <button
+            key={it}
+            onClick={() => go(it)}
+            className={cn(
+              "min-w-[2.1rem] rounded-lg px-2 py-1.5 text-xs font-semibold transition",
+              it === current
+                ? "bg-brand-700 text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:border-brand-400 hover:text-brand-700"
+            )}
+          >
+            {it}
+          </button>
+        )
+      )}
+      <button className="btn-secondary !px-2.5 !py-1.5 text-xs" disabled={current >= totalPages} onClick={() => go(current + 1)}>
+        {t("next")}
+      </button>
+      <input
+        type="number"
+        min={1}
+        max={totalPages}
+        value={jump}
+        onChange={(e) => setJump(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitJump();
+        }}
+        onBlur={() => jump && commitJump()}
+        placeholder={t("pageNumber")}
+        className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+        dir="ltr"
+      />
+    </div>
+  );
+}

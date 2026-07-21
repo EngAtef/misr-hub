@@ -5,7 +5,7 @@ import { Download, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
-import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
+import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge, Pagination } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
@@ -63,7 +63,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     async function loadOptions() {
-      const [s, p, c, src, cat, sub, br, prm] = await Promise.all([
+      const [s, p, c, src, cat, sub, br, prm, pcodes] = await Promise.all([
         supabase.rpc("fn_breakdown", { p_dim: "order_status", p_from: null, p_to: null, p_limit: 50 }),
         supabase.rpc("fn_breakdown", { p_dim: "payment_method", p_from: null, p_to: null, p_limit: 20 }),
         supabase.rpc("fn_breakdown", { p_dim: "city", p_from: null, p_to: null, p_limit: 50 }),
@@ -72,6 +72,9 @@ export default function OrdersPage() {
         supabase.rpc("fn_product_sales_breakdown", { p_by: "sub_category", p_from: null, p_to: null }),
         supabase.rpc("fn_product_sales_breakdown", { p_by: "brand", p_from: null, p_to: null }),
         supabase.rpc("fn_breakdown", { p_dim: "applied_offer", p_from: null, p_to: null, p_limit: 200 }),
+        // every uploaded promo code (not just codes already used in orders),
+        // most-used first so the relevant ones sit on top
+        supabase.from("promo_codes").select("name").order("uses", { ascending: false, nullsFirst: false }).order("name").limit(2000),
       ]);
       const labels = (d: unknown) =>
         ((d as { label: string }[] | null) ?? []).map((x) => x.label).filter((x) => x !== "(none)");
@@ -84,7 +87,9 @@ export default function OrdersPage() {
         categories: keys(cat.data),
         subCategories: keys(sub.data),
         brands: keys(br.data),
-        promos: labels(prm.data),
+        promos: (pcodes.data?.length
+          ? (pcodes.data as { name: string }[]).map((x) => x.name)
+          : labels(prm.data)),
       });
     }
     loadOptions();
@@ -520,18 +525,11 @@ export default function OrdersPage() {
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
         <span>
-          {t("page")} {page + 1} {t("of")} {formatNumber(totalPages)}
+          {t("page")} {formatNumber(page + 1)} {t("of")} {formatNumber(totalPages)}
         </span>
-        <div className="flex gap-2">
-          <button className="btn-secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
-            {t("previous")}
-          </button>
-          <button className="btn-secondary" disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>
-            {t("next")}
-          </button>
-        </div>
+        <Pagination page={page} totalPages={totalPages} onPage={setPage} />
       </div>
 
       {selected && <OrderDetail order={selected} onClose={() => setSelected(null)} />}
