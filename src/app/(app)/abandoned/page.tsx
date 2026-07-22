@@ -13,6 +13,7 @@ import { useMyRole } from "@/lib/use-role";
 import { PageHeader, Spinner, EmptyState, ChartCard, KpiCard } from "@/components/ui";
 import { TrendChart, BarsChart, DonutChart } from "@/components/charts";
 import { MultiSelect } from "@/components/multi-select";
+import { DateRangeFilter, useDateRange } from "@/components/date-range";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
@@ -115,6 +116,7 @@ export default function AbandonedPage() {
   const role = useMyRole();
   const canEdit = role === "admin" || role === "manager";
   const supabase = useMemo(() => createClient(), []);
+  const { preset, setPreset, range, setRange } = useDateRange("all");
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [segments, setSegments] = useState<SegmentRow[]>([]);
@@ -147,14 +149,17 @@ export default function AbandonedPage() {
   const [rematching, setRematching] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const bounded = !!(range.from || range.to);
+
   const loadOverview = useCallback(async () => {
+    const period = { p_from: range.from, p_to: range.to };
     const [s, seg, tr, tp, rep, bd, an] = await Promise.all([
-      supabase.rpc("fn_abandoned_summary"),
-      supabase.rpc("fn_abandoned_segments"),
-      supabase.rpc("fn_abandoned_trend", { p_days: trendDays }),
-      supabase.rpc("fn_abandoned_top_products", { p_days: null, p_limit: 30 }),
-      supabase.rpc("fn_abandoned_repeaters", { p_limit: 50 }),
-      supabase.rpc("fn_abandoned_breakdowns"),
+      supabase.rpc("fn_abandoned_summary", period),
+      supabase.rpc("fn_abandoned_segments", period),
+      supabase.rpc("fn_abandoned_trend", { p_days: trendDays, ...period }),
+      supabase.rpc("fn_abandoned_top_products", { ...period, p_limit: 30 }),
+      supabase.rpc("fn_abandoned_repeaters", { ...period, p_limit: 50 }),
+      supabase.rpc("fn_abandoned_breakdowns", period),
       supabase.rpc("fn_abandoned_anomaly_report"),
     ]);
     setSummary((s.data as Summary) ?? null);
@@ -165,7 +170,7 @@ export default function AbandonedPage() {
     setBreakdowns((bd.data as Breakdowns) ?? null);
     setAnomalies((an.data as AnomalyReport) ?? null);
     setLoading(false);
-  }, [supabase, trendDays]);
+  }, [supabase, trendDays, range.from, range.to]);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
 
@@ -177,9 +182,11 @@ export default function AbandonedPage() {
     p_min_value: minValue !== "" ? Number(minValue) : null,
     p_max_value: maxValue !== "" ? Number(maxValue) : null,
     p_order: order,
+    p_from: range.from,
+    p_to: range.to,
     p_limit: limit,
     p_offset: offset,
-  }), [segment, statusFilters, search, trafficFilters, minValue, maxValue, order]);
+  }), [segment, statusFilters, search, trafficFilters, minValue, maxValue, order, range.from, range.to]);
 
   const loadCarts = useCallback(async () => {
     setCartsLoading(true);
@@ -410,6 +417,10 @@ export default function AbandonedPage() {
         </div>
       ) : (
         <>
+          <div className="mb-4">
+            <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+          </div>
+
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-2.5 text-[13px] text-emerald-800">
             <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
             {t("abCleanNote")}
@@ -480,12 +491,13 @@ export default function AbandonedPage() {
           <div className="grid gap-4 lg:grid-cols-2 mb-4">
             <ChartCard title={t("abTrendRealTitle")}>
               <div className="mb-2 flex items-center gap-1.5">
-                {[30, 90, 180, 365, 3650].map((d) => (
+                {!bounded && [30, 90, 180, 365, 3650].map((d) => (
                   <button key={d} onClick={() => setTrendDays(d)}
                     className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", trendDays === d ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
                     {d === 3650 ? "All" : `${d}d`}
                   </button>
                 ))}
+                {bounded && <span className="text-xs text-slate-500" dir="ltr">{range.from ?? "…"} → {range.to ?? "…"}</span>}
                 <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
                   onClick={() => exportRows("abandoned-daily-trend", trend as unknown as Record<string, unknown>[])}>
                   <Download size={12} />CSV
