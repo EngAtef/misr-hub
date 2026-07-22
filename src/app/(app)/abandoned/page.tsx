@@ -5,13 +5,15 @@ import Link from "next/link";
 import {
   ShoppingBasket, Download, RefreshCw, Search, ChevronDown, ChevronUp,
   ExternalLink, Megaphone, Flame, Users, UserPlus, Repeat, Sparkles,
-  CheckCircle2, X, PhoneOutgoing,
+  CheckCircle2, X, PhoneOutgoing, AlertTriangle, User,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useMyRole } from "@/lib/use-role";
 import { PageHeader, Spinner, EmptyState, ChartCard, KpiCard } from "@/components/ui";
-import { TrendChart } from "@/components/charts";
+import { TrendChart, BarsChart, DonutChart } from "@/components/charts";
+import { MultiSelect } from "@/components/multi-select";
+import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { abandonedCartLink } from "@/lib/whatsapp";
@@ -26,6 +28,7 @@ interface Summary {
   last30_carts: number; last30_value: number;
   repeat_abandoners: number; facebook_carts: number; notified_carts: number;
   items_rows: number; last_import: string | null;
+  anomaly_carts: number; anomaly_value: number; anomaly_days: number; anomaly_days_value: number;
 }
 
 interface SegmentRow { segment: string; carts: number; reachable: number; total_value: number; recovered: number }
@@ -37,7 +40,7 @@ interface CartRow {
   traffic_hint: string | null; is_guest: boolean; customer_id: string | null;
   recall_status: string; recall_note: string | null; recalled_at: string | null; recalled_by: string | null;
   recovered_order_number: string | null; recovered_at: string | null; recovered_value: number | null;
-  age_days: number; is_repeat: boolean;
+  age_days: number; is_repeat: boolean; is_anomaly: boolean; anomaly_reason: string | null;
   customer_name: string | null; customer_city: string | null;
   lifetime_orders: number | null; lifetime_delivered_amount: number | null;
   full_count: number;
@@ -50,6 +53,22 @@ interface Repeater {
   carts: number; total_value: number; last_abandoned: string | null; recovered: number; recall_status: string;
 }
 interface CartItem { item_key: string; sku: string | null; product_name: string | null; qty: number | null }
+interface Breakdowns {
+  by_hour: { hour: number; carts: number; value: number }[];
+  by_dow: { dow: number; carts: number; value: number }[];
+  by_bucket: { bucket: string; carts: number; value: number }[];
+  by_traffic: { source: string; carts: number; value: number; reachable: number }[];
+}
+interface AnomalyReport {
+  carts: {
+    cart_key: string; full_name: string | null; phone: string | null; email: string | null;
+    products_count: number | null; cart_value: number | null; created_at: string | null;
+    reason: string | null; user_ip: string | null; web_url: string | null;
+  }[];
+  days: { day: string; lost_value: number | null; avg_cart_value: number | null }[];
+  carts_value: number;
+  days_value: number;
+}
 
 const PAGE_SIZE = 50;
 
@@ -79,6 +98,17 @@ const STATUS_KEY: Record<string, DictKey> = {
   new: "abStatusNew", contacted: "abStatusContacted", responded: "abStatusResponded",
   recovered: "abStatusRecovered", lost: "abStatusLost", excluded: "abStatusExcluded",
 };
+const TRAFFIC_KEY: Record<string, DictKey> = {
+  direct: "abTrafficDirect", facebook: "abTrafficFacebook", google: "abTrafficGoogle",
+  tiktok: "abTrafficTiktok", other_campaign: "abTrafficCampaign", unknown: "abTrafficUnknown",
+};
+const SORTS: { key: string; labelKey: DictKey }[] = [
+  { key: "newest", labelKey: "abSortNewest" },
+  { key: "oldest", labelKey: "abSortOldest" },
+  { key: "value_desc", labelKey: "abSortValueDesc" },
+  { key: "value_asc", labelKey: "abSortValueAsc" },
+  { key: "products_desc", labelKey: "abSortProducts" },
+];
 
 export default function AbandonedPage() {
   const { t, lang } = useLang();
@@ -92,12 +122,19 @@ export default function AbandonedPage() {
   const [trendDays, setTrendDays] = useState(180);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [repeaters, setRepeaters] = useState<Repeater[]>([]);
+  const [breakdowns, setBreakdowns] = useState<Breakdowns | null>(null);
+  const [anomalies, setAnomalies] = useState<AnomalyReport | null>(null);
+  const [showAnomalies, setShowAnomalies] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [carts, setCarts] = useState<CartRow[]>([]);
   const [cartsLoading, setCartsLoading] = useState(false);
   const [segment, setSegment] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [trafficFilters, setTrafficFilters] = useState<string[]>([]);
+  const [minValue, setMinValue] = useState("");
+  const [maxValue, setMaxValue] = useState("");
+  const [order, setOrder] = useState("newest");
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [page, setPage] = useState(0);
@@ -105,42 +142,53 @@ export default function AbandonedPage() {
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, CartItem[]>>({});
+  const [drawerCustomer, setDrawerCustomer] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [rematching, setRematching] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const loadOverview = useCallback(async () => {
-    const [s, seg, tr, tp, rep] = await Promise.all([
+    const [s, seg, tr, tp, rep, bd, an] = await Promise.all([
       supabase.rpc("fn_abandoned_summary"),
       supabase.rpc("fn_abandoned_segments"),
       supabase.rpc("fn_abandoned_trend", { p_days: trendDays }),
       supabase.rpc("fn_abandoned_top_products", { p_days: null, p_limit: 30 }),
       supabase.rpc("fn_abandoned_repeaters", { p_limit: 50 }),
+      supabase.rpc("fn_abandoned_breakdowns"),
+      supabase.rpc("fn_abandoned_anomaly_report"),
     ]);
     setSummary((s.data as Summary) ?? null);
     setSegments((seg.data as SegmentRow[]) ?? []);
     setTrend(((tr.data as TrendRow[]) ?? []).map((r) => ({ ...r, lost_value: r.lost_value ?? 0, avg_cart_value: r.avg_cart_value ?? 0 })));
     setTopProducts((tp.data as TopProduct[]) ?? []);
     setRepeaters((rep.data as Repeater[]) ?? []);
+    setBreakdowns((bd.data as Breakdowns) ?? null);
+    setAnomalies((an.data as AnomalyReport) ?? null);
     setLoading(false);
   }, [supabase, trendDays]);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
 
+  const listParams = useCallback((limit: number, offset: number) => ({
+    p_segment: segment,
+    p_status: statusFilters.length ? statusFilters : null,
+    p_search: search || null,
+    p_traffic: trafficFilters.length ? trafficFilters : null,
+    p_min_value: minValue !== "" ? Number(minValue) : null,
+    p_max_value: maxValue !== "" ? Number(maxValue) : null,
+    p_order: order,
+    p_limit: limit,
+    p_offset: offset,
+  }), [segment, statusFilters, search, trafficFilters, minValue, maxValue, order]);
+
   const loadCarts = useCallback(async () => {
     setCartsLoading(true);
-    const { data } = await supabase.rpc("fn_abandoned_carts_list", {
-      p_segment: segment,
-      p_status: statusFilter ? [statusFilter] : null,
-      p_search: search || null,
-      p_limit: PAGE_SIZE,
-      p_offset: page * PAGE_SIZE,
-    });
+    const { data } = await supabase.rpc("fn_abandoned_carts_list", listParams(PAGE_SIZE, page * PAGE_SIZE));
     const rows = (data as CartRow[]) ?? [];
     setCarts(rows);
     setFullCount(rows[0]?.full_count ?? 0);
     setCartsLoading(false);
-  }, [supabase, segment, statusFilter, search, page]);
+  }, [supabase, listParams, page]);
 
   useEffect(() => { loadCarts(); }, [loadCarts]);
 
@@ -184,13 +232,7 @@ export default function AbandonedPage() {
   async function fetchAllFiltered(): Promise<CartRow[]> {
     const all: CartRow[] = [];
     for (let off = 0; off < 60000; off += 1000) {
-      const { data } = await supabase.rpc("fn_abandoned_carts_list", {
-        p_segment: segment,
-        p_status: statusFilter ? [statusFilter] : null,
-        p_search: search || null,
-        p_limit: 1000,
-        p_offset: off,
-      });
+      const { data } = await supabase.rpc("fn_abandoned_carts_list", listParams(1000, off));
       const rows = (data as CartRow[]) ?? [];
       all.push(...rows);
       if (!rows.length || all.length >= (rows[0]?.full_count ?? 0)) break;
@@ -213,15 +255,15 @@ export default function AbandonedPage() {
     setExporting(false);
   }
 
-  // Meta Custom Audience format: email + phone columns, E.164 phones.
+  // Meta Custom Audience format: email + phone columns. Phones are digits-only
+  // with country code — Meta accepts this and it survives the CSV formula-
+  // injection guard (a leading + would get quoted).
   async function exportMeta() {
     setExporting(true);
     const all = await fetchAllFiltered();
     const seen = new Set<string>();
     const rows: { email: string; phone: string }[] = [];
     for (const c of all) {
-      // digits-only with country code — Meta accepts this and it survives
-      // the CSV formula-injection guard (a leading + would get quoted)
       const phone = c.phone_norm ?? "";
       const email = c.email ?? "";
       if (!phone && !email) continue;
@@ -233,6 +275,34 @@ export default function AbandonedPage() {
     downloadCsv(`meta-audience-abandoned-${segment}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[], ["email", "phone"]));
     setExporting(false);
   }
+
+  function exportRows(name: string, rows: Record<string, unknown>[]) {
+    if (!rows.length) return;
+    downloadCsv(`${name}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));
+  }
+
+  const DOW = lang === "ar"
+    ? ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+    : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const hourData = useMemo(
+    () => (breakdowns?.by_hour ?? []).map((h) => ({ label: `${h.hour}:00`, carts: h.carts })),
+    [breakdowns]
+  );
+  const dowData = useMemo(
+    () => (breakdowns?.by_dow ?? []).map((d) => ({ label: DOW[(d.dow - 1) % 7], carts: d.carts, value: Math.round(d.value) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [breakdowns, lang]
+  );
+  const bucketData = useMemo(
+    () => (breakdowns?.by_bucket ?? []).map((b) => ({ label: b.bucket, carts: b.carts })),
+    [breakdowns]
+  );
+  const trafficData = useMemo(
+    () => (breakdowns?.by_traffic ?? []).map((s) => ({ source: t(TRAFFIC_KEY[s.source] ?? "abTrafficUnknown"), carts: s.carts })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [breakdowns, lang]
+  );
 
   const insights = useMemo(() => {
     if (!summary) return [];
@@ -293,7 +363,7 @@ export default function AbandonedPage() {
 
   if (loading) return <Spinner />;
 
-  const noData = !summary || summary.total_carts === 0;
+  const noData = !summary || (summary.total_carts === 0 && summary.anomaly_carts === 0);
 
   return (
     <div>
@@ -333,7 +403,12 @@ export default function AbandonedPage() {
         </div>
       ) : (
         <>
-          {/* KPIs */}
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-2.5 text-[13px] text-emerald-800">
+            <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+            {t("abCleanNote")}
+          </div>
+
+          {/* KPIs — real numbers only */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-3">
             <KpiCard label={t("abandoned")} value={formatNumber(summary.total_carts)} sub={`${t("abAvgCart")}: ${formatMoney(summary.avg_cart_value, lang)}`} />
             <KpiCard label={t("abValueAtRisk")} value={formatMoney(summary.total_value, lang)} accent="red" sub={`30d: ${formatNumber(summary.last30_carts)} · ${formatMoney(summary.last30_value, lang)}`} />
@@ -355,8 +430,8 @@ export default function AbandonedPage() {
                 <div key={s} className="flex items-center gap-2">
                   {i > 0 && <span className="text-slate-300">←</span>}
                   <button
-                    onClick={() => { setStatusFilter(statusFilter === s ? "" : s); setPage(0); }}
-                    className={cn("rounded-full px-3 py-1.5 font-semibold", STATUS_STYLE[s], statusFilter === s && "ring-2 ring-brand-400")}
+                    onClick={() => { setStatusFilters(statusFilters.length === 1 && statusFilters[0] === s ? [] : [s]); setPage(0); }}
+                    className={cn("rounded-full px-3 py-1.5 font-semibold", STATUS_STYLE[s], statusFilters.includes(s) && "ring-2 ring-brand-400")}
                   >
                     {t(STATUS_KEY[s])}: {formatNumber(s === "new" ? summary.new_carts : s === "contacted" ? summary.contacted : s === "responded" ? summary.responded : summary.recovered_carts)}
                   </button>
@@ -364,8 +439,8 @@ export default function AbandonedPage() {
               ))}
               <span className="mx-2 text-slate-300">|</span>
               <button
-                onClick={() => { setStatusFilter(statusFilter === "lost" ? "" : "lost"); setPage(0); }}
-                className={cn("rounded-full px-3 py-1.5 font-semibold", STATUS_STYLE.lost, statusFilter === "lost" && "ring-2 ring-brand-400")}
+                onClick={() => { setStatusFilters(statusFilters.length === 1 && statusFilters[0] === "lost" ? [] : ["lost"]); setPage(0); }}
+                className={cn("rounded-full px-3 py-1.5 font-semibold", STATUS_STYLE.lost, statusFilters.includes("lost") && "ring-2 ring-brand-400")}
               >
                 {t("abStatusLost")}: {formatNumber(summary.lost)}
               </button>
@@ -395,17 +470,19 @@ export default function AbandonedPage() {
           )}
 
           {/* Trend */}
-          <div className="grid gap-4 lg:grid-cols-2 mb-6">
-            <ChartCard
-              title={`${t("abTrendTitle")} — ${t("abTrendLost")}`}
-            >
-              <div className="mb-2 flex gap-1.5">
+          <div className="grid gap-4 lg:grid-cols-2 mb-4">
+            <ChartCard title={`${t("abTrendTitle")} — ${t("abTrendLost")}`}>
+              <div className="mb-2 flex items-center gap-1.5">
                 {[30, 90, 180, 365, 3650].map((d) => (
                   <button key={d} onClick={() => setTrendDays(d)}
                     className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", trendDays === d ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
                     {d === 3650 ? "All" : `${d}d`}
                   </button>
                 ))}
+                <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
+                  onClick={() => exportRows("abandoned-daily-trend", trend as unknown as Record<string, unknown>[])}>
+                  <Download size={12} />CSV
+                </button>
               </div>
               <TrendChart data={trend as unknown as Record<string, unknown>[]} xKey="day" series={[{ key: "lost_value", name: t("abTrendLost"), color: "#dc2626" }]} />
             </ChartCard>
@@ -420,6 +497,22 @@ export default function AbandonedPage() {
                   { key: "carts", name: t("abTrendCarts"), color: "#4e7f76" },
                 ]}
               />
+            </ChartCard>
+          </div>
+
+          {/* Behavior breakdowns */}
+          <div className="grid gap-4 lg:grid-cols-2 mb-6">
+            <ChartCard title={t("abByHour")}>
+              <BarsChart data={hourData as unknown as Record<string, unknown>[]} xKey="label" series={[{ key: "carts", name: t("abTrendCarts"), color: "#2b3990" }]} height={240} />
+            </ChartCard>
+            <ChartCard title={t("abByDow")}>
+              <BarsChart data={dowData as unknown as Record<string, unknown>[]} xKey="label" series={[{ key: "carts", name: t("abTrendCarts"), color: "#4e7f76" }]} height={240} />
+            </ChartCard>
+            <ChartCard title={t("abByBucket")}>
+              <BarsChart data={bucketData as unknown as Record<string, unknown>[]} xKey="label" series={[{ key: "carts", name: t("abTrendCarts"), color: "#b45309" }]} height={240} />
+            </ChartCard>
+            <ChartCard title={t("abByTraffic")}>
+              <DonutChart data={trafficData as unknown as Record<string, unknown>[]} nameKey="source" valueKey="carts" height={240} />
             </ChartCard>
           </div>
 
@@ -450,9 +543,32 @@ export default function AbandonedPage() {
             })}
           </div>
 
-          {/* Cart browser */}
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-bold">{t("abCartBrowser")}</h2>
+          {/* Cart browser + filters */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-bold me-2">{t("abCartBrowser")}</h2>
+            <MultiSelect
+              options={["new", "contacted", "responded", "recovered", "lost", "excluded"]}
+              values={statusFilters}
+              onChange={(v) => { setStatusFilters(v); setPage(0); }}
+              placeholder={t("abFilterStatus")}
+              getLabel={(v) => t(STATUS_KEY[v] ?? "abStatusNew")}
+              className="w-40"
+            />
+            <MultiSelect
+              options={["direct", "facebook", "google", "tiktok", "other_campaign", "unknown"]}
+              values={trafficFilters}
+              onChange={(v) => { setTrafficFilters(v); setPage(0); }}
+              placeholder={t("abFilterTraffic")}
+              getLabel={(v) => t(TRAFFIC_KEY[v] ?? "abTrafficUnknown")}
+              className="w-40"
+            />
+            <input type="number" min={0} value={minValue} onChange={(e) => { setMinValue(e.target.value); setPage(0); }}
+              placeholder={t("abMinValue")} className="input !w-28" dir="ltr" />
+            <input type="number" min={0} value={maxValue} onChange={(e) => { setMaxValue(e.target.value); setPage(0); }}
+              placeholder={t("abMaxValue")} className="input !w-28" dir="ltr" />
+            <select value={order} onChange={(e) => { setOrder(e.target.value); setPage(0); }} className="input !w-auto" title={t("abSortLbl")}>
+              {SORTS.map((s) => <option key={s.key} value={s.key}>{t(s.labelKey)}</option>)}
+            </select>
             <form
               className="relative ms-auto"
               onSubmit={(e) => { e.preventDefault(); setSearch(searchDraft); setPage(0); }}
@@ -462,7 +578,7 @@ export default function AbandonedPage() {
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder={t("abSearchPh")}
-                className="input !ps-9 w-72 max-w-full"
+                className="input !ps-9 w-64 max-w-full"
               />
             </form>
             <span className="text-xs text-slate-500">
@@ -505,10 +621,22 @@ export default function AbandonedPage() {
                         <tr className={cn(isOpen && "bg-slate-50")}>
                           <td>
                             <div className="flex items-center gap-1.5 font-medium">
-                              {c.customer_name ?? c.full_name ?? "—"}
+                              {c.customer_id ? (
+                                <button
+                                  className="flex items-center gap-1 text-brand-700 hover:underline"
+                                  onClick={() => setDrawerCustomer(c.customer_id)}
+                                  title={t("abViewCustomer")}
+                                >
+                                  <User size={13} />
+                                  {c.customer_name ?? c.full_name ?? c.customer_id}
+                                </button>
+                              ) : (
+                                <span>{c.full_name ?? "—"}</span>
+                              )}
                               {c.customer_id && <span className="rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">{t("abSegKnown")}</span>}
                               {c.is_repeat && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">{t("abSegRepeat")}</span>}
                               {c.traffic_hint === "facebook" && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">FB</span>}
+                              {c.is_anomaly && <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">{t("abExcludedFromStats")}</span>}
                             </div>
                             <div className="text-xs text-slate-400" dir="ltr">{c.phone ?? c.email ?? ""}</div>
                             {(c.lifetime_orders ?? 0) > 0 && (
@@ -601,9 +729,15 @@ export default function AbandonedPage() {
           )}
 
           {/* Top abandoned products + repeaters */}
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 xl:grid-cols-2 mb-8">
             <div>
-              <h2 className="mb-1 text-lg font-bold">{t("abTopProducts")}</h2>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-lg font-bold">{t("abTopProducts")}</h2>
+                <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
+                  onClick={() => exportRows("abandoned-top-products", topProducts as unknown as Record<string, unknown>[])}>
+                  <Download size={12} />CSV
+                </button>
+              </div>
               <div className="mb-3 text-xs text-slate-500">{t("abTopProductsHint")}</div>
               <div className="card overflow-x-auto">
                 <table className="table-base">
@@ -635,7 +769,13 @@ export default function AbandonedPage() {
               </div>
             </div>
             <div>
-              <h2 className="mb-1 text-lg font-bold">{t("abRepeatersTitle")}</h2>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-lg font-bold">{t("abRepeatersTitle")}</h2>
+                <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
+                  onClick={() => exportRows("abandoned-repeaters", repeaters as unknown as Record<string, unknown>[])}>
+                  <Download size={12} />CSV
+                </button>
+              </div>
               <div className="mb-3 text-xs text-slate-500">{t("abRepeatersHint")}</div>
               <div className="card overflow-x-auto">
                 <table className="table-base">
@@ -646,7 +786,15 @@ export default function AbandonedPage() {
                     {repeaters.map((r) => (
                       <tr key={r.phone_norm}>
                         <td>
-                          <div className="font-medium">{r.full_name ?? "—"}</div>
+                          {r.customer_id ? (
+                            <button className="flex items-center gap-1 font-medium text-brand-700 hover:underline"
+                              onClick={() => setDrawerCustomer(r.customer_id)} title={t("abViewCustomer")}>
+                              <User size={13} />
+                              {r.full_name ?? r.customer_id}
+                            </button>
+                          ) : (
+                            <div className="font-medium">{r.full_name ?? "—"}</div>
+                          )}
                           <div className="text-xs text-slate-400" dir="ltr">+{r.phone_norm}</div>
                         </td>
                         <td className="font-bold">{formatNumber(r.carts)}</td>
@@ -662,8 +810,100 @@ export default function AbandonedPage() {
               </div>
             </div>
           </div>
+
+          {/* Separated anomaly / test-data report */}
+          {anomalies && (anomalies.carts.length > 0 || anomalies.days.length > 0) && (
+            <div className="card border-red-100 mb-8">
+              <button
+                className="flex w-full items-center gap-2 p-4 text-start"
+                onClick={() => setShowAnomalies(!showAnomalies)}
+              >
+                <AlertTriangle size={18} className="text-red-500 shrink-0" />
+                <div className="flex-1">
+                  <div className="font-bold">{t("abAnomalyReport")}</div>
+                  <div className="text-xs text-slate-500">
+                    {formatNumber(anomalies.carts.length)} {t("abCartsLbl")} · {formatMoney(anomalies.carts_value, lang)}
+                    <span className="mx-1.5">|</span>
+                    {formatNumber(anomalies.days.length)} {t("abAnomalyDaysTbl").toLowerCase()} · {formatMoney(anomalies.days_value, lang)}
+                  </div>
+                </div>
+                {showAnomalies ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+              {showAnomalies && (
+                <div className="border-t border-slate-100 p-4">
+                  <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] leading-relaxed text-red-800">
+                    <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                    {t("abAnomalyNote")}
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-sm font-bold">{t("abAnomalyCartsTbl")}</h3>
+                        <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
+                          onClick={() => exportRows("abandoned-anomaly-carts", anomalies.carts as unknown as Record<string, unknown>[])}>
+                          <Download size={12} />CSV
+                        </button>
+                      </div>
+                      <div className="card overflow-x-auto">
+                        <table className="table-base">
+                          <thead>
+                            <tr><th>{t("customer")}</th><th>{t("abProducts")}</th><th>{t("abCartValue")}</th><th>{t("date")}</th><th>{t("abReason")}</th></tr>
+                          </thead>
+                          <tbody>
+                            {anomalies.carts.map((c) => (
+                              <tr key={c.cart_key}>
+                                <td>
+                                  <div className="font-medium">{c.full_name ?? "—"}</div>
+                                  <div className="text-xs text-slate-400" dir="ltr">{c.phone ?? c.email ?? c.user_ip ?? ""}</div>
+                                </td>
+                                <td>{formatNumber(c.products_count)}</td>
+                                <td className="font-bold text-red-700">{formatMoney(c.cart_value, lang)}</td>
+                                <td className="text-xs text-slate-500">{formatDate(c.created_at)}</td>
+                                <td>
+                                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                                    {c.reason === "huge_value" ? t("abReasonHuge") : t("abReasonBulk")}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-sm font-bold">{t("abAnomalyDaysTbl")}</h3>
+                        <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
+                          onClick={() => exportRows("abandoned-anomaly-days", anomalies.days as unknown as Record<string, unknown>[])}>
+                          <Download size={12} />CSV
+                        </button>
+                      </div>
+                      <div className="card overflow-x-auto">
+                        <table className="table-base">
+                          <thead>
+                            <tr><th>{t("date")}</th><th>{t("abInflatedLost")}</th><th>{t("abAvgCart")}</th></tr>
+                          </thead>
+                          <tbody>
+                            {anomalies.days.map((d) => (
+                              <tr key={d.day}>
+                                <td dir="ltr">{formatDate(d.day)}</td>
+                                <td className="font-bold text-red-700">{formatMoney(d.lost_value, lang)}</td>
+                                <td>{formatMoney(d.avg_cart_value, lang)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
+
+      <CustomerDrawer customerId={drawerCustomer} onClose={() => setDrawerCustomer(null)} />
     </div>
   );
 }
