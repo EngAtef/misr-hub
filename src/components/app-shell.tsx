@@ -38,6 +38,7 @@ import {
   Landmark,
   MessageSquare,
   ShieldCheck,
+  ShoppingBasket,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -63,6 +64,7 @@ const NAV: NavItem[] = [
   { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"] },
   { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"] },
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
+  { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"] },
   { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
   { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"] },
   { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"] },

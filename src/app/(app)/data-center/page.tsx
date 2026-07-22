@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -18,6 +18,7 @@ import { parseCatalogFile, parseCatalogHtml, type CatalogBook } from "@/lib/impo
 import { syncCatalogUpload } from "@/lib/import/catalog-sync";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
 import { parsePromosFile, type PromoRow } from "@/lib/import/parse-promos";
+import { parseAbandonedAny, type AbandonedParsed } from "@/lib/import/parse-abandoned";
 
 const CHUNK_SIZE = 250;
 
@@ -44,7 +45,10 @@ type UploadType =
   | "ga4_pages"
   | "ga4_tx"
   | "ga4_items"
-  | "ads";
+  | "ads"
+  | "abandoned_carts"
+  | "abandoned_items"
+  | "abandoned_daily";
 
 const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
   ga4_pages: "pages",
@@ -98,6 +102,18 @@ const TEMPLATES: Record<string, string> = {
   ads:
     "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Reporting starts,Reporting ends\r\n" +
     "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,2026-06-01,2026-06-22",
+  abandoned_carts:
+    "Full Name,User Email,User Phone,Products Count,Products skus,Cart Value,Created At,Updated At,Notified At,User Ip,User Agent,Web Url,Days Abandoned\r\n" +
+    'Ahmed Ali,ahmed@example.com,01000000000,2,"SKU001, SKU002",350,"July 22, 2026, 12 PM","July 22, 2026, 12 PM",,196.0.0.1,web,https://nahdetmisrbookstore.com/ar/cart,0\r\n' +
+    "# This is the platform customers_abandoned_cart_export — one row per abandoned cart.",
+  abandoned_items:
+    "First Name,Last Name,Product Name,Product sku,Amount,User Email,User Phone,Created At,Updated At\r\n" +
+    'Ahmed,Ali,Book A,SKU001,1,ahmed@example.com,01000000000,"July 22, 2026, 12 PM","July 22, 2026, 12 PM"\r\n' +
+    "# This is the platform customer_cart_export — one row per item inside abandoned carts.",
+  abandoned_daily:
+    "Day,Cart Value\r\n" +
+    '"July 01, 2026",695362.4\r\n' +
+    "# revenue_lost_to_abandoned_carts_over_time export. The average_revenue file (Day,Cart Average Value) uploads on the same card.",
 };
 
 function downloadTemplate(type: string, fileName: string) {
@@ -125,6 +141,7 @@ interface Pending {
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
   ads?: ParsedAdRow[];
+  abandoned?: AbandonedParsed;
   count: number;
   extra?: string;
 }
@@ -180,6 +197,9 @@ export default function DataCenterPage() {
     { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
     { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
     { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
+    { key: "abandoned_carts", icon: ShoppingBasket, title: t("uploadAbandonedCarts"), hint: t("uploadAbandonedCartsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "abandoned_items", icon: PackageSearch, title: t("uploadAbandonedItems"), hint: t("uploadAbandonedItemsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "abandoned_daily", icon: TrendingDown, title: t("uploadAbandonedDaily"), hint: t("uploadAbandonedDailyHint"), accept: ".xlsx,.xls,.csv" },
   ];
 
   async function handleFile(file: File) {
@@ -244,6 +264,21 @@ export default function DataCenterPage() {
           ga4: parsed,
           count,
           extra: `${parsed.month.slice(0, 7)} · ${parsed.kind}`,
+        });
+      } else if (activeType.startsWith("abandoned")) {
+        const buffer = await file.arrayBuffer();
+        const parsed = parseAbandonedAny(buffer);
+        if (!parsed) throw new Error(t("invalidFile"));
+        // strict per-card validation so the wrong export can't land silently
+        const expected = activeType === "abandoned_carts" ? "carts" : activeType === "abandoned_items" ? "items" : "daily";
+        if (parsed.kind !== expected) throw new Error(t("wrongFileForCard"));
+        const count = parsed.kind === "carts" ? parsed.carts.length : parsed.kind === "items" ? parsed.items.length : parsed.daily.length;
+        setPending({
+          type: activeType,
+          fileName: file.name,
+          abandoned: parsed,
+          count,
+          extra: parsed.kind === "daily" ? (parsed.metric === "avg" ? t("abDailyAvgDetected") : t("abDailyLostDetected")) : undefined,
         });
       } else {
         const buffer = await file.arrayBuffer();
@@ -414,6 +449,40 @@ export default function DataCenterPage() {
             ok += chunk.length;
             setProcessed(ok);
             setProgress(Math.round((ok / g.items.length) * 100));
+          }
+        }
+        await recordUpload(pending.fileName, pending.count, ok, 0);
+      } else if (pending.type.startsWith("abandoned") && pending.abandoned) {
+        const ab = pending.abandoned;
+        let ok = 0;
+        if (ab.kind === "carts") {
+          for (let i = 0; i < ab.carts.length; i += 1000) {
+            const chunk = ab.carts.slice(i, i + 1000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_carts", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.carts.length) * 100));
+          }
+          // cross-match customers + auto-detect recovered carts
+          await supabase.rpc("fn_abandoned_link");
+        } else if (ab.kind === "items") {
+          for (let i = 0; i < ab.items.length; i += 2000) {
+            const chunk = ab.items.slice(i, i + 2000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_items", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.items.length) * 100));
+          }
+        } else {
+          for (let i = 0; i < ab.daily.length; i += 1000) {
+            const chunk = ab.daily.slice(i, i + 1000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_daily", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.daily.length) * 100));
           }
         }
         await recordUpload(pending.fileName, pending.count, ok, 0);

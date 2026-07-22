@@ -63,6 +63,25 @@ const TEMPLATES: Record<FollowUpReason, (i: TemplateInput) => { ar: string; en: 
   }),
 };
 
+// Cart-recovery message with the actual abandoned products. Kept separate
+// from TEMPLATES because it needs the product list, not an order number.
+export function abandonedCartLink(
+  phone: string | null | undefined,
+  input: { customerName: string | null; products: string[]; cartValue: number | null },
+  lang: "ar" | "en" = "ar"
+): string | null {
+  const normalized = normalizeEgyptPhone(phone);
+  if (!normalized) return null;
+  const list = input.products.slice(0, 3).join("، ");
+  const listEn = input.products.slice(0, 3).join(", ");
+  const more = input.products.length > 3 ? ` +${input.products.length - 3}` : "";
+  const message =
+    lang === "ar"
+      ? `مرحباً ${input.customerName ?? "عميلنا العزيز"} 🌹\nلاحظنا إنك اخترت ${list ? `«${list}»${more}` : "كتب مميزة"} في سلتك على متجر نهضة مصر وما كملتش الطلب 🛒\nالكتب لسه مستنياك — لو حابب نساعدك تكمل طلبك أو عندك أي سؤال، رد علينا هنا وهنساعدك فوراً 📚`
+      : `Hello ${input.customerName ?? "dear customer"} 🌹\nWe noticed you left ${listEn ? `"${listEn}"${more}` : "some great books"} in your cart at Nahdet Misr store 🛒\nThey are still waiting for you — reply here if you'd like help completing your order 📚`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
 export function whatsappLink(
   phone: string | null | undefined,
   reason: FollowUpReason,
