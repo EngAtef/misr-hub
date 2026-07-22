@@ -46,7 +46,7 @@ interface CartRow {
   full_count: number;
 }
 
-interface TrendRow { day: string; lost_value: number | null; avg_cart_value: number | null; carts: number }
+interface TrendRow { day: string; lost_value: number | null; avg_cart_value: number | null; carts: number; platform_lost: number | null }
 interface TopProduct { sku: string; product_name: string | null; carts: number; total_qty: number; ecom_stock: number | null; in_catalog: boolean }
 interface Repeater {
   phone_norm: string; full_name: string | null; email: string | null; customer_id: string | null;
@@ -65,7 +65,7 @@ interface AnomalyReport {
     products_count: number | null; cart_value: number | null; created_at: string | null;
     reason: string | null; user_ip: string | null; web_url: string | null;
   }[];
-  days: { day: string; lost_value: number | null; avg_cart_value: number | null }[];
+  days: { day: string; lost_value: number | null; avg_cart_value: number | null; real_value: number | null }[];
   carts_value: number;
   days_value: number;
 }
@@ -351,6 +351,13 @@ export default function AbandonedPage() {
           ? `${formatNumber(summary.repeat_abandoners)} رقم هاتف ترك أكثر من سلة — نية شراء عالية جداً، اتصل بهم هاتفياً مباشرة`
           : `${formatNumber(summary.repeat_abandoners)} phone numbers abandoned more than one cart — very high intent, call them directly`,
       });
+    if ((summary.anomaly_days ?? 0) > 0)
+      out.push({
+        icon: AlertTriangle, tone: "text-amber-600",
+        text: lang === "ar"
+          ? `تقرير "الإيرادات المفقودة" اليومي من المنصة مبالغ فيه دائماً (${formatMoney(summary.anomaly_days_value, lang)} في ${formatNumber(summary.anomaly_days)} يوماً شاذاً وحدها) — اعتمد على الرسم البياني المحسوب من سلالك الفعلية، وتجاهل أرقام المنصة اليومية`
+          : `The platform's daily "revenue lost" report is chronically inflated (${formatMoney(summary.anomaly_days_value, lang)} across just ${formatNumber(summary.anomaly_days)} anomaly days) — trust the chart computed from your actual carts and ignore the platform's daily figures`,
+      });
     if (summary.notified_carts > 0 && summary.recovered_carts >= 0)
       out.push({
         icon: CheckCircle2, tone: "text-slate-600",
@@ -471,7 +478,7 @@ export default function AbandonedPage() {
 
           {/* Trend */}
           <div className="grid gap-4 lg:grid-cols-2 mb-4">
-            <ChartCard title={`${t("abTrendTitle")} — ${t("abTrendLost")}`}>
+            <ChartCard title={t("abTrendRealTitle")}>
               <div className="mb-2 flex items-center gap-1.5">
                 {[30, 90, 180, 365, 3650].map((d) => (
                   <button key={d} onClick={() => setTrendDays(d)}
@@ -485,6 +492,7 @@ export default function AbandonedPage() {
                 </button>
               </div>
               <TrendChart data={trend as unknown as Record<string, unknown>[]} xKey="day" series={[{ key: "lost_value", name: t("abTrendLost"), color: "#dc2626" }]} />
+              <div className="mt-1 text-[11px] text-slate-400">{t("abTrendRealNote")}</div>
             </ChartCard>
             <ChartCard title={`${t("abTrendAvg")} / ${t("abTrendCarts")}`}>
               <div className="h-[28px]" />
@@ -881,13 +889,14 @@ export default function AbandonedPage() {
                       <div className="card overflow-x-auto">
                         <table className="table-base">
                           <thead>
-                            <tr><th>{t("date")}</th><th>{t("abInflatedLost")}</th><th>{t("abAvgCart")}</th></tr>
+                            <tr><th>{t("date")}</th><th>{t("abPlatformCol")}</th><th>{t("abRealCol")}</th><th>{t("abAvgCart")}</th></tr>
                           </thead>
                           <tbody>
                             {anomalies.days.map((d) => (
                               <tr key={d.day}>
                                 <td dir="ltr">{formatDate(d.day)}</td>
                                 <td className="font-bold text-red-700">{formatMoney(d.lost_value, lang)}</td>
+                                <td className="font-bold text-emerald-700">{formatMoney(d.real_value, lang)}</td>
                                 <td>{formatMoney(d.avg_cart_value, lang)}</td>
                               </tr>
                             ))}

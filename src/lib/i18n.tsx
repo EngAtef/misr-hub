@@ -1033,7 +1033,7 @@ const dict = {
   abShowingOf: { ar: "عرض {x} من {y}", en: "Showing {x} of {y}" },
   abCleanNote: { ar: "أرقام حقيقية فقط — البيانات التجريبية/الشاذة مستبعدة ومعروضة في تقرير منفصل بالأسفل", en: "Real numbers only — test/anomaly data is excluded and shown in a separate report below" },
   abAnomalyReport: { ar: "تقرير البيانات التجريبية والشاذة", en: "Test & anomaly data report" },
-  abAnomalyNote: { ar: "سلال بقيمة ≥ 35,000 ج أو ≥ 150 منتجاً (أكبر طلب حقيقي في تاريخ المتجر: 30,081 ج / 83 منتجاً)، وأيام بمتوسط سلة ≥ 10,000 ج — غالباً بوتات أو اختبارات أو خلل في المنصة. مستبعدة من كل الأرقام أعلاه.", en: "Carts worth ≥ 35,000 EGP or ≥ 150 products (biggest real order ever: 30,081 EGP / 83 items), and days with avg cart ≥ 10,000 EGP — likely bots, tests, or platform glitches. Excluded from all numbers above." },
+  abAnomalyNote: { ar: "سلال بقيمة ≥ 35,000 ج أو ≥ 150 منتجاً (أكبر طلب حقيقي في تاريخ المتجر: 30,081 ج / 83 منتجاً)، وأيام قال تقرير المنصة إن متوسط سلتها ≥ 10,000 ج أو إن المفقود فيها ≥ 25 ضعف قيمة السلال الحقيقية — غالباً بوتات أو اختبارات أو خلل في المنصة. ملحوظة: تقرير المنصة اليومي مبالغ فيه دائماً (يجمع 157 مليون في السنة مقابل 20.8 مليون سلال حقيقية)، لذلك الرسم البياني يُحسب الآن من سلالك الفعلية وليس من تقرير المنصة.", en: "Carts worth ≥ 35,000 EGP or ≥ 150 products (biggest real order ever: 30,081 EGP / 83 items), and days where the platform reported avg cart ≥ 10,000 EGP or ≥ 25x the real carts' value — likely bots, tests, or platform glitches. Note: the platform's daily report is always inflated (157M/year vs 20.8M of real carts), so the trend chart is now computed from your actual carts, not the platform report." },
   abAnomalyCartsTbl: { ar: "سلال شاذة", en: "Anomaly carts" },
   abAnomalyDaysTbl: { ar: "أيام شاذة في تقرير المنصة", en: "Anomaly days in platform report" },
   abReason: { ar: "السبب", en: "Reason" },
@@ -1064,6 +1064,10 @@ const dict = {
   abCartsLbl: { ar: "سلال", en: "carts" },
   abValueLbl: { ar: "القيمة", en: "Value" },
   abExcludedFromStats: { ar: "مستبعدة من الإحصائيات", en: "Excluded from stats" },
+  abTrendRealTitle: { ar: "القيمة الحقيقية للسلال المتروكة يومياً", en: "Real daily abandoned value" },
+  abTrendRealNote: { ar: "محسوبة من سلالك الفعلية — تقرير المنصة اليومي المبالغ فيه انتقل لتقرير البيانات الشاذة", en: "Computed from your actual carts — the platform's inflated daily report moved to the anomaly section" },
+  abPlatformCol: { ar: "رقم المنصة (مبالغ فيه)", en: "Platform figure (inflated)" },
+  abRealCol: { ar: "القيمة الحقيقية", en: "Real value" },
 } as const;
 
 export type DictKey = keyof typeof dict;
