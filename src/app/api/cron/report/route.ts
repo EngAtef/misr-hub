@@ -134,6 +134,47 @@ export async function GET(request: NextRequest) {
     // digest is optional in this report
   }
 
+  // Abandoned-cart recovery digest (best-effort — tables exist since 039).
+  // New carts this week, the recovery scoreboard, and the top reachable
+  // carts by value so the team has a ready call list.
+  let abandonedSection = "";
+  try {
+    const weekAgo = daysAgo(7);
+    const [{ data: weekCarts }, { data: weekRecovered }, { data: callList }] = await Promise.all([
+      admin.from("abandoned_carts").select("cart_value").eq("is_anomaly", false).gte("created_at", weekAgo),
+      admin.from("abandoned_carts").select("recovered_value, cart_value").eq("is_anomaly", false).eq("recall_status", "recovered").gte("recovered_at", weekAgo),
+      admin
+        .from("abandoned_carts")
+        .select("full_name, phone, cart_value, products_count, created_at")
+        .eq("is_anomaly", false)
+        .in("recall_status", ["new"])
+        .not("phone_norm", "is", null)
+        .gte("created_at", daysAgo(14))
+        .order("cart_value", { ascending: false })
+        .limit(10),
+    ]);
+    const wc = (weekCarts ?? []) as { cart_value: number | null }[];
+    const wr = (weekRecovered ?? []) as { recovered_value: number | null; cart_value: number | null }[];
+    const cl = (callList ?? []) as { full_name: string | null; phone: string | null; cart_value: number | null; products_count: number | null; created_at: string }[];
+    const sum = (xs: (number | null)[]) => xs.reduce((s: number, v) => s + (v ?? 0), 0);
+    if (wc.length || cl.length) {
+      const rowA = (label: string, value: string) =>
+        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}</td></tr>`;
+      abandonedSection = `
+      <h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">🛒 Abandoned Carts (7 days)</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${rowA("New abandoned carts", `${fmt(wc.length)} · ${money(sum(wc.map((x) => x.cart_value)))}`)}
+        ${rowA("Recovered this week", `${fmt(wr.length)} · ${money(sum(wr.map((x) => x.recovered_value ?? x.cart_value)))}`)}
+      </table>
+      ${cl.length ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">📞 Top carts to call (last 14 days, uncontacted)</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${cl.map((c) => rowA(`${(c.full_name ?? "—").slice(0, 30)} <span style="color:#94a3b8">${c.phone ?? ""}</span>`, `${money(c.cart_value ?? 0)} · ${fmt(c.products_count ?? 0)} items`)).join("")}
+      </table>` : ""}`;
+    }
+  } catch {
+    // abandoned digest is optional in this report
+  }
+
   // refresh smart-alert notifications alongside the weekly email
   try {
     await admin.rpc("sync_alert_notifications");
@@ -172,6 +213,7 @@ export async function GET(request: NextRequest) {
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         ${products.map((p) => row(p.product_name.slice(0, 45), `${fmt(p.quantity)} pcs`)).join("")}
       </table>
+      ${abandonedSection}
       ${teamRows ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">Team Activity (7 days)</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">${teamRows}</table>` : ""}
       <p style="font-size:11px;color:#94a3b8;margin:20px 12px 0">Automated report from Misr Hub. Open the dashboard for full analytics.</p>

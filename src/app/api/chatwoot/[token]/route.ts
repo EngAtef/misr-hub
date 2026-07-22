@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleWebhook, withinHours, menuItems } from "@/lib/chatwoot-bot/engine";
 import { MENU_PROMPT_AR, MENU_PROMPT_EN } from "@/lib/chatwoot-bot/script";
-import { resolveBotConfig, logBotEvent, persistBotAgentId } from "@/lib/chatwoot-bot/config";
+import { resolveBotConfig, logBotEvent, persistBotAgentId, abandonedCartHint } from "@/lib/chatwoot-bot/config";
 import {
   sendMessage,
   openConversation,
@@ -123,6 +123,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
     },
     recordEvent: (convId, intent, message) => logBotEvent(token, convId, intent, message),
+    abandonedHint: (phone) => abandonedCartHint(token, phone),
     log,
   });
 

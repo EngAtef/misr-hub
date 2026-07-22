@@ -1068,6 +1068,21 @@ const dict = {
   abTrendRealNote: { ar: "محسوبة من سلالك الفعلية — تقرير المنصة اليومي المبالغ فيه انتقل لتقرير البيانات الشاذة", en: "Computed from your actual carts — the platform's inflated daily report moved to the anomaly section" },
   abPlatformCol: { ar: "رقم المنصة (مبالغ فيه)", en: "Platform figure (inflated)" },
   abRealCol: { ar: "القيمة الحقيقية", en: "Real value" },
+  abStaleData: { ar: "بيانات السلال عمرها {d} يوم — صدّر الملفات من المتجر وارفعها في مركز البيانات لتحديثها", en: "Cart data is {d} days old — re-export from the store and upload in the Data Center" },
+  abPromoCode: { ar: "كود الاسترداد", en: "Recovery code" },
+  abPromoPh: { ar: "مثال: BACK10", en: "e.g. BACK10" },
+  abPromoHint: { ar: "أنشئ الكود في Super Commerce أولاً ثم احفظه هنا — يُضاف تلقائياً لرسالة الواتساب ويُقاس استخدامه من الطلبات", en: "Create the code in Super Commerce first, then save it here — it's added to the WhatsApp message and its usage is measured from orders" },
+  abPromoUsage: { ar: "استخدام الكود: {a} طلب · {v} · منها {r} من سلال مستردة", en: "Code usage: {a} orders · {v} · {r} from recovered carts" },
+  abRecallStats: { ar: "نتائج الاسترداد أسبوعياً", en: "Weekly recall results" },
+  abNotePh: { ar: "ملاحظة للفريق (مثال: وعد يكمل الطلب الخميس)...", en: "Team note (e.g. promised to order Thursday)..." },
+  abNoteSave: { ar: "حفظ الملاحظة", en: "Save note" },
+  abProductAudience: { ar: "جمهور Meta لهذا المنتج", en: "Meta audience for this product" },
+  abCategoryAudience: { ar: "جمهور فئة", en: "Category audience" },
+  abAllCategories: { ar: "اختر فئة...", en: "Pick a category..." },
+  abLookalike: { ar: "بذرة Lookalike", en: "Lookalike seed" },
+  abLookalikeHint: { ar: "تصدير أفضل المشترين (٣ طلبات مسلّمة أو أكثر) كملف جمهور أساس لإعلانات Lookalike على Meta", en: "Export your best buyers (3+ delivered orders) as a Meta Lookalike seed audience" },
+  abAudienceEmpty: { ar: "لا يوجد عملاء يمكن الوصول لهم في هذا الجمهور", en: "No reachable customers in this audience" },
+  abSavedLbl: { ar: "تم الحفظ", en: "Saved" },
 } as const;
 
 export type DictKey = keyof typeof dict;

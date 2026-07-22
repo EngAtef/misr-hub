@@ -67,7 +67,7 @@ const TEMPLATES: Record<FollowUpReason, (i: TemplateInput) => { ar: string; en: 
 // from TEMPLATES because it needs the product list, not an order number.
 export function abandonedCartLink(
   phone: string | null | undefined,
-  input: { customerName: string | null; products: string[]; cartValue: number | null },
+  input: { customerName: string | null; products: string[]; cartValue: number | null; promoCode?: string | null },
   lang: "ar" | "en" = "ar"
 ): string | null {
   const normalized = normalizeEgyptPhone(phone);
@@ -75,10 +75,13 @@ export function abandonedCartLink(
   const list = input.products.slice(0, 3).join("، ");
   const listEn = input.products.slice(0, 3).join(", ");
   const more = input.products.length > 3 ? ` +${input.products.length - 3}` : "";
+  const promo = input.promoCode?.trim();
+  const promoAr = promo ? `\n🎁 استخدم كود ${promo} وكمل طلبك بخصم خاص` : "";
+  const promoEn = promo ? `\n🎁 Use code ${promo} for a special discount on your order` : "";
   const message =
     lang === "ar"
-      ? `مرحباً ${input.customerName ?? "عميلنا العزيز"} 🌹\nلاحظنا إنك اخترت ${list ? `«${list}»${more}` : "كتب مميزة"} في سلتك على متجر نهضة مصر وما كملتش الطلب 🛒\nالكتب لسه مستنياك — لو حابب نساعدك تكمل طلبك أو عندك أي سؤال، رد علينا هنا وهنساعدك فوراً 📚`
-      : `Hello ${input.customerName ?? "dear customer"} 🌹\nWe noticed you left ${listEn ? `"${listEn}"${more}` : "some great books"} in your cart at Nahdet Misr store 🛒\nThey are still waiting for you — reply here if you'd like help completing your order 📚`;
+      ? `مرحباً ${input.customerName ?? "عميلنا العزيز"} 🌹\nلاحظنا إنك اخترت ${list ? `«${list}»${more}` : "كتب مميزة"} في سلتك على متجر نهضة مصر وما كملتش الطلب 🛒\nالكتب لسه مستنياك — لو حابب نساعدك تكمل طلبك أو عندك أي سؤال، رد علينا هنا وهنساعدك فوراً 📚${promoAr}`
+      : `Hello ${input.customerName ?? "dear customer"} 🌹\nWe noticed you left ${listEn ? `"${listEn}"${more}` : "some great books"} in your cart at Nahdet Misr store 🛒\nThey are still waiting for you — reply here if you'd like help completing your order 📚${promoEn}`;
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 

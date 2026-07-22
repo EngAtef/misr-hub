@@ -228,6 +228,29 @@ export async function persistBotAgentId(token: string, agentId: number): Promise
 }
 
 /**
+ * Abandoned-cart lookup for the bot's agent-facing private note. Token-gated
+ * (fn_chatwoot_abandoned_hint verifies the URL token against the stored
+ * webhook_token). Returns a ready note string or null. Never throws.
+ */
+export async function abandonedCartHint(token: string, phone: string): Promise<string | null> {
+  try {
+    const { data, error } = await anonClient().rpc("fn_chatwoot_abandoned_hint", {
+      p_token: token,
+      p_phone: phone,
+    });
+    if (error || !data || typeof data !== "object") return null;
+    const d = data as { carts?: number; total_value?: number; latest_value?: number | null; latest_products?: number | null; latest_date?: string | null };
+    if (!d.carts) return null;
+    const fmt = (n: number) => new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const date = d.latest_date ? String(d.latest_date).slice(0, 10) : "";
+    const extra = d.carts > 1 ? ` (إجمالي ${d.carts} سلال بقيمة ${fmt(d.total_value ?? 0)} ج)` : "";
+    return `🛒 Bot: هذا العميل لديه سلة متروكة${date ? ` منذ ${date}` : ""} — ${fmt(d.latest_products ?? 0)} منتجات بقيمة ${fmt(d.latest_value ?? 0)} ج${extra}. اعرض عليه إكمال الطلب.`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Analytics: record a routed intent in bot_events via the token-gated
  * fn_chatwoot_bot_log function. Message text is persisted only for
  * fallbacks (enforced inside the SQL function), feeding the fallback

@@ -403,6 +403,12 @@ export interface WebhookContext {
   saveContact?: (contactId: number, fields: { name?: string; phone_number?: string; email?: string }) => Promise<void>;
   /** Analytics: record the routed intent (message text only for fallbacks). */
   recordEvent?: (conversationId: number, intent: string, message?: string) => Promise<void>;
+  /**
+   * Abandoned-cart lookup: given the customer's phone, return a ready
+   * private-note text when they have an active abandoned cart (null when
+   * none / lookup unavailable). Implementations must never throw.
+   */
+  abandonedHint?: (phone: string) => Promise<string | null>;
   /** PII-safe logger — receives conversation ids and intent names only. */
   log: (message: string) => void;
 }
@@ -492,6 +498,20 @@ export async function handleWebhook(
     }
     if (details.orderNumber && attrs.order_number !== details.orderNumber) {
       await setAttrs({ order_number: details.orderNumber });
+    }
+
+    // Abandoned-cart context for the team: when the customer's phone (typed
+    // or already on the contact) matches an active abandoned cart, drop ONE
+    // private note so the agent can offer to complete the order. Runs in all
+    // branches (incl. working hours) — it's agent-facing, never customer-facing.
+    const hintPhone = details.phone ?? data.sender?.phone_number ?? null;
+    if (hintPhone && ctx.abandonedHint && attrs.ab_hint !== "1") {
+      const hint = await ctx.abandonedHint(hintPhone);
+      if (hint) {
+        await ctx.sendPrivateNote?.(convId, hint);
+        await setAttrs({ ab_hint: "1" });
+        ctx.log(`conv=${convId} abandoned_hint=sent`);
+      }
     }
 
     // During working hours, humans answer — the bot sends nothing at all

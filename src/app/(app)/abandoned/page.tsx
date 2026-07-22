@@ -17,7 +17,7 @@ import { DateRangeFilter, useDateRange } from "@/components/date-range";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import { abandonedCartLink } from "@/lib/whatsapp";
+import { abandonedCartLink, normalizeEgyptPhone } from "@/lib/whatsapp";
 
 interface Summary {
   total_carts: number; total_value: number; avg_cart_value: number;
@@ -60,6 +60,8 @@ interface Breakdowns {
   by_bucket: { bucket: string; carts: number; value: number }[];
   by_traffic: { source: string; carts: number; value: number; reachable: number }[];
 }
+interface RecallWeek { week: string; contacted: number; responded: number; recovered: number; recovered_value: number }
+interface AudienceRow { full_name: string | null; phone: string | null; phone_norm: string | null; email: string | null; cart_value: number | null }
 interface AnomalyReport {
   carts: {
     cart_key: string; full_name: string | null; phone: string | null; email: string | null;
@@ -148,6 +150,13 @@ export default function AbandonedPage() {
   const [msg, setMsg] = useState("");
   const [rematching, setRematching] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoDraft, setPromoDraft] = useState("");
+  const [promoStats, setPromoStats] = useState<{ all_orders: number; all_value: number; recovered_orders: number; recovered_value: number } | null>(null);
+  const [recallWeeks, setRecallWeeks] = useState<RecallWeek[]>([]);
+  const [categories, setCategories] = useState<{ category: string; items: number }[]>([]);
+  const [audienceCategory, setAudienceCategory] = useState("");
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   const bounded = !!(range.from || range.to);
 
@@ -173,6 +182,96 @@ export default function AbandonedPage() {
   }, [supabase, trendDays, range.from, range.to]);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
+
+  // one-time loads: recovery promo code, weekly recall funnel, category options
+  useEffect(() => {
+    (async () => {
+      const [code, weeks, cats] = await Promise.all([
+        supabase.rpc("fn_abandoned_recovery_code"),
+        supabase.rpc("fn_abandoned_recall_stats"),
+        supabase.rpc("fn_abandoned_categories"),
+      ]);
+      const c = (code.data as string | null) ?? "";
+      setPromoCode(c);
+      setPromoDraft(c);
+      setRecallWeeks((weeks.data as RecallWeek[]) ?? []);
+      setCategories((cats.data as { category: string; items: number }[]) ?? []);
+    })();
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!promoCode) { setPromoStats(null); return; }
+    supabase.rpc("fn_abandoned_promo_attribution", { p_code: promoCode }).then(({ data }) => {
+      setPromoStats((data as typeof promoStats) ?? null);
+    });
+  }, [supabase, promoCode]);
+
+  async function savePromoCode() {
+    const { error } = await supabase.rpc("fn_abandoned_set_recovery_code", { p_code: promoDraft });
+    if (error) { setMsg(error.message); return; }
+    setPromoCode(promoDraft.trim());
+    setMsg(t("abSavedLbl"));
+  }
+
+  async function saveNote(cart: CartRow) {
+    const note = noteDrafts[cart.cart_key] ?? "";
+    const { error } = await supabase
+      .from("abandoned_carts")
+      .update({ recall_note: note || null, updated_at: new Date().toISOString() })
+      .eq("cart_key", cart.cart_key);
+    if (error) { setMsg(error.message); return; }
+    setCarts((prev) => prev.map((c) => (c.cart_key === cart.cart_key ? { ...c, recall_note: note || null } : c)));
+    setMsg(t("abSavedLbl"));
+  }
+
+  function audienceCsv(rows: AudienceRow[], name: string) {
+    const seen = new Set<string>();
+    const out: { email: string; phone: string }[] = [];
+    for (const r of rows) {
+      const phone = r.phone_norm ?? "";
+      const email = r.email ?? "";
+      if (!phone && !email) continue;
+      const k = phone + "|" + email;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ email, phone });
+    }
+    if (!out.length) { setMsg(t("abAudienceEmpty")); return; }
+    downloadCsv(`meta-audience-${name}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(out as unknown as Record<string, unknown>[], ["email", "phone"]));
+  }
+
+  async function exportProductAudience(sku: string) {
+    setExporting(true);
+    const { data } = await supabase.rpc("fn_abandoned_audience", { p_sku: sku, p_category: null, p_from: range.from, p_to: range.to });
+    audienceCsv((data as AudienceRow[]) ?? [], sku);
+    setExporting(false);
+  }
+
+  async function exportCategoryAudience() {
+    if (!audienceCategory) return;
+    setExporting(true);
+    const { data } = await supabase.rpc("fn_abandoned_audience", { p_sku: null, p_category: audienceCategory, p_from: range.from, p_to: range.to });
+    audienceCsv((data as AudienceRow[]) ?? [], audienceCategory.replace(/[^\w؀-ۿ-]+/g, "-").slice(0, 30));
+    setExporting(false);
+  }
+
+  // best buyers (3+ delivered orders) as a Meta Lookalike seed
+  async function exportLookalikeSeed() {
+    setExporting(true);
+    const rows: AudienceRow[] = [];
+    for (let off = 0; off < 30000; off += 1000) {
+      const { data } = await supabase
+        .from("customers")
+        .select("phone, email")
+        .gte("lifetime_delivered", 3)
+        .range(off, off + 999);
+      const page = (data as { phone: string | null; email: string | null }[]) ?? [];
+      for (const r of page) rows.push({ full_name: null, phone: r.phone, phone_norm: normalizeEgyptPhone(r.phone), email: r.email, cart_value: null });
+      if (page.length < 1000) break;
+    }
+    audienceCsv(rows, "lookalike-seed-best-buyers");
+    setExporting(false);
+  }
 
   const listParams = useCallback((limit: number, offset: number) => ({
     p_segment: segment,
@@ -398,6 +497,9 @@ export default function AbandonedPage() {
             <button className="btn-primary" onClick={exportMeta} disabled={exporting || noData} title={t("abExportMetaHint")}>
               <Megaphone size={16} />{t("abExportMeta")}
             </button>
+            <button className="btn-secondary" onClick={exportLookalikeSeed} disabled={exporting} title={t("abLookalikeHint")}>
+              <Users size={16} />{t("abLookalike")}
+            </button>
           </div>
         }
       />
@@ -424,6 +526,39 @@ export default function AbandonedPage() {
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-2.5 text-[13px] text-emerald-800">
             <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
             {t("abCleanNote")}
+          </div>
+
+          {summary.last_import && (Date.now() - new Date(summary.last_import).getTime()) / 86400000 > 7 && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-[13px] text-amber-800">
+              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+              {t("abStaleData").replace("{d}", String(Math.floor((Date.now() - new Date(summary.last_import).getTime()) / 86400000)))}
+              <Link href="/data-center" className="ms-auto font-bold underline shrink-0">{t("abGoDataCenter")}</Link>
+            </div>
+          )}
+
+          {/* Recovery promo code + attribution */}
+          <div className="card p-4 mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-sm font-bold">{t("abPromoCode")}</div>
+              {canEdit ? (
+                <>
+                  <input value={promoDraft} onChange={(e) => setPromoDraft(e.target.value)}
+                    placeholder={t("abPromoPh")} className="input !w-36" dir="ltr" />
+                  <button className="btn-secondary !py-1.5 text-xs" onClick={savePromoCode}>{t("save")}</button>
+                </>
+              ) : (
+                <span className="font-mono font-bold text-brand-700" dir="ltr">{promoCode || "—"}</span>
+              )}
+              {promoCode && promoStats && (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  {t("abPromoUsage")
+                    .replace("{a}", formatNumber(promoStats.all_orders))
+                    .replace("{v}", formatMoney(promoStats.all_value, lang))
+                    .replace("{r}", formatNumber(promoStats.recovered_orders))}
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 text-[11px] text-slate-400">{t("abPromoHint")}</div>
           </div>
 
           {/* KPIs — real numbers only */}
@@ -519,6 +654,25 @@ export default function AbandonedPage() {
               />
             </ChartCard>
           </div>
+
+          {/* Weekly recall outcomes — appears once the team starts recalling */}
+          {recallWeeks.some((w) => w.contacted > 0 || w.recovered > 0) && (
+            <div className="mb-6">
+              <ChartCard title={t("abRecallStats")}>
+                <TrendChart
+                  data={recallWeeks as unknown as Record<string, unknown>[]}
+                  xKey="week"
+                  type="line"
+                  height={220}
+                  series={[
+                    { key: "contacted", name: t("abStatusContacted"), color: "#2563eb" },
+                    { key: "responded", name: t("abStatusResponded"), color: "#7c3aed" },
+                    { key: "recovered", name: t("abStatusRecovered"), color: "#059669" },
+                  ]}
+                />
+              </ChartCard>
+            </div>
+          )}
 
           {/* Behavior breakdowns */}
           <div className="grid gap-4 lg:grid-cols-2 mb-6">
@@ -633,6 +787,7 @@ export default function AbandonedPage() {
                         customerName: c.customer_name ?? (c.is_guest ? null : c.full_name),
                         products: (cartItems ?? []).map((i) => i.product_name ?? "").filter(Boolean),
                         cartValue: c.cart_value,
+                        promoCode,
                       },
                       lang
                     );
@@ -729,6 +884,20 @@ export default function AbandonedPage() {
                                   <ExternalLink size={12} />{t("abOpenCartUrl")}
                                 </a>
                               )}
+                              {canEdit && (
+                                <div className="mt-3 flex items-center gap-2">
+                                  <input
+                                    value={noteDrafts[c.cart_key] ?? c.recall_note ?? ""}
+                                    onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [c.cart_key]: e.target.value }))}
+                                    placeholder={t("abNotePh")}
+                                    className="input flex-1 !py-1.5 text-xs"
+                                  />
+                                  <button className="btn-secondary !py-1.5 !px-3 text-xs" onClick={() => saveNote(c)}>{t("abNoteSave")}</button>
+                                </div>
+                              )}
+                              {!canEdit && c.recall_note && (
+                                <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{c.recall_note}</div>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -751,18 +920,29 @@ export default function AbandonedPage() {
           {/* Top abandoned products + repeaters */}
           <div className="grid gap-4 xl:grid-cols-2 mb-8">
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h2 className="text-lg font-bold">{t("abTopProducts")}</h2>
-                <button className="ms-auto btn-secondary !py-1 !px-2 text-xs"
-                  onClick={() => exportRows("abandoned-top-products", topProducts as unknown as Record<string, unknown>[])}>
-                  <Download size={12} />CSV
-                </button>
+                <div className="ms-auto flex items-center gap-1.5">
+                  <select value={audienceCategory} onChange={(e) => setAudienceCategory(e.target.value)} className="input !w-auto !py-1 text-xs" title={t("abCategoryAudience")}>
+                    <option value="">{t("abAllCategories")}</option>
+                    {categories.map((cat) => (
+                      <option key={cat.category} value={cat.category}>{cat.category} ({formatNumber(cat.items)})</option>
+                    ))}
+                  </select>
+                  <button className="btn-secondary !py-1 !px-2 text-xs" disabled={!audienceCategory || exporting} onClick={exportCategoryAudience} title={t("abCategoryAudience")}>
+                    <Megaphone size={12} />{t("abCategoryAudience")}
+                  </button>
+                  <button className="btn-secondary !py-1 !px-2 text-xs"
+                    onClick={() => exportRows("abandoned-top-products", topProducts as unknown as Record<string, unknown>[])}>
+                    <Download size={12} />CSV
+                  </button>
+                </div>
               </div>
               <div className="mb-3 text-xs text-slate-500">{t("abTopProductsHint")}</div>
               <div className="card overflow-x-auto">
                 <table className="table-base">
                   <thead>
-                    <tr><th>{t("abProducts")}</th><th>{t("abCartsCount")}</th><th>{t("abQty")}</th><th>{t("stock")}</th></tr>
+                    <tr><th>{t("abProducts")}</th><th>{t("abCartsCount")}</th><th>{t("abQty")}</th><th>{t("stock")}</th><th></th></tr>
                   </thead>
                   <tbody>
                     {topProducts.map((p) => (
@@ -781,6 +961,12 @@ export default function AbandonedPage() {
                           ) : (
                             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">{t("abOutOfStock")}</span>
                           )}
+                        </td>
+                        <td>
+                          <button className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" disabled={exporting}
+                            onClick={() => exportProductAudience(p.sku)} title={t("abProductAudience")}>
+                            <Megaphone size={14} />
+                          </button>
                         </td>
                       </tr>
                     ))}
