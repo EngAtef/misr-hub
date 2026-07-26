@@ -1083,6 +1083,11 @@ const dict = {
   abLookalikeHint: { ar: "تصدير أفضل المشترين (٣ طلبات مسلّمة أو أكثر) كملف جمهور أساس لإعلانات Lookalike على Meta", en: "Export your best buyers (3+ delivered orders) as a Meta Lookalike seed audience" },
   abAudienceEmpty: { ar: "لا يوجد عملاء يمكن الوصول لهم في هذا الجمهور", en: "No reachable customers in this audience" },
   abSavedLbl: { ar: "تم الحفظ", en: "Saved" },
+  abHistoryTitle: { ar: "سجل السلال المتروكة", en: "Abandonment history" },
+  abHistorySummary: { ar: "{n} سلة بإجمالي {v}", en: "{n} carts totaling {v}" },
+  abViewProfile: { ar: "ملف العميل في المنصة", en: "Hub customer profile" },
+  abNoItems: { ar: "لا توجد تفاصيل منتجات محفوظة لهذه السلة", en: "No item details stored for this cart" },
+  abCartLbl: { ar: "سلة", en: "Cart" },
 } as const;
 
 export type DictKey = keyof typeof dict;

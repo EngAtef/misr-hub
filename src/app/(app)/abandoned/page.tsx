@@ -61,6 +61,14 @@ interface Breakdowns {
   by_traffic: { source: string; carts: number; value: number; reachable: number }[];
 }
 interface RecallWeek { week: string; contacted: number; responded: number; recovered: number; recovered_value: number }
+interface HistoryCart {
+  cart_key: string; full_name: string | null; email: string | null; phone: string | null;
+  created_at: string | null; cart_value: number | null; products_count: number | null;
+  recall_status: string; recall_note: string | null; is_anomaly: boolean;
+  recovered_order_number: string | null; recovered_at: string | null; recovered_value: number | null;
+  customer_id: string | null;
+  items: { sku: string | null; product_name: string | null; qty: number | null }[];
+}
 interface AudienceRow { full_name: string | null; phone: string | null; phone_norm: string | null; email: string | null; cart_value: number | null }
 interface AnomalyReport {
   carts: {
@@ -157,6 +165,10 @@ export default function AbandonedPage() {
   const [categories, setCategories] = useState<{ category: string; items: number }[]>([]);
   const [audienceCategory, setAudienceCategory] = useState("");
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [historyPhone, setHistoryPhone] = useState<string | null>(null);
+  const [historyName, setHistoryName] = useState<string | null>(null);
+  const [historyRows, setHistoryRows] = useState<HistoryCart[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const bounded = !!(range.from || range.to);
 
@@ -222,6 +234,16 @@ export default function AbandonedPage() {
     if (error) { setMsg(error.message); return; }
     setCarts((prev) => prev.map((c) => (c.cart_key === cart.cart_key ? { ...c, recall_note: note || null } : c)));
     setMsg(t("abSavedLbl"));
+  }
+
+  async function openHistory(phoneNorm: string | null, name: string | null) {
+    if (!phoneNorm) return;
+    setHistoryPhone(phoneNorm);
+    setHistoryName(name);
+    setHistoryLoading(true);
+    const { data } = await supabase.rpc("fn_abandoned_history", { p_phone_norm: phoneNorm });
+    setHistoryRows((data as HistoryCart[]) ?? []);
+    setHistoryLoading(false);
   }
 
   function audienceCsv(rows: AudienceRow[], name: string) {
@@ -809,7 +831,12 @@ export default function AbandonedPage() {
                                 <span>{c.full_name ?? "—"}</span>
                               )}
                               {c.customer_id && <span className="rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">{t("abSegKnown")}</span>}
-                              {c.is_repeat && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">{t("abSegRepeat")}</span>}
+                              {c.is_repeat && (
+                                <button className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-100"
+                                  onClick={() => openHistory(c.phone_norm, c.customer_name ?? c.full_name)} title={t("abHistoryTitle")}>
+                                  {t("abSegRepeat")}
+                                </button>
+                              )}
                               {c.traffic_hint === "facebook" && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">FB</span>}
                               {c.is_anomaly && <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">{t("abExcludedFromStats")}</span>}
                             </div>
@@ -992,22 +1019,26 @@ export default function AbandonedPage() {
                     {repeaters.map((r) => (
                       <tr key={r.phone_norm}>
                         <td>
-                          {r.customer_id ? (
-                            <button className="flex items-center gap-1 font-medium text-brand-700 hover:underline"
-                              onClick={() => setDrawerCustomer(r.customer_id)} title={t("abViewCustomer")}>
-                              <User size={13} />
-                              {r.full_name ?? r.customer_id}
-                            </button>
-                          ) : (
-                            <div className="font-medium">{r.full_name ?? "—"}</div>
-                          )}
+                          <button className="flex items-center gap-1 font-medium text-brand-700 hover:underline"
+                            onClick={() => openHistory(r.phone_norm, r.full_name)} title={t("abHistoryTitle")}>
+                            <ShoppingBasket size={13} />
+                            {r.full_name ?? "—"}
+                          </button>
                           <div className="text-xs text-slate-400" dir="ltr">+{r.phone_norm}</div>
                         </td>
                         <td className="font-bold">{formatNumber(r.carts)}</td>
                         <td>{formatMoney(r.total_value, lang)}</td>
                         <td className="text-xs text-slate-500">{formatDate(r.last_abandoned)}</td>
                         <td>
-                          <ContactActions phone={"+" + r.phone_norm} email={r.email} name={r.full_name} />
+                          <div className="flex items-center gap-1">
+                            {r.customer_id && (
+                              <button className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                                onClick={() => setDrawerCustomer(r.customer_id)} title={t("abViewProfile")}>
+                                <User size={14} />
+                              </button>
+                            )}
+                            <ContactActions phone={"+" + r.phone_norm} email={r.email} name={r.full_name} />
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1108,6 +1139,93 @@ export default function AbandonedPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Abandonment history slide-over (repeat abandoners) */}
+      {historyPhone && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setHistoryPhone(null)} />
+          <div className="absolute inset-y-0 end-0 flex w-full max-w-xl flex-col bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-violet-50 p-2 text-violet-600">
+                  <ShoppingBasket size={20} />
+                </div>
+                <div>
+                  <h2 className="font-bold text-lg leading-tight">{historyName ?? t("abHistoryTitle")}</h2>
+                  <div className="text-xs text-slate-400" dir="ltr">+{historyPhone}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {historyRows[0]?.customer_id && (
+                  <button className="btn-secondary !py-1.5 text-xs"
+                    onClick={() => { setDrawerCustomer(historyRows[0].customer_id); }}>
+                    <User size={13} />{t("abViewProfile")}
+                  </button>
+                )}
+                <ContactActions phone={"+" + historyPhone} email={historyRows[0]?.email} name={historyName} />
+                <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" onClick={() => setHistoryPhone(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {historyLoading ? (
+                <Spinner />
+              ) : (
+                <>
+                  <div className="rounded-lg bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-800">
+                    {t("abHistorySummary")
+                      .replace("{n}", formatNumber(historyRows.length))
+                      .replace("{v}", formatMoney(historyRows.reduce((s, h) => s + (h.cart_value ?? 0), 0), lang))}
+                  </div>
+                  {historyRows.map((h, idx) => (
+                    <div key={h.cart_key} className="card p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-700">{t("abCartLbl")} {historyRows.length - idx}</span>
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", STATUS_STYLE[h.recall_status])}>
+                            {t(STATUS_KEY[h.recall_status] ?? "abStatusNew")}
+                          </span>
+                          {h.is_anomaly && (
+                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700">{t("abExcludedFromStats")}</span>
+                          )}
+                        </div>
+                        <span className="font-bold">{formatMoney(h.cart_value, lang)}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
+                        <span dir="ltr">{formatDate(h.created_at)}</span>
+                        <span>{formatNumber(h.products_count)} {t("abProducts")}</span>
+                        {h.recovered_order_number && (
+                          <span className="text-emerald-700" dir="ltr">
+                            {t("abAutoRecovered")}: #{h.recovered_order_number} · {formatMoney(h.recovered_value, lang)}
+                          </span>
+                        )}
+                      </div>
+                      {h.recall_note && (
+                        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{h.recall_note}</div>
+                      )}
+                      <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                        {h.items.length === 0 ? (
+                          <div className="text-xs text-slate-400">{t("abNoItems")}</div>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {h.items.map((i, ii) => (
+                              <span key={ii} className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1 text-xs">
+                                {i.product_name ?? i.sku}
+                                {(i.qty ?? 1) > 1 && <b className="ms-1 text-brand-700">×{i.qty}</b>}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       <CustomerDrawer customerId={drawerCustomer} onClose={() => setDrawerCustomer(null)} />
