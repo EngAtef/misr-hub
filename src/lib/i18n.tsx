@@ -1088,6 +1088,9 @@ const dict = {
   abViewProfile: { ar: "ملف العميل في المنصة", en: "Hub customer profile" },
   abNoItems: { ar: "لا توجد تفاصيل منتجات محفوظة لهذه السلة", en: "No item details stored for this cart" },
   abCartLbl: { ar: "سلة", en: "Cart" },
+  bdFilterAll: { ar: "الكل", en: "All" },
+  bdFilterOrdered: { ar: "سبق الشراء", en: "Ordered before" },
+  bdFilterNever: { ar: "لم يشترِ بعد", en: "Never ordered" },
 } as const;
 
 export type DictKey = keyof typeof dict;

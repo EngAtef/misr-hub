@@ -29,6 +29,7 @@ interface BirthdayRow {
   birthdate: string | null;
   birth_day: number;
   orders: number;
+  lifetime_orders: number | null;
   total_spent: number;
   last_order: string | null;
 }
@@ -532,12 +533,22 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
   const [birthdays, setBirthdays] = useState<BirthdayRow[]>([]);
   const [loadingB, setLoadingB] = useState(true);
   const [birthMonth, setBirthMonth] = useState(new Date().getMonth() + 1);
+  const [birthOrdered, setBirthOrdered] = useState<"all" | "ordered" | "never">("all");
   const [exportingWinback, setExportingWinback] = useState(false);
   const { sort, toggle, apply } = useSort<BirthdayRow>();
 
+  const hasOrdered = (b: BirthdayRow) => b.orders > 0 || (b.lifetime_orders ?? 0) > 0;
+  const filteredBirthdays = useMemo(
+    () =>
+      birthOrdered === "all"
+        ? birthdays
+        : birthdays.filter((b) => (birthOrdered === "ordered" ? hasOrdered(b) : !hasOrdered(b))),
+    [birthdays, birthOrdered]
+  );
+
   const sortedBirthdays = useMemo(
     () =>
-      apply(birthdays, {
+      apply(filteredBirthdays, {
         day: (b) => b.birth_day,
         birthdate: (b) => b.birthdate,
         name: (b) => b.name,
@@ -547,7 +558,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
         spent: (b) => b.total_spent,
         last: (b) => b.last_order,
       }),
-    [birthdays, apply]
+    [filteredBirthdays, apply]
   );
 
   useEffect(() => {
@@ -572,8 +583,12 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
   }
 
   function exportBirthdays() {
-    if (!birthdays.length) return;
-    downloadCsv(`birthdays-month-${String(birthMonth).padStart(2, "0")}.csv`, toCsv(birthdays as unknown as Record<string, unknown>[]));
+    if (!filteredBirthdays.length) return;
+    const suffix = birthOrdered === "all" ? "" : birthOrdered === "ordered" ? "-ordered-before" : "-never-ordered";
+    downloadCsv(
+      `birthdays-month-${String(birthMonth).padStart(2, "0")}${suffix}.csv`,
+      toCsv(filteredBirthdays as unknown as Record<string, unknown>[])
+    );
   }
 
   return (
@@ -606,12 +621,12 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
             </div>
             <div>
               <h3 className="font-bold">
-                {t("birthdaysTitle")} — {monthName(birthMonth)} ({formatNumber(birthdays.length)})
+                {t("birthdaysTitle")} — {monthName(birthMonth)} ({formatNumber(filteredBirthdays.length)})
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">{t("birthdaysHint")}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={birthMonth}
               onChange={(e) => setBirthMonth(Number(e.target.value))}
@@ -621,7 +636,16 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
                 <option key={m} value={m}>{monthName(m)}</option>
               ))}
             </select>
-            <button className="btn-secondary" onClick={exportBirthdays} disabled={!birthdays.length}>
+            <select
+              value={birthOrdered}
+              onChange={(e) => setBirthOrdered(e.target.value as typeof birthOrdered)}
+              className="input !w-auto"
+            >
+              <option value="all">{t("bdFilterAll")}</option>
+              <option value="ordered">{t("bdFilterOrdered")}</option>
+              <option value="never">{t("bdFilterNever")}</option>
+            </select>
+            <button className="btn-secondary" onClick={exportBirthdays} disabled={!filteredBirthdays.length}>
               <Download size={16} />
               {t("exportList")}
             </button>
@@ -630,7 +654,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
 
         {loadingB ? (
           <Spinner />
-        ) : birthdays.length === 0 ? (
+        ) : filteredBirthdays.length === 0 ? (
           <div className="py-6 text-center text-sm text-slate-500">{t("noResults")}</div>
         ) : (
           <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
