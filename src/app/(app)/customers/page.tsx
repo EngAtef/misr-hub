@@ -531,6 +531,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
   const supabase = useMemo(() => createClient(), []);
   const [birthdays, setBirthdays] = useState<BirthdayRow[]>([]);
   const [loadingB, setLoadingB] = useState(true);
+  const [birthMonth, setBirthMonth] = useState(new Date().getMonth() + 1);
   const [exportingWinback, setExportingWinback] = useState(false);
   const { sort, toggle, apply } = useSort<BirthdayRow>();
 
@@ -550,11 +551,15 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
   );
 
   useEffect(() => {
-    supabase.rpc("fn_birthdays", { p_limit: 2000 }).then(({ data }) => {
+    setLoadingB(true);
+    supabase.rpc("fn_birthdays", { p_month: birthMonth, p_limit: 2000 }).then(({ data }) => {
       setBirthdays((data as BirthdayRow[]) ?? []);
       setLoadingB(false);
     });
-  }, [supabase]);
+  }, [supabase, birthMonth]);
+
+  const monthName = (m: number) =>
+    new Date(2000, m - 1, 1).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long" });
 
   async function exportWinback() {
     setExportingWinback(true);
@@ -568,7 +573,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
 
   function exportBirthdays() {
     if (!birthdays.length) return;
-    downloadCsv(`birthdays-${new Date().toISOString().slice(0, 7)}.csv`, toCsv(birthdays as unknown as Record<string, unknown>[]));
+    downloadCsv(`birthdays-month-${String(birthMonth).padStart(2, "0")}.csv`, toCsv(birthdays as unknown as Record<string, unknown>[]));
   }
 
   return (
@@ -601,15 +606,26 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
             </div>
             <div>
               <h3 className="font-bold">
-                {t("birthdaysTitle")} ({formatNumber(birthdays.length)})
+                {t("birthdaysTitle")} — {monthName(birthMonth)} ({formatNumber(birthdays.length)})
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">{t("birthdaysHint")}</p>
             </div>
           </div>
-          <button className="btn-secondary" onClick={exportBirthdays} disabled={!birthdays.length}>
-            <Download size={16} />
-            {t("exportList")}
-          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={birthMonth}
+              onChange={(e) => setBirthMonth(Number(e.target.value))}
+              className="input !w-auto"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{monthName(m)}</option>
+              ))}
+            </select>
+            <button className="btn-secondary" onClick={exportBirthdays} disabled={!birthdays.length}>
+              <Download size={16} />
+              {t("exportList")}
+            </button>
+          </div>
         </div>
 
         {loadingB ? (
