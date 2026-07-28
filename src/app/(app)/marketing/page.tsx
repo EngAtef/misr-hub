@@ -84,6 +84,10 @@ export default function MarketingPage() {
   const epubRef = useRef<HTMLInputElement>(null);
 
   // ---------- AI ----------
+  const [engine, setEngine] = useState<"builtin" | "claude">("builtin");
+  const [variant, setVariant] = useState(0);
+  const [usedEngine, setUsedEngine] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [instructions, setInstructions] = useState("");
   const [research, setResearch] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -171,9 +175,11 @@ export default function MarketingPage() {
     if (epubRef.current) epubRef.current.value = "";
   }
 
-  async function generate() {
+  async function generate(nextVariant?: number) {
     setGenerating(true);
     setGenError(null);
+    setNotice(null);
+    const v = nextVariant ?? variant;
     try {
       const res = await fetch("/api/marketing/generate", {
         method: "POST",
@@ -182,12 +188,14 @@ export default function MarketingPage() {
           flipbookId: mode === "library" ? flipbookId : undefined,
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
           title, buyUrl: buyUrl || undefined, instructions, research, lang,
+          engine, variant: v,
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.message ?? d.error ?? "generation failed");
       setSummary(d.summary); setHook(d.hook); setPostFb(d.post_fb);
       setPostIg(d.post_ig); setHashtags(d.hashtags); setResearchNotes(d.research_notes ?? "");
+      setUsedEngine(d.engine ?? null); setNotice(d.notice ?? null); setVariant(v);
       setSavedId(null); setAssetUrls([]); setPreviews({}); setPublishResult(null);
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "generation failed");
@@ -455,15 +463,39 @@ export default function MarketingPage() {
           {/* 2 — AI */}
           <div className="card p-5 space-y-4">
             <div className="flex items-center gap-2 font-bold text-brand-700"><Sparkles size={18} />2. {t("mktAiTitle")}</div>
-            <textarea className="input" placeholder={t("mktInstructionsHint")} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />
-              {t("mktResearchToggle")}
-            </label>
-            <button className="btn-primary" disabled={!canGenerate} onClick={generate}>
-              <Wand2 size={16} />
-              {generating ? t("mktGenerating") : t("mktGenerate")}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setEngine("builtin")}
+                className={cn("rounded-lg border px-3 py-1.5 text-sm font-semibold", engine === "builtin" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:border-slate-300")}>
+                {t("mktEngineFree")}
+              </button>
+              <button onClick={() => setEngine("claude")}
+                className={cn("rounded-lg border px-3 py-1.5 text-sm font-semibold", engine === "claude" ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500 hover:border-slate-300")}>
+                {t("mktEngineClaude")}
+              </button>
+            </div>
+            {engine === "builtin" && <p className="text-xs text-emerald-700">{t("mktEngineFreeHint")}</p>}
+            {engine === "claude" && (
+              <>
+                <textarea className="input" placeholder={t("mktInstructionsHint")} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />
+                  {t("mktResearchToggle")}
+                </label>
+              </>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-primary" disabled={!canGenerate} onClick={() => generate()}>
+                <Wand2 size={16} />
+                {generating ? t("mktGenerating") : t("mktGenerate")}
+              </button>
+              {hasCopy && usedEngine === "builtin" && (
+                <button className="btn-secondary" disabled={generating} onClick={() => generate(variant + 1)}>
+                  <RefreshCw size={15} />
+                  {t("mktRegenerate")}
+                </button>
+              )}
+            </div>
+            {notice && <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">{notice}</div>}
             {genError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{genError}</div>}
 
             {hasCopy && (

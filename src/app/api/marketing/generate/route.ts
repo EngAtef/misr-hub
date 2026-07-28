@@ -2,15 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getApiUser } from "@/lib/supabase/api-auth";
 import { getMarketingConfig } from "@/lib/marketing/config";
+import { builtinGenerate } from "@/lib/marketing/builtin-generator";
 
 export const maxDuration = 120;
 
-// POST { flipbookId?, text?, title, buyUrl?, instructions?, research?, lang }
-// -> { summary, hook, post_fb, post_ig, hashtags, research_notes }
+// POST { flipbookId?, text?, title, buyUrl?, instructions?, research?, lang,
+//        engine?: "builtin" | "claude", variant? }
+// -> { summary, hook, post_fb, post_ig, hashtags, research_notes, engine }
 //
-// Summarizes the book text with Claude and writes channel-ready social copy.
-// With research=true, Claude first runs web searches (Anthropic server-side
-// web_search tool) for current best practices / trends before writing.
+// Two engines:
+//  - "builtin" (free, zero integrations): extractive summary + genre-aware
+//    Arabic template library. Default when no Anthropic key is configured.
+//  - "claude": summarizes the book with Claude and writes channel-ready copy;
+//    with research=true it first runs Anthropic server-side web searches for
+//    current best practices / trends. Falls back to builtin if no key.
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -37,11 +42,25 @@ export async function POST(request: NextRequest) {
   text = text.slice(0, 40000); // keep the prompt (and cost) bounded
 
   const config = await getMarketingConfig(user);
-  if (!config.aiKey) {
-    return NextResponse.json(
-      { error: "no_ai_key", message: "Add your Anthropic API key in Settings → AI (Claude) first." },
-      { status: 400 }
-    );
+  const wantsClaude = body.engine === "claude";
+  const useBuiltin = body.engine === "builtin" || !config.aiKey;
+
+  if (useBuiltin) {
+    const result = builtinGenerate({
+      title,
+      text,
+      buyUrl: buyUrl || undefined,
+      lang,
+      variant: Math.abs(Math.floor(Number(body.variant) || 0)),
+    });
+    return NextResponse.json({
+      ...result,
+      engine: "builtin",
+      // If the user explicitly asked for Claude but no key is saved, say so.
+      notice: wantsClaude && !config.aiKey
+        ? "No Anthropic key configured — used the free built-in generator instead."
+        : undefined,
+    });
   }
 
   const langName = lang === "en" ? "English" : "Egyptian-flavored Modern Standard Arabic";
@@ -95,6 +114,7 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
       post_ig: parsed.post_ig ?? "",
       hashtags: parsed.hashtags ?? "",
       research_notes: parsed.research_notes ?? "",
+      engine: "claude",
       model: response.model,
     });
   } catch (e) {
