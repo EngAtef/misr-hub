@@ -191,9 +191,17 @@ export async function POST(request: NextRequest) {
 
   const result = await answerQuestion(question, user.supabase);
 
-  // AI-ready: if an Anthropic key is configured, use Claude to rephrase the
-  // grounded answer more naturally. Falls back silently to the built-in text.
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // AI-ready: if an Anthropic key is configured (Settings → AI card, or the
+  // ANTHROPIC_API_KEY env var), use Claude to rephrase the grounded answer
+  // more naturally. Falls back silently to the built-in text.
+  let apiKey = process.env.ANTHROPIC_API_KEY;
+  try {
+    const { data: cfg } = await user.supabase.rpc("fn_marketing_config");
+    const dbKey = (cfg as { ai?: { anthropic_api_key?: string } } | null)?.ai?.anthropic_api_key;
+    if (dbKey) apiKey = dbKey;
+  } catch {
+    // config fn not deployed yet or viewer role — env fallback stands
+  }
   if (apiKey) {
     try {
       const context = JSON.stringify(result);

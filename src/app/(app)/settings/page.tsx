@@ -161,18 +161,22 @@ export default function SettingsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <IntegrationCard
           settingKey="meta"
-          title="Meta (Facebook & Instagram) Ads"
-          description="Marketing API — pulls ad spend & results automatically instead of CSV exports. Needs a Meta system-user access token + Ad Account ID from business.facebook.com."
+          title="Meta (Facebook & Instagram)"
+          description="Powers the Marketing Studio: publishing posts to your Page & Instagram, syncing post insights, and creating/boosting ads via the Marketing API. Ads need the system-user token; publishing needs the Page fields."
           fields={[
             { key: "ad_account_id", label: "Ad Account ID", placeholder: "act_1234567890" },
-            { key: "access_token", label: "Access Token", secret: true },
+            { key: "access_token", label: "System-User Access Token (ads)", secret: true },
+            { key: "page_id", label: "Facebook Page ID", placeholder: "1234567890" },
+            { key: "page_access_token", label: "Page Access Token (publishing)", secret: true },
+            { key: "ig_user_id", label: "Instagram User ID", placeholder: "17841400000000000" },
           ]}
           steps={[
             { text: "Open Meta Business Settings", url: "https://business.facebook.com/settings" },
-            { text: "Users → System Users → Add → give it 'Admin' + assign your Ad Account" },
-            { text: "Generate New Token → select the ads_read and read_insights permissions → copy the token" },
-            { text: "Ad Accounts → copy your Ad Account ID (the number after 'act_')" },
-            { text: "Paste both below. Docs:", url: "https://developers.facebook.com/docs/marketing-api/get-started" },
+            { text: "Users → System Users → Add → assign your Ad Account AND your Page" },
+            { text: "Generate New Token → permissions: ads_read, read_insights, ads_management (for boosting) → paste as System-User token" },
+            { text: "For publishing: generate a token that also has pages_manage_posts, pages_read_engagement, instagram_basic, instagram_content_publish, then exchange it for the PAGE token: Graph Explorer → GET /me/accounts → copy your page's access_token + id", url: "https://developers.facebook.com/tools/explorer" },
+            { text: "Instagram User ID: GET /{page-id}?fields=instagram_business_account → copy the id (your IG must be a Business account linked to the Page)" },
+            { text: "Ad Account ID: the number after 'act_' in Ads Manager. Docs:", url: "https://developers.facebook.com/docs/marketing-api/get-started" },
           ]}
         />
         <IntegrationCard
@@ -288,14 +292,21 @@ export default function SettingsPage() {
             { text: "Paste provider + instance URL + key below." },
           ]}
         />
-        <div className="card p-5 space-y-2">
-          <h3 className="font-bold text-sm">AI Assistant (Claude)</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            The assistant works out of the box using your live data. To upgrade to full conversational AI, add an
-            <code className="rounded bg-slate-100 px-1 text-xs mx-1">ANTHROPIC_API_KEY</code>
-            environment variable in Vercel and redeploy — it upgrades automatically.
-          </p>
-        </div>
+        <IntegrationCard
+          settingKey="ai"
+          title="AI (Claude by Anthropic)"
+          description="Powers the Marketing Studio (book summarization, post copywriting with web research) and upgrades the Assistant to conversational AI. Takes effect immediately — no redeploy needed. Falls back to the ANTHROPIC_API_KEY env var if empty."
+          fields={[
+            { key: "anthropic_api_key", label: "Anthropic API Key", secret: true },
+            { key: "model", label: "Model (optional)", placeholder: "claude-opus-5 (default)" },
+          ]}
+          steps={[
+            { text: "Create an account / sign in at the Claude Console", url: "https://platform.claude.com" },
+            { text: "API Keys → Create Key → copy it (starts with sk-ant-)" },
+            { text: "Add billing credit (each generated post costs a few cents)" },
+            { text: "Paste the key below and Save." },
+          ]}
+        />
       </div>
     </div>
   );
