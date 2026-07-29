@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getApiUser } from "@/lib/supabase/api-auth";
 import { getMarketingConfig } from "@/lib/marketing/config";
-import { builtinGenerate, detectGenreKey } from "@/lib/marketing/builtin-generator";
+import { builtinGenerate, detectGenreKey, buildCampaignPack } from "@/lib/marketing/builtin-generator";
 import { buildMarketingPlan, type MarketingPlan } from "@/lib/marketing/director";
+import { occasionHint } from "@/lib/marketing/occasions";
 
 export const maxDuration = 120;
 
@@ -34,8 +35,10 @@ export async function POST(request: NextRequest) {
     : title ? [title] : [];
   const instructions = typeof body.instructions === "string" ? body.instructions.slice(0, 2000) : "";
   const buyUrl = typeof body.buyUrl === "string" ? body.buyUrl.slice(0, 500) : "";
+  const readUrl = typeof body.readUrl === "string" ? body.readUrl.slice(0, 500) : "";
   const research = body.research === true;
   const lang = body.lang === "en" ? "en" : "ar";
+  const packMode = body.pack === true;
 
   let text = typeof body.text === "string" ? body.text : "";
   if (!text && flipbookIds.length) {
@@ -52,10 +55,18 @@ export async function POST(request: NextRequest) {
   if (!text && !title) return NextResponse.json({ error: "no book text or title provided" }, { status: 400 });
   text = text.slice(0, 40000); // keep the prompt (and cost) bounded
 
+  // 7-day campaign pack — built-in engine only (fast, free).
+  if (packMode) {
+    const days = buildCampaignPack({ title, text, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined });
+    return NextResponse.json({ pack: days, engine: "builtin" });
+  }
+
   // Ground the media plan in real store data: top cities by actual orders
-  // (last 90 days), and same-category books to suggest as a bundle.
+  // (last 90 days), the store's real order-hour peaks, and same-category
+  // books to suggest as a bundle.
   let topCities: string[] = [];
   let bundleSuggestions: { id: string; title: string }[] = [];
+  let bestHours = "";
   try {
     const from = new Date(Date.now() - 90 * 86400000).toISOString();
     const { data: cities } = await user.supabase.rpc("fn_breakdown", {
@@ -63,6 +74,15 @@ export async function POST(request: NextRequest) {
     });
     topCities = ((cities ?? []) as { label: string }[]).map((c) => c.label).filter(Boolean);
   } catch { /* plan falls back to defaults */ }
+  try {
+    const { data: bh } = await user.supabase.rpc("fn_best_post_hours");
+    const hours = ((bh as { hours?: { h: number; orders: number }[] })?.hours ?? [])
+      .sort((a, b) => b.orders - a.orders).slice(0, 3).map((x) => x.h).sort((a, b) => a - b);
+    if (hours.length) {
+      // Post ~1h before the order peaks so content is in feeds when buyers act.
+      bestHours = `انشر حوالي ${hours.map((h) => `${((h + 23) % 24)}:00`).join(" و ")} — ذروة طلبات متجرك الحقيقية الساعات ${hours.map((h) => `${h}:00`).join("، ")}`;
+    }
+  } catch { /* schedule falls back to the generic guidance */ }
   try {
     if (flipbookIds.length === 1) {
       // flipbooks is keyed by storage path: {id}.json (v2) or {id}.html (legacy)
@@ -94,6 +114,7 @@ export async function POST(request: NextRequest) {
       title,
       text,
       buyUrl: buyUrl || undefined,
+      readUrl: readUrl || undefined,
       lang,
       variant: Math.abs(Math.floor(Number(body.variant) || 0)),
       titles,
@@ -104,6 +125,8 @@ export async function POST(request: NextRequest) {
       topCities,
       buyUrl: buyUrl || undefined,
       bundleTitles: bundleSuggestions.map((b) => b.title),
+      bestHours,
+      occasion: occasionHint(new Date(), result.genre),
     });
     return NextResponse.json({
       ...result,
@@ -125,7 +148,7 @@ export async function POST(request: NextRequest) {
 ${multiNote}
 1. Summarize what the book is about (3-5 sentences, for internal use).
 2. Write a short attention hook (max 12 words) that would stop the scroll.
-3. Write a Facebook post and an Instagram caption. Primary language: ${langName}. Attractive, emotional, specific to THIS book's content (quote a striking idea or moment from it). Facebook: 3-6 short paragraphs + emojis + clear CTA${buyUrl ? ` linking to ${buyUrl}` : " to order from the store"}. Instagram: tighter, hook first, CTA "الرابط في البايو" style.
+3. Write a Facebook post, an Instagram caption, and a WhatsApp broadcast message. Primary language: ${langName}. Attractive, emotional, specific to THIS book's content (quote a striking idea or moment from it). Facebook: 3-6 short paragraphs + emojis + clear CTA${buyUrl ? ` linking to ${buyUrl}` : " to order from the store"}. Instagram: tighter, hook first, CTA "الرابط في البايو" style. WhatsApp: short, *bold* markers, direct link, ends with a reply hook (رد بكلمة "طلب").${readUrl ? `\nA free-first-chapter reader link exists: ${readUrl} — include it as a "اقرأ أول فصل مجانًا" line in the Facebook and WhatsApp posts.` : ""}
 4. Provide 8-12 hashtags mixing Arabic + English tags relevant to this genre.
 5. As marketing director, define the buyer persona for THIS specific book (who exactly buys it in Egypt: age, gender skew, life situation, pains, motivations).
 6. Decide: should this be published as a paid ad, organic only, or both? Give the reasoning a director would give.
@@ -134,7 +157,7 @@ ${multiNote}
 ${research ? "9. FIRST use web search (2-3 searches max) for current Meta/TikTok book-marketing best practices and any trends about this book/author/genre, then apply. Put learnings in research_notes (2-4 bullets)." : ""}
 Never invent facts about the book not supported by its text. Do not mention you are an AI. All plan text in ${langName}.
 Return ONLY a JSON object, no markdown fences, with exactly these keys:
-{"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "...",
+{"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "post_wa": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "...",
  "plan": {"persona": {"name": "...", "age": "...", "gender": "...", "description": "...", "pains": ["..."], "motivations": ["..."]},
   "decision": {"mode": "ad"|"organic"|"both", "reason": "..."},
   "platforms": [{"platform": "...", "objective": "...", "age": "...", "gender": "...", "geo": "...", "interests": ["..."], "placements": "...", "budget": "...", "duration": "...", "creative": "...", "cta": "...", "schedule": "...", "tips": ["..."]}],
@@ -182,7 +205,11 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
         topCities,
         buyUrl: buyUrl || undefined,
         bundleTitles: bundleSuggestions.map((b) => b.title),
+        bestHours,
+        occasion: occasionHint(new Date(), detectGenreKey(text, title)),
       });
+    } else if (!plan.occasion) {
+      plan.occasion = occasionHint(new Date(), detectGenreKey(text, title));
     }
 
     return NextResponse.json({
@@ -190,6 +217,7 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
       hook: (parsed.hook as string) ?? "",
       post_fb: (parsed.post_fb as string) ?? "",
       post_ig: (parsed.post_ig as string) ?? "",
+      post_wa: (parsed.post_wa as string) ?? "",
       hashtags: (parsed.hashtags as string) ?? "",
       research_notes: (parsed.research_notes as string) ?? "",
       plan,

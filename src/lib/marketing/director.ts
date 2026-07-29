@@ -35,6 +35,7 @@ export interface MarketingPlan {
   abTests: string[];
   multiBook: string;
   bundleTitles?: string[];
+  occasion?: string; // nearest fitting Egyptian retail occasion + advice
 }
 
 interface GenreDirector {
@@ -182,12 +183,17 @@ export function buildMarketingPlan(opts: {
   topCities?: string[];
   buyUrl?: string;
   bundleTitles?: string[];
+  bestHours?: string;  // real posting-time signal from the store's own orders
+  occasion?: string;   // nearest fitting occasion hint (occasions.ts)
 }): MarketingPlan {
   const d = DIRECTORS[opts.genreKey] ?? DIRECTORS.general;
   const multi = opts.titles.length > 1;
   const cities = opts.topCities?.length
     ? opts.topCities.join("، ")
     : "القاهرة، الجيزة، الإسكندرية";
+  const schedule = opts.bestHours
+    ? `${opts.bestHours} (محسوبة من طلبات متجرك الفعلية آخر 90 يوم)`
+    : "التوزيع طوال اليوم مع ذروة تفاعل الكتب 7–11 مساءً؛ راقب تقرير الساعات بعد أسبوع وخصّص لو فيه نمط واضح";
 
   const metaCreative = multi
     ? "إعلان Carousel: كل كارت غلاف كتاب (من مولّد التصاميم — مقاس Square)، أول كارت هو الأقوى بيعًا، وآخر كارت عرض المجموعة. عنوان كل كارت = الـ hook بتاع الكتاب."
@@ -205,7 +211,7 @@ export function buildMarketingPlan(opts: {
     duration: "اختبار 4–5 أيام، ثم إبقاء الرابح شغال دائمًا (Always-on) مع تجديد الكرياتيف كل 2–3 أسابيع لما الـ Frequency يعدي 3",
     creative: metaCreative,
     cta: "زر «تسوّق الآن» (Shop Now) → رابط الكتاب مباشرة مع UTM: utm_source=facebook&utm_medium=paid-social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}",
-    schedule: "التوزيع طوال اليوم مع ذروة تفاعل الكتب 7–11 مساءً؛ راقب تقرير الساعات بعد أسبوع وخصّص لو فيه نمط واضح",
+    schedule,
     tips: [
       "استبعد المشترين آخر 30 يوم من حملات الـ Prospecting (Custom Audience من البيكسل أو من ملف عملائك)",
       "الجمهور الأعرض بيكسب في مصر غالبًا — جرّب Adset بدون اهتمامات (Broad) جنب Adset الاهتمامات وسيب التحسين يشتغل",
@@ -267,5 +273,6 @@ export function buildMarketingPlan(opts: {
     ],
     multiBook: d.multiBook,
     bundleTitles: opts.bundleTitles,
+    occasion: opts.occasion || undefined,
   };
 }

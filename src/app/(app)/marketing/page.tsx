@@ -55,9 +55,34 @@ interface MarketingPost {
   insights: { fb?: PostInsights; ig?: PostInsights } | null;
   insights_at: string | null;
   ad: AdInfo | null;
+  post_wa: string | null;
+  ab_group: string | null;
+  read_url: string | null;
 }
 
-type Tab = "create" | "posts" | "report";
+interface AdvisorPick {
+  sku: string; product_name: string; category: string | null;
+  units_30: number; units_prev_30: number; trend_pct: number | null;
+  revenue_30: number; ecom_stock: number; cover_days: number | null;
+  margin_pct: number | null; tags: string[]; score: number;
+}
+interface OccasionRow {
+  key: string; name: string; date: string; daysLeft: number; prepDays: number;
+  inPrepWindow: boolean; genres: string[]; advice: string; approximate: boolean;
+}
+interface AdvisorData {
+  picks: AdvisorPick[];
+  hours: { h: number; orders: number }[];
+  dows: { d: number; orders: number }[];
+  occasions: OccasionRow[];
+}
+interface PackDay { day: number; theme: string; post_fb: string; post_ig: string }
+interface ImpactData {
+  before_orders: number; before_units: number; before_revenue: number;
+  after_orders: number; after_units: number; after_revenue: number; days: number;
+}
+
+type Tab = "create" | "advisor" | "posts" | "report";
 type SourceMode = "library" | "epub" | "manual";
 
 const STYLE_LABELS: Record<AssetStyle, { ar: string; en: string }> = {
@@ -103,6 +128,15 @@ export default function MarketingPage() {
   const [researchNotes, setResearchNotes] = useState("");
   const [plan, setPlan] = useState<MarketingPlan | null>(null);
   const [bundleSugs, setBundleSugs] = useState<{ id: string; title: string }[]>([]);
+  const [postWa, setPostWa] = useState("");
+  const [freeChapter, setFreeChapter] = useState(false);
+  const [pack, setPack] = useState<PackDay[] | null>(null);
+  const [packLoading, setPackLoading] = useState(false);
+
+  // ---------- advisor ----------
+  const [advisor, setAdvisor] = useState<AdvisorData | null>(null);
+  const [advisorLoading, setAdvisorLoading] = useState(false);
+  const [impact, setImpact] = useState<Record<string, ImpactData | "loading" | "error">>({});
 
   // ---------- save/assets/publish ----------
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -137,6 +171,22 @@ export default function MarketingPage() {
   useEffect(() => { loadPosts(); }, [loadPosts]);
 
   useEffect(() => {
+    if (tab !== "advisor" || advisor || advisorLoading) return;
+    setAdvisorLoading(true);
+    fetch("/api/marketing/advisor")
+      .then((r) => r.json())
+      .then((d) => setAdvisor(d as AdvisorData))
+      .finally(() => setAdvisorLoading(false));
+  }, [tab, advisor, advisorLoading]);
+
+  // The free-first-chapter reader link (library books only), UTM-tagged so
+  // GA4 shows the funnel.
+  const readUrl = useMemo(() => {
+    if (!freeChapter || !flipbookId || typeof window === "undefined") return "";
+    return `${window.location.origin}/reader/${flipbookId}?utm_source=social&utm_medium=organic&utm_campaign=mkt-free-chapter`;
+  }, [freeChapter, flipbookId]);
+
+  useEffect(() => {
     if (mode !== "library" || books.length || booksLoading) return;
     let cancelled = false;
     setBooksLoading(true);
@@ -156,6 +206,29 @@ export default function MarketingPage() {
     if (!q) return books.slice(0, 40);
     return books.filter((b) => b.title.toLowerCase().includes(q)).slice(0, 40);
   }, [books, bookSearch]);
+
+  // A/B winners: within each ab_group, the post with the highest weighted
+  // engagement (once insights exist) gets the trophy.
+  const abWinners = useMemo(() => {
+    const score = (p: MarketingPost) => {
+      const f = p.insights?.fb ?? {};
+      const g = p.insights?.ig ?? {};
+      return (f.reach ?? f.impressions ?? 0) + (f.reactions ?? 0) * 10 + (f.comments ?? 0) * 20 + (f.shares ?? 0) * 30
+        + (g.reach ?? 0) + (g.likes ?? 0) * 10 + (g.comments ?? 0) * 20;
+    };
+    const groups = new Map<string, MarketingPost[]>();
+    for (const p of posts) {
+      if (!p.ab_group) continue;
+      groups.set(p.ab_group, [...(groups.get(p.ab_group) ?? []), p]);
+    }
+    const winners = new Set<string>();
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const best = list.reduce((a, b) => (score(b) > score(a) ? b : a));
+      if (score(best) > 0) winners.add(best.id);
+    }
+    return winners;
+  }, [posts]);
 
   // Click toggles the book in/out of the selection — one book is a normal
   // post, several books become a bundle/reading-list post (carousel ad).
@@ -209,18 +282,20 @@ export default function MarketingPage() {
           flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
           titles: mode === "library" && selBooks.length ? selBooks.map((b) => b.title) : [title],
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
-          title, buyUrl: buyUrl || undefined, instructions, research, lang,
+          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined,
+          instructions, research, lang,
           engine, variant: v,
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.message ?? d.error ?? "generation failed");
       setSummary(d.summary); setHook(d.hook); setPostFb(d.post_fb);
-      setPostIg(d.post_ig); setHashtags(d.hashtags); setResearchNotes(d.research_notes ?? "");
+      setPostIg(d.post_ig); setPostWa(d.post_wa ?? ""); setHashtags(d.hashtags);
+      setResearchNotes(d.research_notes ?? "");
       setPlan((d.plan as MarketingPlan) ?? null);
       setBundleSugs((d.bundleSuggestions as { id: string; title: string }[]) ?? []);
       setUsedEngine(d.engine ?? null); setNotice(d.notice ?? null); setVariant(v);
-      setSavedId(null); setAssetUrls([]); setPreviews({}); setPublishResult(null);
+      setSavedId(null); setAssetUrls([]); setPreviews({}); setPublishResult(null); setPack(null);
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "generation failed");
     }
@@ -231,8 +306,8 @@ export default function MarketingPage() {
     if (savedId) {
       await supabase.from("marketing_posts").update({
         book_title: title, buy_url: buyUrl || null, summary, hook,
-        post_fb: postFb, post_ig: postIg, hashtags, research_notes: researchNotes,
-        plan: plan ?? null,
+        post_fb: postFb, post_ig: postIg, post_wa: postWa, hashtags,
+        research_notes: researchNotes, plan: plan ?? null, read_url: readUrl || null,
       }).eq("id", savedId);
       return savedId;
     }
@@ -240,8 +315,9 @@ export default function MarketingPage() {
     const { data: u } = await supabase.auth.getUser();
     const { data, error } = await supabase.from("marketing_posts").insert({
       book_ref: flipbookId, book_title: title, buy_url: buyUrl || null,
-      summary, hook, post_fb: postFb, post_ig: postIg, hashtags,
-      research_notes: researchNotes, plan: plan ?? null, created_by: u.user?.id,
+      summary, hook, post_fb: postFb, post_ig: postIg, post_wa: postWa, hashtags,
+      research_notes: researchNotes, plan: plan ?? null, read_url: readUrl || null,
+      created_by: u.user?.id,
     }).select("id").single();
     setSaving(false);
     if (error || !data) { setGenError(error?.message ?? "save failed"); return null; }
@@ -320,6 +396,93 @@ export default function MarketingPage() {
       setPublishResult({ ok: false, errors: [e instanceof Error ? e.message : "publish failed"] });
     }
     setPublishing(false);
+  }
+
+  // 7-day campaign pack (free engine)
+  async function loadPack() {
+    setPackLoading(true);
+    try {
+      const res = await fetch("/api/marketing/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pack: true,
+          flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
+          text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
+          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined, lang,
+        }),
+      });
+      const d = await res.json();
+      if (res.ok && d.pack) setPack(d.pack as PackDay[]);
+    } finally {
+      setPackLoading(false);
+    }
+  }
+
+  // A/B publish: A = the current copy, B = the next template variant. Both
+  // share an ab_group and B reuses A's uploaded assets, so the only variable
+  // is the wording — a clean test.
+  async function abPublish() {
+    const id = await saveDraft();
+    if (!id) return;
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      const res = await fetch("/api/marketing/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
+          titles: mode === "library" && selBooks.length ? selBooks.map((b) => b.title) : [title],
+          text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
+          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined, lang,
+          engine: "builtin", variant: variant + 1,
+        }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error ?? "variant generation failed");
+
+      const abGroup = crypto.randomUUID();
+      await supabase.from("marketing_posts").update({ ab_group: abGroup }).eq("id", id);
+      const { data: u } = await supabase.auth.getUser();
+      const { data: rowB, error } = await supabase.from("marketing_posts").insert({
+        book_ref: flipbookId, book_title: `${title} (B)`, buy_url: buyUrl || null,
+        summary: b.summary, hook: b.hook, post_fb: b.post_fb, post_ig: b.post_ig,
+        post_wa: b.post_wa ?? "", hashtags: b.hashtags, plan: plan ?? null,
+        read_url: readUrl || null, ab_group: abGroup, assets: assetUrls,
+        status: assetUrls.length ? "ready" : "draft", created_by: u.user?.id,
+      }).select("id").single();
+      if (error || !rowB) throw new Error(error?.message ?? "B draft failed");
+
+      const errors: string[] = [];
+      for (const pid of [id, rowB.id]) {
+        const pr = await fetch("/api/marketing/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postId: pid, channels }),
+        });
+        const pd = await pr.json();
+        if (!pd.ok) errors.push(...(pd.errors ?? [pd.message ?? pd.error ?? "publish failed"]));
+      }
+      setPublishResult({ ok: errors.length === 0, errors });
+      await loadPosts();
+      if (!errors.length) setTab("posts");
+    } catch (e) {
+      setPublishResult({ ok: false, errors: [e instanceof Error ? e.message : "A/B publish failed"] });
+    }
+    setPublishing(false);
+  }
+
+  async function loadImpact(postId: string) {
+    setImpact((p) => ({ ...p, [postId]: "loading" }));
+    try {
+      const res = await fetch(`/api/marketing/impact?postId=${postId}`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      setImpact((p) => ({ ...p, [postId]: d.impact as ImpactData }));
+    } catch {
+      setImpact((p) => ({ ...p, [postId]: "error" }));
+    }
   }
 
   // ---------- posts tab actions ----------
@@ -404,13 +567,13 @@ export default function MarketingPage() {
         subtitle={t("marketingSubtitle")}
         actions={
           <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
-            {(["create", "posts", "report"] as Tab[]).map((k) => (
+            {(["create", "advisor", "posts", "report"] as Tab[]).map((k) => (
               <button
                 key={k}
                 onClick={() => setTab(k)}
                 className={cn("rounded-md px-4 py-1.5 text-sm font-semibold", tab === k ? "bg-white shadow text-brand-700" : "text-slate-500 hover:text-slate-700")}
               >
-                {k === "create" ? t("mktTabCreate") : k === "posts" ? t("mktTabPosts") : t("mktTabReport")}
+                {k === "create" ? t("mktTabCreate") : k === "advisor" ? t("mktTabAdvisor") : k === "posts" ? t("mktTabPosts") : t("mktTabReport")}
               </button>
             ))}
           </div>
@@ -460,6 +623,12 @@ export default function MarketingPage() {
                   <div className="rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-xs text-brand-800">
                     📚 {t("mktBundleMode")} ({selBooks.length})
                   </div>
+                )}
+                {selBooks.length > 0 && (
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input type="checkbox" checked={freeChapter} onChange={(e) => setFreeChapter(e.target.checked)} />
+                    📖 {t("mktFreeChapter")}
+                  </label>
                 )}
                 {bundleSugs.length > 0 && (
                   <div className="space-y-1.5">
@@ -574,9 +743,49 @@ export default function MarketingPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-500">{t("mktHashtags")}</label>
                   <textarea className="input min-h-16" dir="auto" value={hashtags} onChange={(e) => setHashtags(e.target.value)} />
                 </div>
-                <button className="btn-secondary" onClick={saveDraft} disabled={saving}>
-                  {savedId ? t("mktSaved") : saving ? "..." : t("mktSaveDraft")}
-                </button>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-500">WhatsApp</label>
+                    <button className="text-xs text-brand-600 hover:underline"
+                      onClick={() => navigator.clipboard?.writeText(postWa)}>{t("mktCopy")}</button>
+                  </div>
+                  <textarea className="input min-h-28" value={postWa} onChange={(e) => setPostWa(e.target.value)} />
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
+                    <span className="text-slate-400">{t("mktWaAudiences")}:</span>
+                    <a className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 hover:bg-slate-200" href="/products">{t("mktAudSameBook")}</a>
+                    <a className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 hover:bg-slate-200" href="/customers">{t("mktAudChampions")}</a>
+                    <a className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 hover:bg-slate-200" href="/abandoned">{t("mktAudAbandoned")}</a>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className="btn-secondary" onClick={saveDraft} disabled={saving}>
+                    {savedId ? t("mktSaved") : saving ? "..." : t("mktSaveDraft")}
+                  </button>
+                  <button className="btn-secondary" onClick={loadPack} disabled={packLoading}>
+                    📅 {packLoading ? "..." : t("mktPack")}
+                  </button>
+                </div>
+                {pack && (
+                  <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+                    <div className="text-sm font-bold text-slate-700">📅 {t("mktPackTitle")}</div>
+                    {pack.map((d) => (
+                      <details key={d.day} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+                          {t("mktDay")} {d.day} — {d.theme}
+                        </summary>
+                        <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-slate-600">{d.post_fb}</pre>
+                        <div className="mt-2 flex gap-2">
+                          <button className="text-xs text-brand-600 hover:underline"
+                            onClick={() => { setPostFb(d.post_fb); setPostIg(d.post_ig); setSavedId(null); }}>
+                            {t("mktPackUse")}
+                          </button>
+                          <button className="text-xs text-slate-500 hover:underline"
+                            onClick={() => navigator.clipboard?.writeText(d.post_fb)}>{t("mktCopy")}</button>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -647,10 +856,17 @@ export default function MarketingPage() {
                 </label>
               </div>
               <p className="text-xs text-slate-400">{t("mktPublishHint")}</p>
-              <button className="btn-primary" onClick={publishNow} disabled={publishing || !channels.length}>
-                <Send size={16} />
-                {publishing ? t("mktPublishing") : t("mktPublishNow")}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-primary" onClick={publishNow} disabled={publishing || !channels.length}>
+                  <Send size={16} />
+                  {publishing ? t("mktPublishing") : t("mktPublishNow")}
+                </button>
+                <button className="btn-secondary" onClick={abPublish} disabled={publishing || !channels.length}
+                  title={t("mktAbHint")}>
+                  <SplitSquareHorizontal size={16} />
+                  {t("mktAbPublish")}
+                </button>
+              </div>
               {publishResult && (
                 <div className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-sm border",
                   publishResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-700")}>
@@ -661,6 +877,100 @@ export default function MarketingPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ============ ADVISOR ============ */}
+      {tab === "advisor" && (
+        advisorLoading || !advisor ? <Spinner /> : (
+          <div className="space-y-6">
+            {/* Occasions */}
+            {advisor.occasions.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-bold text-slate-700">🗓️ {t("mktOccasions")}</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {advisor.occasions.map((o) => (
+                    <div key={o.key} className={cn("rounded-xl border p-4",
+                      o.inPrepWindow ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white")}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm">{o.name}</span>
+                        <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold",
+                          o.inPrepWindow ? "bg-amber-200 text-amber-800" : "bg-slate-100 text-slate-500")}>
+                          {o.daysLeft <= 0 ? t("mktNow") : `${o.daysLeft} ${t("mktDaysLeft")}`}{o.approximate ? " ≈" : ""}
+                        </span>
+                      </div>
+                      {o.inPrepWindow && <div className="mt-1 text-xs font-bold text-amber-700">⏰ {t("mktStartNow")}</div>}
+                      <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{o.advice}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Best posting hours */}
+            {advisor.hours.length > 0 && (
+              <div className="card p-5">
+                <h3 className="mb-3 font-bold text-slate-700">⏰ {t("mktBestHours")}</h3>
+                <div className="flex items-end gap-1" style={{ height: 90 }}>
+                  {advisor.hours.map((x) => {
+                    const max = Math.max(...advisor.hours.map((y) => y.orders), 1);
+                    return (
+                      <div key={x.h} className="flex flex-1 flex-col items-center gap-1" title={`${x.h}:00 — ${x.orders}`}>
+                        <div className="w-full rounded-t bg-brand-400" style={{ height: `${Math.max((x.orders / max) * 70, 2)}px` }} />
+                        <span className="text-[9px] text-slate-400">{x.h}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-xs text-slate-500">{t("mktBestHoursHint")}</p>
+              </div>
+            )}
+
+            {/* What to promote next */}
+            <div className="card overflow-x-auto">
+              <div className="p-4 pb-0 font-bold text-slate-700">🎯 {t("mktPromoteNext")}</div>
+              <table className="table-base">
+                <thead>
+                  <tr>
+                    <th>{t("mktBook")}</th>
+                    <th>{t("mktUnits30")}</th>
+                    <th>{t("mktTrend")}</th>
+                    <th>{t("mktStock")}</th>
+                    <th>{t("mktWhy")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {advisor.picks.map((p) => (
+                    <tr key={p.sku}>
+                      <td className="!whitespace-normal max-w-[220px]">
+                        <div className="font-medium">{p.product_name}</div>
+                        <div className="text-[10px] text-slate-400" dir="ltr">{p.sku}</div>
+                      </td>
+                      <td className="font-semibold">{formatNumber(p.units_30)}</td>
+                      <td className={cn("font-bold", (p.trend_pct ?? 0) >= 30 ? "text-emerald-600" : (p.trend_pct ?? 0) < 0 ? "text-red-500" : "text-slate-500")}>
+                        {p.trend_pct != null ? `${p.trend_pct > 0 ? "+" : ""}${p.trend_pct}%` : "—"}
+                      </td>
+                      <td>{formatNumber(p.ecom_stock)}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          {p.tags.map((tg) => (
+                            <span key={tg} className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold",
+                              tg === "rising" ? "bg-emerald-100 text-emerald-700"
+                              : tg === "overstock" ? "bg-amber-100 text-amber-700"
+                              : tg === "margin" ? "bg-brand-100 text-brand-700"
+                              : "bg-slate-100 text-slate-600")}>
+                              {tg === "rising" ? t("mktTagRising") : tg === "overstock" ? t("mktTagOverstock") : tg === "margin" ? t("mktTagMargin") : t("mktTagBestseller")}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="p-4 text-xs text-slate-400">{t("mktPromoteHint")}</p>
+            </div>
+          </div>
+        )
       )}
 
       {/* ============ POSTS ============ */}
@@ -695,6 +1005,12 @@ export default function MarketingPage() {
                             AD {p.ad.status}
                           </span>
                         )}
+                        {p.ab_group && (
+                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">A/B</span>
+                        )}
+                        {abWinners.has(p.id) && (
+                          <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">🏆 {t("mktWinner")}</span>
+                        )}
                       </div>
                       <div className="mt-0.5 text-xs text-slate-400">{formatDateTime(p.created_at)}</div>
                       {p.publish_error && <div className="mt-1 text-xs text-red-600">{p.publish_error}</div>}
@@ -718,6 +1034,33 @@ export default function MarketingPage() {
                           <div className="font-bold text-slate-400">{t("mktAd")}</div>
                           <div>{t("mktSpend")}: {formatMoney(p.ad.insights.spend ?? 0, lang)} · {t("mktResults")}: {formatNumber(p.ad.insights.results ?? 0)}</div>
                         </div>
+                      )}
+                      {p.status === "published" && (
+                        impact[p.id] && impact[p.id] !== "loading" && impact[p.id] !== "error" ? (
+                          (() => {
+                            const im = impact[p.id] as ImpactData;
+                            const diff = im.before_units > 0
+                              ? Math.round(((im.after_units - im.before_units) / im.before_units) * 100)
+                              : im.after_units > 0 ? 100 : 0;
+                            return (
+                              <div>
+                                <div className="font-bold text-slate-400">{t("mktImpact")}</div>
+                                <div>
+                                  {t("mktImpactBefore")}: {formatNumber(im.before_units)} · {t("mktImpactAfter")}: {formatNumber(im.after_units)}
+                                  <span className={cn("ms-1 font-bold", diff > 0 ? "text-emerald-600" : diff < 0 ? "text-red-500" : "text-slate-400")}>
+                                    ({diff > 0 ? "+" : ""}{diff}%)
+                                  </span>
+                                  · {formatMoney(im.after_revenue, lang)}
+                                </div>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <button className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-brand-400 hover:text-brand-700"
+                            onClick={() => loadImpact(p.id)} disabled={impact[p.id] === "loading"}>
+                            📊 {impact[p.id] === "loading" ? "..." : impact[p.id] === "error" ? t("mktImpactError") : t("mktImpactBtn")}
+                          </button>
+                        )
                       )}
                     </div>
                     <div className="flex items-center gap-1">
@@ -868,6 +1211,13 @@ function DirectorPlan({ plan }: { plan: MarketingPlan }) {
         <div className="mb-1 font-bold">{modeLabel}</div>
         <div className="text-xs leading-relaxed">{plan.decision?.reason}</div>
       </div>
+
+      {/* Occasion */}
+      {plan.occasion && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-xs leading-relaxed text-violet-800">
+          🗓️ <b>{t("mktOccasionNear")}:</b> {plan.occasion}
+        </div>
+      )}
 
       {/* Persona */}
       {plan.persona && (

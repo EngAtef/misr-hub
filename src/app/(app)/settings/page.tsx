@@ -169,6 +169,9 @@ export default function SettingsPage() {
             { key: "page_id", label: "Facebook Page ID", placeholder: "1234567890" },
             { key: "page_access_token", label: "Page Access Token (publishing)", secret: true },
             { key: "ig_user_id", label: "Instagram User ID", placeholder: "17841400000000000" },
+            { key: "comments_enabled", label: "Comment auto-reply (type: on / off)", placeholder: "off" },
+            { key: "comment_verify_token", label: "Comments Webhook Verify Token (any secret phrase)", secret: true },
+            { key: "comment_reply", label: "Custom comment reply (optional, {link} = buy link)", placeholder: "اطلبه من هنا 👉 {link}" },
           ]}
           steps={[
             { text: "Open Meta Business Settings", url: "https://business.facebook.com/settings" },
@@ -177,6 +180,7 @@ export default function SettingsPage() {
             { text: "For publishing: generate a token that also has pages_manage_posts, pages_read_engagement, instagram_basic, instagram_content_publish, then exchange it for the PAGE token: Graph Explorer → GET /me/accounts → copy your page's access_token + id", url: "https://developers.facebook.com/tools/explorer" },
             { text: "Instagram User ID: GET /{page-id}?fields=instagram_business_account → copy the id (your IG must be a Business account linked to the Page)" },
             { text: "Ad Account ID: the number after 'act_' in Ads Manager. Docs:", url: "https://developers.facebook.com/docs/marketing-api/get-started" },
+            { text: "Comment auto-reply (optional): add pages_manage_engagement to the Page token, set a Verify Token above + comments_enabled=on, then in your Meta App → Webhooks → Page: callback URL https://misr-hub.vercel.app/api/marketing/comments with that verify token, subscribed to 'feed'. Buy-intent comments (بكام؟ / عايز / متوفر؟) get an instant reply with the book's buy link." },
           ]}
         />
         <IntegrationCard
