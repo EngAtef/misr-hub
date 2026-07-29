@@ -2,20 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getApiUser } from "@/lib/supabase/api-auth";
 import { getMarketingConfig } from "@/lib/marketing/config";
-import { builtinGenerate } from "@/lib/marketing/builtin-generator";
+import { builtinGenerate, detectGenreKey } from "@/lib/marketing/builtin-generator";
+import { buildMarketingPlan, type MarketingPlan } from "@/lib/marketing/director";
 
 export const maxDuration = 120;
 
-// POST { flipbookId?, text?, title, buyUrl?, instructions?, research?, lang,
-//        engine?: "builtin" | "claude", variant? }
-// -> { summary, hook, post_fb, post_ig, hashtags, research_notes, engine }
+// POST { flipbookId?, flipbookIds?, titles?, text?, title, buyUrl?,
+//        instructions?, research?, lang, engine?: "builtin"|"claude", variant? }
+// -> { summary, hook, post_fb, post_ig, hashtags, research_notes, engine,
+//      plan: MarketingPlan, bundleSuggestions }
 //
 // Two engines:
 //  - "builtin" (free, zero integrations): extractive summary + genre-aware
-//    Arabic template library. Default when no Anthropic key is configured.
-//  - "claude": summarizes the book with Claude and writes channel-ready copy;
-//    with research=true it first runs Anthropic server-side web searches for
-//    current best practices / trends. Falls back to builtin if no key.
+//    Arabic template library + rule-based marketing-director plan grounded in
+//    real store data (top cities). Default when no Anthropic key is set.
+//  - "claude": acts as marketing director + media buyer; with research=true it
+//    first runs Anthropic server-side web searches. Falls back to builtin.
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -24,22 +26,64 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const title = typeof body.title === "string" ? body.title.slice(0, 300) : "";
   const flipbookId = typeof body.flipbookId === "string" ? body.flipbookId : null;
+  const flipbookIds: string[] = Array.isArray(body.flipbookIds)
+    ? body.flipbookIds.filter((x: unknown) => typeof x === "string").slice(0, 6)
+    : flipbookId ? [flipbookId] : [];
+  const titles: string[] = Array.isArray(body.titles)
+    ? body.titles.filter((x: unknown) => typeof x === "string").map((s: string) => s.slice(0, 200)).slice(0, 6)
+    : title ? [title] : [];
   const instructions = typeof body.instructions === "string" ? body.instructions.slice(0, 2000) : "";
   const buyUrl = typeof body.buyUrl === "string" ? body.buyUrl.slice(0, 500) : "";
   const research = body.research === true;
   const lang = body.lang === "en" ? "en" : "ar";
 
   let text = typeof body.text === "string" ? body.text : "";
-  if (!text && flipbookId) {
+  if (!text && flipbookIds.length) {
     const { data } = await user.supabase
       .from("flipbook_texts")
-      .select("txt")
-      .eq("path", `${flipbookId}.json`)
-      .maybeSingle();
-    text = data?.txt ?? "";
+      .select("path, txt")
+      .in("path", flipbookIds.map((id) => `${id}.json`));
+    // Cap per-book so one long novel doesn't crowd out the others in a bundle.
+    const per = Math.floor(40000 / Math.max(flipbookIds.length, 1));
+    text = ((data ?? []) as { path: string; txt: string }[])
+      .map((r) => r.txt.slice(0, per))
+      .join("\n\n----- كتاب آخر -----\n\n");
   }
   if (!text && !title) return NextResponse.json({ error: "no book text or title provided" }, { status: 400 });
   text = text.slice(0, 40000); // keep the prompt (and cost) bounded
+
+  // Ground the media plan in real store data: top cities by actual orders
+  // (last 90 days), and same-category books to suggest as a bundle.
+  let topCities: string[] = [];
+  let bundleSuggestions: { id: string; title: string }[] = [];
+  try {
+    const from = new Date(Date.now() - 90 * 86400000).toISOString();
+    const { data: cities } = await user.supabase.rpc("fn_breakdown", {
+      p_dim: "city", p_from: from, p_to: null, p_limit: 4,
+    });
+    topCities = ((cities ?? []) as { label: string }[]).map((c) => c.label).filter(Boolean);
+  } catch { /* plan falls back to defaults */ }
+  try {
+    if (flipbookIds.length === 1) {
+      // flipbooks is keyed by storage path: {id}.json (v2) or {id}.html (legacy)
+      const { data: me } = await user.supabase
+        .from("flipbooks").select("category")
+        .in("path", [`${flipbookIds[0]}.json`, `${flipbookIds[0]}.html`])
+        .limit(1).maybeSingle();
+      const cat = (me as { category: string | null } | null)?.category;
+      if (cat) {
+        const { data: sibs } = await user.supabase
+          .from("flipbooks")
+          .select("path, title")
+          .eq("category", cat)
+          .limit(6);
+        bundleSuggestions = ((sibs ?? []) as { path: string; title: string }[])
+          .map((s) => ({ id: s.path.replace(/\.(json|html)$/, ""), title: s.title }))
+          .filter((s) => s.id !== flipbookIds[0])
+          .slice(0, 4);
+      }
+    }
+  } catch { /* suggestions are optional */ }
 
   const config = await getMarketingConfig(user);
   const wantsClaude = body.engine === "claude";
@@ -52,9 +96,19 @@ export async function POST(request: NextRequest) {
       buyUrl: buyUrl || undefined,
       lang,
       variant: Math.abs(Math.floor(Number(body.variant) || 0)),
+      titles,
+    });
+    const plan = buildMarketingPlan({
+      genreKey: result.genre,
+      titles: titles.length ? titles : [title],
+      topCities,
+      buyUrl: buyUrl || undefined,
+      bundleTitles: bundleSuggestions.map((b) => b.title),
     });
     return NextResponse.json({
       ...result,
+      plan,
+      bundleSuggestions,
       engine: "builtin",
       // If the user explicitly asked for Claude but no key is saved, say so.
       notice: wantsClaude && !config.aiKey
@@ -64,16 +118,27 @@ export async function POST(request: NextRequest) {
   }
 
   const langName = lang === "en" ? "English" : "Egyptian-flavored Modern Standard Arabic";
-  const system = `You are the social media marketing engine of «متجر نهضة مصر» (Nahdet Misr bookstore, Egypt).
-You are given the text of a book. Your job:
+  const multiNote = titles.length > 1
+    ? `This is a MULTI-BOOK bundle post for ${titles.length} books: ${titles.map((tt) => `«${tt}»`).join(", ")}. Write the posts as a curated reading-list/bundle.`
+    : "";
+  const system = `You are the MARKETING DIRECTOR and senior MEDIA BUYER of «متجر نهضة مصر» (Nahdet Misr bookstore, Egypt). You are given the text of a book (or several books). Produce both the creative AND the full media plan, like an agency deliverable.
+${multiNote}
 1. Summarize what the book is about (3-5 sentences, for internal use).
 2. Write a short attention hook (max 12 words) that would stop the scroll.
-3. Write a Facebook post and an Instagram caption that market this book. Primary language: ${langName}. Make them attractive, emotional and specific to THIS book's content (quote a striking idea or moment from it). Facebook: 3-6 short paragraphs with line breaks + emojis + a clear call to action${buyUrl ? ` linking to ${buyUrl}` : " to order from the store"}. Instagram: tighter, hook first, line breaks, CTA "الرابط في البايو" style${buyUrl ? "" : ""}.
-4. Provide 8-12 hashtags mixing Arabic + English book/reading tags relevant to this genre.
-${research ? "5. FIRST use web search (2-3 searches max) to check current best practices for book marketing posts on Facebook/Instagram and any trends about this book/author/genre, then apply what you learn. Put what you learned in research_notes (2-4 bullet points)." : ""}
-Never invent facts about the book that are not supported by its text. Do not mention that you are an AI.
+3. Write a Facebook post and an Instagram caption. Primary language: ${langName}. Attractive, emotional, specific to THIS book's content (quote a striking idea or moment from it). Facebook: 3-6 short paragraphs + emojis + clear CTA${buyUrl ? ` linking to ${buyUrl}` : " to order from the store"}. Instagram: tighter, hook first, CTA "الرابط في البايو" style.
+4. Provide 8-12 hashtags mixing Arabic + English tags relevant to this genre.
+5. As marketing director, define the buyer persona for THIS specific book (who exactly buys it in Egypt: age, gender skew, life situation, pains, motivations).
+6. Decide: should this be published as a paid ad, organic only, or both? Give the reasoning a director would give.
+7. As media buyer, write the COMPLETE ad configuration per platform (Meta campaign + organic boost${titles.length > 1 ? " + carousel notes for the bundle" : ""}, and TikTok if this genre fits): campaign objective, exact age range, gender, geo (Egypt — prioritize these real top cities by actual store orders: ${topCities.join(", ") || "Cairo, Giza, Alexandria"}), Meta interest targeting names, placements, daily budget in EGP with kill/scale rules, test duration, creative guidance, CTA button, schedule, and 2-4 pro tips each.
+8. Recommend retargeting audiences (the store app can export: abandoned-cart Meta Custom Audience, and a lookalike seed of 3+ order customers) and 3-4 A/B tests.
+${research ? "9. FIRST use web search (2-3 searches max) for current Meta/TikTok book-marketing best practices and any trends about this book/author/genre, then apply. Put learnings in research_notes (2-4 bullets)." : ""}
+Never invent facts about the book not supported by its text. Do not mention you are an AI. All plan text in ${langName}.
 Return ONLY a JSON object, no markdown fences, with exactly these keys:
-{"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "..."}`;
+{"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "...",
+ "plan": {"persona": {"name": "...", "age": "...", "gender": "...", "description": "...", "pains": ["..."], "motivations": ["..."]},
+  "decision": {"mode": "ad"|"organic"|"both", "reason": "..."},
+  "platforms": [{"platform": "...", "objective": "...", "age": "...", "gender": "...", "geo": "...", "interests": ["..."], "placements": "...", "budget": "...", "duration": "...", "creative": "...", "cta": "...", "schedule": "...", "tips": ["..."]}],
+  "retargeting": ["..."], "abTests": ["..."], "multiBook": "..."}}`;
 
   const client = new Anthropic({ apiKey: config.aiKey });
   try {
@@ -105,15 +170,30 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start === -1 || end <= start) throw new Error("model returned no JSON");
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, string>;
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+
+    // If the model skipped/garbled the plan, fall back to the rule-based one
+    // so the page always has a full director's plan to show.
+    let plan = parsed.plan as MarketingPlan | undefined;
+    if (!plan || !plan.persona || !Array.isArray(plan.platforms)) {
+      plan = buildMarketingPlan({
+        genreKey: detectGenreKey(text, title),
+        titles: titles.length ? titles : [title],
+        topCities,
+        buyUrl: buyUrl || undefined,
+        bundleTitles: bundleSuggestions.map((b) => b.title),
+      });
+    }
 
     return NextResponse.json({
-      summary: parsed.summary ?? "",
-      hook: parsed.hook ?? "",
-      post_fb: parsed.post_fb ?? "",
-      post_ig: parsed.post_ig ?? "",
-      hashtags: parsed.hashtags ?? "",
-      research_notes: parsed.research_notes ?? "",
+      summary: (parsed.summary as string) ?? "",
+      hook: (parsed.hook as string) ?? "",
+      post_fb: (parsed.post_fb as string) ?? "",
+      post_ig: (parsed.post_ig as string) ?? "",
+      hashtags: (parsed.hashtags as string) ?? "",
+      research_notes: (parsed.research_notes as string) ?? "",
+      plan,
+      bundleSuggestions,
       engine: "claude",
       model: response.model,
     });

@@ -10,6 +10,7 @@ export interface BuiltinResult {
   post_ig: string;
   hashtags: string;
   research_notes: string;
+  genre: string;
 }
 
 const AR_STOP = new Set(
@@ -125,6 +126,10 @@ const DEFAULT_GENRE: Genre = {
   tags: "",
 };
 
+export function detectGenreKey(text: string, title: string): string {
+  return detectGenre(text, title).key;
+}
+
 function detectGenre(text: string, title: string): Genre {
   const hay = `${title} ${text.slice(0, 8000)}`;
   let best = DEFAULT_GENRE;
@@ -150,10 +155,13 @@ export function builtinGenerate(opts: {
   buyUrl?: string;
   lang: "ar" | "en";
   variant?: number;
+  titles?: string[]; // >1 titles = multi-book bundle post
 }): BuiltinResult {
   const { title, text, buyUrl, lang } = opts;
   const variant = opts.variant ?? 0;
+  const titles = (opts.titles ?? []).filter(Boolean);
   const genre = detectGenre(text, title);
+  if (titles.length > 1) return bundleGenerate({ titles, text, buyUrl, lang, variant, genre });
   const summary = summarize(text) || (lang === "en" ? `“${title}” — a new pick from our store.` : `«${title}» — إصدار مميز من متجر نهضة مصر.`);
   const quote = pickQuote(text, summary);
   const hook = hashPick(genre.hooks, title, variant);
@@ -165,7 +173,7 @@ export function builtinGenerate(opts: {
     const cta = buyUrl ? `Order now 👉 ${buyUrl}` : "Order now from Nahdet Misr store — delivered to your door 🚚";
     const fb = `📚 “${title}”\n\n${hook}\n\n${quote ? `“${quote}”\n\n` : ""}${summary}\n\n${bullets}\n\n🛒 ${cta}`;
     const ig = `${hook}\n\n📖 “${title}”\n${quote ? `“${quote.slice(0, 120)}”\n` : ""}\n🛒 Link in bio 🔗`;
-    return { summary, hook, post_fb: fb, post_ig: ig, hashtags: tags, research_notes: "" };
+    return { summary, hook, post_fb: fb, post_ig: ig, hashtags: tags, research_notes: "", genre: genre.key };
   }
 
   const cta = buyUrl
@@ -190,5 +198,63 @@ export function builtinGenerate(opts: {
     post_ig: hashPick(igTemplates, title, variant),
     hashtags: tags,
     research_notes: "",
+    genre: genre.key,
+  };
+}
+
+// Multi-book bundle post: a curated reading-list format. The genre comes from
+// the combined texts; each book gets its own line with an emoji marker.
+function bundleGenerate(opts: {
+  titles: string[];
+  text: string;
+  buyUrl?: string;
+  lang: "ar" | "en";
+  variant: number;
+  genre: Genre;
+}): BuiltinResult {
+  const { titles, text, buyUrl, lang, variant, genre } = opts;
+  const seed = titles.join("|");
+  const summary = summarize(text, 3);
+  const quote = pickQuote(text, summary);
+  const tags = [genre.tags, "#متجر_نهضة_مصر #كتب #قراءة #قائمة_قراءة #bookstagram #books"]
+    .filter(Boolean).join(" ");
+  const marks = ["📕", "📗", "📘", "📙", "📔", "📚"];
+  const listAr = titles.map((tt, i) => `${marks[i % marks.length]} «${tt}»`).join("\n");
+
+  if (lang === "en") {
+    const cta = buyUrl ? `Get the collection 👉 ${buyUrl}` : "Order the collection from Nahdet Misr store 🚚";
+    const fb = `📚 Your next reading list is ready:\n\n${listAr}\n\n${quote ? `“${quote}”\n\n` : ""}🛒 ${cta}`;
+    return {
+      summary, hook: "Your next reading list is ready 📚", post_fb: fb,
+      post_ig: `${listAr}\n\nWhich one first? 👇\n\n🛒 Link in bio 🔗`,
+      hashtags: tags, research_notes: "", genre: genre.key,
+    };
+  }
+
+  const cta = buyUrl
+    ? `اطلب المجموعة دلوقتي 👉 ${buyUrl}`
+    : "اطلب المجموعة من متجر نهضة مصر — والتوصيل لحد باب البيت 🚚";
+  const hooks = [
+    `قايمة قراءتك الجاية جهزناهالك 📚✨`,
+    `${titles.length} كتب هيخلوا الفترة الجاية مختلفة 🔥`,
+    `مكتبتك ناقصها المجموعة دي 📚`,
+  ];
+  const hook = hashPick(hooks, seed, variant);
+  const fbTemplates = [
+    `${hook}\n\n${listAr}\n\n${quote ? `«${quote}»\n\n` : ""}كل كتاب منهم تجربة مختلفة… ومع بعض؟ رحلة كاملة 📖\n\n🛒 ${cta}\n\nقولنا في التعليقات: هتبدأ بأنهي واحد؟ 👇`,
+    `لو هتاخد معاك كتب في الإجازة… خد دول 🧳\n\n${listAr}\n\n${quote ? `«${quote}»\n\n` : ""}🛒 ${cta}\n\nاعمل تاج لصاحبك اللي هيحب المجموعة دي 🏷️`,
+  ];
+  const igTemplates = [
+    `${hook}\n\n${listAr}\n\nاحفظ البوست ده 📌 وابدأ بأي واحد فيهم\n\n🛒 الرابط في البايو 🔗`,
+    `قائمة القراءة الجديدة وصلت 📚\n\n${listAr}\n\nصوّت في الكومنتات: نبدأ بأنهي؟ 👇\n\n🛒 الرابط في البايو 🔗`,
+  ];
+  return {
+    summary,
+    hook,
+    post_fb: hashPick(fbTemplates, seed, variant),
+    post_ig: hashPick(igTemplates, seed, variant),
+    hashtags: tags,
+    research_notes: "",
+    genre: genre.key,
   };
 }

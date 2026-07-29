@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen, UploadCloud, Wand2, Image as ImageIcon, Send, RefreshCw,
   Megaphone, Trash2, ExternalLink, Search, Sparkles, Play, Pause, CheckCircle2, XCircle,
+  Target, Users, Lightbulb, SplitSquareHorizontal, Repeat, Plus, Check,
 } from "lucide-react";
+import type { MarketingPlan, AdConfig } from "@/lib/marketing/director";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, KpiCard, EmptyState } from "@/components/ui";
@@ -75,6 +77,7 @@ export default function MarketingPage() {
   const [booksLoading, setBooksLoading] = useState(false);
   const [bookSearch, setBookSearch] = useState("");
   const [flipbookId, setFlipbookId] = useState<string | null>(null);
+  const [selBooks, setSelBooks] = useState<HostedBook[]>([]);
   const [title, setTitle] = useState("");
   const [buyUrl, setBuyUrl] = useState("");
   const [manualText, setManualText] = useState("");
@@ -98,6 +101,8 @@ export default function MarketingPage() {
   const [postIg, setPostIg] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [researchNotes, setResearchNotes] = useState("");
+  const [plan, setPlan] = useState<MarketingPlan | null>(null);
+  const [bundleSugs, setBundleSugs] = useState<{ id: string; title: string }[]>([]);
 
   // ---------- save/assets/publish ----------
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -152,11 +157,26 @@ export default function MarketingPage() {
     return books.filter((b) => b.title.toLowerCase().includes(q)).slice(0, 40);
   }, [books, bookSearch]);
 
+  // Click toggles the book in/out of the selection — one book is a normal
+  // post, several books become a bundle/reading-list post (carousel ad).
+  const applySelection = useCallback((next: HostedBook[]) => {
+    setSelBooks(next);
+    const first = next[0] ?? null;
+    setFlipbookId(first?.id ?? null);
+    setTitle(next.map((x) => x.title).join(" + "));
+    setBuyUrl(first?.buyUrl ?? "");
+    setCoverUrl(first ? `${SUPA}/storage/v1/object/public/flipbooks/${first.id}/cover.webp` : null);
+  }, []);
+
   function pickBook(b: HostedBook) {
-    setFlipbookId(b.id);
-    setTitle(b.title);
-    setBuyUrl(b.buyUrl ?? "");
-    setCoverUrl(`${SUPA}/storage/v1/object/public/flipbooks/${b.id}/cover.webp`);
+    const has = selBooks.some((x) => x.id === b.id);
+    applySelection(has ? selBooks.filter((x) => x.id !== b.id) : [...selBooks, b]);
+  }
+
+  function addSuggested(s: { id: string; title: string }) {
+    if (selBooks.some((x) => x.id === s.id)) return;
+    const full = books.find((x) => x.id === s.id);
+    applySelection([...selBooks, full ?? { id: s.id, title: s.title, buyUrl: null, category: null }]);
   }
 
   async function handleEpub(file: File) {
@@ -167,6 +187,7 @@ export default function MarketingPage() {
       setTitle(parsed.title);
       setEpubText(parsed.text);
       setFlipbookId(null);
+      setSelBooks([]);
       setCoverUrl(parsed.coverBlob ? URL.createObjectURL(parsed.coverBlob) : null);
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "EPUB parse failed");
@@ -185,7 +206,8 @@ export default function MarketingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          flipbookId: mode === "library" ? flipbookId : undefined,
+          flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
+          titles: mode === "library" && selBooks.length ? selBooks.map((b) => b.title) : [title],
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
           title, buyUrl: buyUrl || undefined, instructions, research, lang,
           engine, variant: v,
@@ -195,6 +217,8 @@ export default function MarketingPage() {
       if (!res.ok) throw new Error(d.message ?? d.error ?? "generation failed");
       setSummary(d.summary); setHook(d.hook); setPostFb(d.post_fb);
       setPostIg(d.post_ig); setHashtags(d.hashtags); setResearchNotes(d.research_notes ?? "");
+      setPlan((d.plan as MarketingPlan) ?? null);
+      setBundleSugs((d.bundleSuggestions as { id: string; title: string }[]) ?? []);
       setUsedEngine(d.engine ?? null); setNotice(d.notice ?? null); setVariant(v);
       setSavedId(null); setAssetUrls([]); setPreviews({}); setPublishResult(null);
     } catch (e) {
@@ -208,6 +232,7 @@ export default function MarketingPage() {
       await supabase.from("marketing_posts").update({
         book_title: title, buy_url: buyUrl || null, summary, hook,
         post_fb: postFb, post_ig: postIg, hashtags, research_notes: researchNotes,
+        plan: plan ?? null,
       }).eq("id", savedId);
       return savedId;
     }
@@ -216,7 +241,7 @@ export default function MarketingPage() {
     const { data, error } = await supabase.from("marketing_posts").insert({
       book_ref: flipbookId, book_title: title, buy_url: buyUrl || null,
       summary, hook, post_fb: postFb, post_ig: postIg, hashtags,
-      research_notes: researchNotes, created_by: u.user?.id,
+      research_notes: researchNotes, plan: plan ?? null, created_by: u.user?.id,
     }).select("id").single();
     setSaving(false);
     if (error || !data) { setGenError(error?.message ?? "save failed"); return null; }
@@ -415,16 +440,38 @@ export default function MarketingPage() {
                 </div>
                 {booksLoading ? <Spinner /> : (
                   <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3">
-                    {filteredBooks.map((b) => (
-                      <button key={b.id} onClick={() => pickBook(b)}
-                        className={cn("flex items-center gap-2 rounded-lg border p-2 text-start text-xs", flipbookId === b.id ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300")}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`${SUPA}/storage/v1/object/public/flipbooks/${b.id}/cover.webp`} alt="" className="h-12 w-9 rounded object-cover bg-slate-100"
-                          onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
-                        <span className="line-clamp-2 font-medium">{b.title}</span>
-                      </button>
-                    ))}
+                    {filteredBooks.map((b) => {
+                      const sel = selBooks.some((x) => x.id === b.id);
+                      return (
+                        <button key={b.id} onClick={() => pickBook(b)}
+                          className={cn("relative flex items-center gap-2 rounded-lg border p-2 text-start text-xs", sel ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300")}>
+                          {sel && <span className="absolute top-1 end-1 rounded-full bg-brand-600 p-0.5 text-white"><Check size={10} /></span>}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`${SUPA}/storage/v1/object/public/flipbooks/${b.id}/cover.webp`} alt="" className="h-12 w-9 rounded object-cover bg-slate-100"
+                            onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
+                          <span className="line-clamp-2 font-medium">{b.title}</span>
+                        </button>
+                      );
+                    })}
                     {!filteredBooks.length && <div className="col-span-full text-sm text-slate-400">{t("mktNoBooks")}</div>}
+                  </div>
+                )}
+                {selBooks.length > 1 && (
+                  <div className="rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-xs text-brand-800">
+                    📚 {t("mktBundleMode")} ({selBooks.length})
+                  </div>
+                )}
+                {bundleSugs.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-semibold text-slate-500">💡 {t("mktBundleSuggest")}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {bundleSugs.filter((s) => !selBooks.some((x) => x.id === s.id)).map((s) => (
+                        <button key={s.id} onClick={() => addSuggested(s)}
+                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-700">
+                          <Plus size={11} />{s.title.slice(0, 30)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -533,6 +580,9 @@ export default function MarketingPage() {
               </div>
             )}
           </div>
+
+          {/* Marketing director's plan */}
+          {plan && <DirectorPlan plan={plan} />}
 
           {/* 3 — assets */}
           {hasCopy && (
@@ -780,6 +830,135 @@ export default function MarketingPage() {
             </table>
           </div>
           <p className="text-xs text-slate-400">{t("mktReportHint")}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The marketing-director deliverable: persona, go-to-market decision, full
+// per-platform media-buyer configurations, retargeting stack and A/B tests.
+function DirectorPlan({ plan }: { plan: MarketingPlan }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(0);
+  const mode = plan.decision?.mode ?? "both";
+  const modeStyle =
+    mode === "ad" ? "bg-red-50 border-red-200 text-red-700"
+    : mode === "organic" ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+    : "bg-amber-50 border-amber-200 text-amber-800";
+  const modeLabel = mode === "ad" ? t("mktDecisionAd") : mode === "organic" ? t("mktDecisionOrganic") : t("mktDecisionBoth");
+
+  const row = (label: string, value?: string) =>
+    value ? (
+      <div className="grid grid-cols-[110px_1fr] gap-2 text-xs">
+        <div className="font-semibold text-slate-500">{label}</div>
+        <div className="text-slate-700 whitespace-pre-wrap">{value}</div>
+      </div>
+    ) : null;
+
+  return (
+    <div className="card p-5 space-y-5">
+      <div className="flex items-center gap-2 font-bold text-brand-700">
+        <Target size={18} />
+        {t("mktPlanTitle")}
+      </div>
+
+      {/* Decision */}
+      <div className={cn("rounded-lg border px-4 py-3 text-sm", modeStyle)}>
+        <div className="mb-1 font-bold">{modeLabel}</div>
+        <div className="text-xs leading-relaxed">{plan.decision?.reason}</div>
+      </div>
+
+      {/* Persona */}
+      {plan.persona && (
+        <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+            <Users size={15} />
+            {t("mktPersonaTitle")}: {plan.persona.name}
+          </div>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {plan.persona.age && <span className="rounded-full bg-slate-100 px-2.5 py-0.5">{t("mktAge")}: {plan.persona.age}</span>}
+            {plan.persona.gender && <span className="rounded-full bg-slate-100 px-2.5 py-0.5">{plan.persona.gender}</span>}
+          </div>
+          <p className="text-xs leading-relaxed text-slate-600">{plan.persona.description}</p>
+          <div className="grid gap-3 md:grid-cols-2 text-xs">
+            {plan.persona.pains?.length > 0 && (
+              <div>
+                <div className="mb-1 font-semibold text-red-600">{t("mktPains")}</div>
+                <ul className="space-y-0.5 text-slate-600">{plan.persona.pains.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+              </div>
+            )}
+            {plan.persona.motivations?.length > 0 && (
+              <div>
+                <div className="mb-1 font-semibold text-emerald-600">{t("mktMotivations")}</div>
+                <ul className="space-y-0.5 text-slate-600">{plan.persona.motivations.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Platform configs */}
+      <div className="space-y-2">
+        {(plan.platforms ?? []).map((p: AdConfig, i: number) => (
+          <div key={i} className="rounded-lg border border-slate-200">
+            <button className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-semibold text-slate-700"
+              onClick={() => setOpen(open === i ? -1 : i)}>
+              <span className="flex items-center gap-2"><Megaphone size={14} className="text-brand-500" />{p.platform}</span>
+              <span className="text-slate-400">{open === i ? "−" : "+"}</span>
+            </button>
+            {open === i && (
+              <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+                {row(t("mktObjective"), p.objective)}
+                {row(t("mktAge"), p.age)}
+                {row(t("mktGender"), p.gender)}
+                {row(t("mktGeo"), p.geo)}
+                {p.interests?.length > 0 && (
+                  <div className="grid grid-cols-[110px_1fr] gap-2 text-xs">
+                    <div className="font-semibold text-slate-500">{t("mktInterests")}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {p.interests.map((x, j) => <span key={j} className="rounded-full bg-brand-50 px-2 py-0.5 text-brand-700" dir="auto">{x}</span>)}
+                    </div>
+                  </div>
+                )}
+                {row(t("mktPlacements"), p.placements)}
+                {row(t("mktBudget"), p.budget)}
+                {row(t("mktDuration"), p.duration)}
+                {row(t("mktCreative"), p.creative)}
+                {row(t("mktCta"), p.cta)}
+                {row(t("mktSchedule"), p.schedule)}
+                {p.tips?.length > 0 && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
+                    <div className="mb-1 flex items-center gap-1 font-semibold"><Lightbulb size={12} />{t("mktTips")}</div>
+                    <ul className="space-y-0.5">{p.tips.map((x, j) => <li key={j}>• {x}</li>)}</ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Retargeting + A/B */}
+      <div className="grid gap-3 md:grid-cols-2">
+        {plan.retargeting?.length > 0 && (
+          <div className="rounded-lg border border-slate-200 p-3 text-xs">
+            <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-700"><Repeat size={13} />{t("mktRetargetingTitle")}</div>
+            <ul className="space-y-1 text-slate-600">{plan.retargeting.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+          </div>
+        )}
+        {plan.abTests?.length > 0 && (
+          <div className="rounded-lg border border-slate-200 p-3 text-xs">
+            <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-700"><SplitSquareHorizontal size={13} />{t("mktAbTitle")}</div>
+            <ul className="space-y-1 text-slate-600">{plan.abTests.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+          </div>
+        )}
+      </div>
+
+      {/* Multi-book idea */}
+      {plan.multiBook && (
+        <div className="rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-xs text-brand-800">
+          <b>📚 {t("mktMultiBookTitle")}:</b> {plan.multiBook}
         </div>
       )}
     </div>
