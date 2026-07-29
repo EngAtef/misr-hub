@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
   const buyUrl = typeof body.buyUrl === "string" ? body.buyUrl.slice(0, 500) : "";
   const readUrl = typeof body.readUrl === "string" ? body.readUrl.slice(0, 500) : "";
   const research = body.research === true;
-  const lang = body.lang === "en" ? "en" : "ar";
+  const lang = body.lang === "en" ? "en" : "ar";                // post copy language
+  const planLang = body.planLang === "en" ? "en" as const : "ar" as const; // plan/instructions language (app UI)
   const packMode = body.pack === true;
 
   let text = typeof body.text === "string" ? body.text : "";
@@ -80,7 +81,11 @@ export async function POST(request: NextRequest) {
       .sort((a, b) => b.orders - a.orders).slice(0, 3).map((x) => x.h).sort((a, b) => a - b);
     if (hours.length) {
       // Post ~1h before the order peaks so content is in feeds when buyers act.
-      bestHours = `انشر حوالي ${hours.map((h) => `${((h + 23) % 24)}:00`).join(" و ")} — ذروة طلبات متجرك الحقيقية الساعات ${hours.map((h) => `${h}:00`).join("، ")}`;
+      const post = hours.map((h) => `${(h + 23) % 24}:00`);
+      const peak = hours.map((h) => `${h}:00`);
+      bestHours = planLang === "en"
+        ? `Post around ${post.join(" and ")} — your store's real order peaks are at ${peak.join(", ")}`
+        : `انشر حوالي ${post.join(" و ")} — ذروة طلبات متجرك الحقيقية الساعات ${peak.join("، ")}`;
     }
   } catch { /* schedule falls back to the generic guidance */ }
   try {
@@ -126,7 +131,8 @@ export async function POST(request: NextRequest) {
       buyUrl: buyUrl || undefined,
       bundleTitles: bundleSuggestions.map((b) => b.title),
       bestHours,
-      occasion: occasionHint(new Date(), result.genre),
+      occasion: occasionHint(new Date(), result.genre, planLang),
+      lang: planLang,
     });
     return NextResponse.json({
       ...result,
@@ -155,7 +161,7 @@ ${multiNote}
 7. As media buyer, write the COMPLETE ad configuration per platform (Meta campaign + organic boost${titles.length > 1 ? " + carousel notes for the bundle" : ""}, and TikTok if this genre fits): campaign objective, exact age range, gender, geo (Egypt — prioritize these real top cities by actual store orders: ${topCities.join(", ") || "Cairo, Giza, Alexandria"}), Meta interest targeting names, placements, daily budget in EGP with kill/scale rules, test duration, creative guidance, CTA button, schedule, and 2-4 pro tips each.
 8. Recommend retargeting audiences (the store app can export: abandoned-cart Meta Custom Audience, and a lookalike seed of 3+ order customers) and 3-4 A/B tests.
 ${research ? "9. FIRST use web search (2-3 searches max) for current Meta/TikTok book-marketing best practices and any trends about this book/author/genre, then apply. Put learnings in research_notes (2-4 bullets)." : ""}
-Never invent facts about the book not supported by its text. Do not mention you are an AI. All plan text in ${langName}.
+Never invent facts about the book not supported by its text. Do not mention you are an AI. Post copy (summary/hook/post_fb/post_ig/post_wa/hashtags) in ${langName}; ALL plan text (persona, decision, platform configs, tips, retargeting, A/B tests) in ${planLang === "en" ? "English" : "Arabic"} — these can differ.
 Return ONLY a JSON object, no markdown fences, with exactly these keys:
 {"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "post_wa": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "...",
  "plan": {"persona": {"name": "...", "age": "...", "gender": "...", "description": "...", "pains": ["..."], "motivations": ["..."]},
@@ -206,10 +212,11 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
         buyUrl: buyUrl || undefined,
         bundleTitles: bundleSuggestions.map((b) => b.title),
         bestHours,
-        occasion: occasionHint(new Date(), detectGenreKey(text, title)),
+        occasion: occasionHint(new Date(), detectGenreKey(text, title), planLang),
+        lang: planLang,
       });
     } else if (!plan.occasion) {
-      plan.occasion = occasionHint(new Date(), detectGenreKey(text, title));
+      plan.occasion = occasionHint(new Date(), detectGenreKey(text, title), planLang);
     }
 
     return NextResponse.json({

@@ -13,8 +13,8 @@ import { PageHeader, Spinner, KpiCard, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDateTime, cn } from "@/lib/utils";
 import { parseEpub } from "@/lib/marketing/epub";
 import {
-  renderAsset, loadImage, ASSET_DIMS, ASSET_LABELS,
-  type AssetFmt, type AssetStyle,
+  renderAsset, loadImage, ASSET_DIMS, ASSET_LABELS, STYLE_NAMES, LAYOUT_NAMES,
+  type AssetFmt, type AssetStyle, type AssetLayout,
 } from "@/lib/marketing/asset-engine";
 
 const SUPA = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -85,11 +85,6 @@ interface ImpactData {
 type Tab = "create" | "advisor" | "posts" | "report";
 type SourceMode = "library" | "epub" | "manual";
 
-const STYLE_LABELS: Record<AssetStyle, { ar: string; en: string }> = {
-  navy: { ar: "كحلي (الهوية)", en: "Navy (brand)" },
-  paper: { ar: "ورقي فاتح", en: "Paper light" },
-  teal: { ar: "أخضر مائي", en: "Teal" },
-};
 
 export default function MarketingPage() {
   const { t, lang } = useLang();
@@ -112,6 +107,7 @@ export default function MarketingPage() {
   const epubRef = useRef<HTMLInputElement>(null);
 
   // ---------- AI ----------
+  const [postLang, setPostLang] = useState<"ar" | "en">("ar"); // post copy language, independent of the UI
   const [engine, setEngine] = useState<"builtin" | "claude">("builtin");
   const [variant, setVariant] = useState(0);
   const [usedEngine, setUsedEngine] = useState<string | null>(null);
@@ -142,6 +138,7 @@ export default function MarketingPage() {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [style, setStyle] = useState<AssetStyle>("navy");
+  const [layout, setLayout] = useState<AssetLayout>("classic");
   const [fmts, setFmts] = useState<AssetFmt[]>(["sq", "story", "link"]);
   const [previews, setPreviews] = useState<Partial<Record<AssetFmt, string>>>({});
   const [rendering, setRendering] = useState(false);
@@ -173,11 +170,14 @@ export default function MarketingPage() {
   useEffect(() => {
     if (tab !== "advisor" || advisor || advisorLoading) return;
     setAdvisorLoading(true);
-    fetch("/api/marketing/advisor")
+    fetch(`/api/marketing/advisor?lang=${lang}`)
       .then((r) => r.json())
       .then((d) => setAdvisor(d as AdvisorData))
       .finally(() => setAdvisorLoading(false));
-  }, [tab, advisor, advisorLoading]);
+  }, [tab, advisor, advisorLoading, lang]);
+
+  // Occasions text is localized server-side — refetch on UI language switch.
+  useEffect(() => { setAdvisor(null); }, [lang]);
 
   // The free-first-chapter reader link (library books only), UTM-tagged so
   // GA4 shows the funnel.
@@ -283,7 +283,7 @@ export default function MarketingPage() {
           titles: mode === "library" && selBooks.length ? selBooks.map((b) => b.title) : [title],
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
           title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined,
-          instructions, research, lang,
+          instructions, research, lang: postLang, planLang: lang,
           engine, variant: v,
         }),
       });
@@ -331,17 +331,17 @@ export default function MarketingPage() {
     try {
       let cover: HTMLImageElement | null = null;
       if (coverUrl) { try { cover = await loadImage(coverUrl); } catch { cover = null; } }
-      const cta = buyUrl ? (lang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (lang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
+      const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
       const next: Partial<Record<AssetFmt, string>> = {};
       for (const fmt of fmts) {
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style });
+        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout });
         next[fmt] = URL.createObjectURL(blob);
       }
       setPreviews(next);
     } finally {
       setRendering(false);
     }
-  }, [coverUrl, buyUrl, lang, fmts, title, hook, summary, style]);
+  }, [coverUrl, buyUrl, postLang, fmts, title, hook, summary, style, layout]);
 
   async function uploadAssets() {
     const id = await saveDraft();
@@ -359,10 +359,10 @@ export default function MarketingPage() {
       const rows: { fmt: AssetFmt; path: string; url: string }[] = [];
       let cover: HTMLImageElement | null = null;
       if (coverUrl) { try { cover = await loadImage(coverUrl); } catch { cover = null; } }
-      const cta = buyUrl ? (lang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (lang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
+      const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
       for (const up of d.uploads as { name: string; signedUrl: string; path: string; publicUrl: string }[]) {
         const fmt = up.name.replace(".jpg", "") as AssetFmt;
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style });
+        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout });
         const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
         if (!put.ok) throw new Error(`upload failed (${up.name})`);
         rows.push({ fmt, path: up.path, url: up.publicUrl });
@@ -409,7 +409,7 @@ export default function MarketingPage() {
           pack: true,
           flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
-          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined, lang,
+          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined, lang: postLang,
         }),
       });
       const d = await res.json();
@@ -435,7 +435,8 @@ export default function MarketingPage() {
           flipbookIds: mode === "library" ? selBooks.map((b) => b.id) : undefined,
           titles: mode === "library" && selBooks.length ? selBooks.map((b) => b.title) : [title],
           text: mode === "epub" ? epubText : mode === "manual" ? manualText : undefined,
-          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined, lang,
+          title, buyUrl: buyUrl || undefined, readUrl: readUrl || undefined,
+          lang: postLang, planLang: lang,
           engine: "builtin", variant: variant + 1,
         }),
       });
@@ -679,6 +680,15 @@ export default function MarketingPage() {
           {/* 2 — AI */}
           <div className="card p-5 space-y-4">
             <div className="flex items-center gap-2 font-bold text-brand-700"><Sparkles size={18} />2. {t("mktAiTitle")}</div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-semibold text-slate-500">{t("mktPostLang")}:</span>
+              {(["ar", "en"] as const).map((pl) => (
+                <button key={pl} onClick={() => setPostLang(pl)}
+                  className={cn("rounded-lg border px-3 py-1 text-xs font-semibold", postLang === pl ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500 hover:border-slate-300")}>
+                  {pl === "ar" ? "عربي" : "English"}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => setEngine("builtin")}
                 className={cn("rounded-lg border px-3 py-1.5 text-sm font-semibold", engine === "builtin" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:border-slate-300")}>
@@ -797,15 +807,27 @@ export default function MarketingPage() {
           {hasCopy && (
             <div className="card p-5 space-y-4">
               <div className="flex items-center gap-2 font-bold text-brand-700"><ImageIcon size={18} />3. {t("mktAssetsTitle")}</div>
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex gap-2">
-                  {(Object.keys(STYLE_LABELS) as AssetStyle[]).map((s) => (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-500">{t("mktStyle")}</div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(STYLE_NAMES) as AssetStyle[]).map((s) => (
                     <button key={s} onClick={() => setStyle(s)}
                       className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold", style === s ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500")}>
-                      {STYLE_LABELS[s][lang]}
+                      {STYLE_NAMES[s][lang]}
                     </button>
                   ))}
                 </div>
+                <div className="text-xs font-semibold text-slate-500">{t("mktLayout")}</div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(LAYOUT_NAMES) as AssetLayout[]).map((l) => (
+                    <button key={l} onClick={() => setLayout(l)}
+                      className={cn("rounded-lg border px-3 py-1.5 text-xs font-semibold", layout === l ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500")}>
+                      {LAYOUT_NAMES[l][lang]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
                 <div className="flex gap-3 text-xs text-slate-600">
                   {(Object.keys(ASSET_DIMS) as AssetFmt[]).map((f) => (
                     <label key={f} className="flex items-center gap-1.5">
