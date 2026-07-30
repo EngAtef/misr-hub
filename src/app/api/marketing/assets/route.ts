@@ -8,7 +8,7 @@ import { getApiUser } from "@/lib/supabase/api-auth";
 // under marketing/{postId}/. Meta fetches the images from the public URL when
 // publishing, so no separate hosting is needed.
 const ID_RE = /^[0-9a-f-]{36}$/;
-const FILE_RE = /^(sq|story|link)\.jpg$/;
+const FILE_RE = /^(sq|story|link|canva)\.jpg$/;
 
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);

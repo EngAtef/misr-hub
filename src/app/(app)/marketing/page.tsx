@@ -58,6 +58,9 @@ interface MarketingPost {
   post_wa: string | null;
   ab_group: string | null;
   read_url: string | null;
+  canva_status: "requested" | "ready" | "done" | "failed" | null;
+  canva_asset: string | null;
+  canva_error: string | null;
 }
 
 interface AdvisorPick {
@@ -144,6 +147,8 @@ export default function MarketingPage() {
   // replace the generated design for that format everywhere downstream.
   const [custom, setCustom] = useState<Partial<Record<AssetFmt, File>>>({});
   const customRef = useRef<HTMLInputElement>(null);
+  const [canvaBusy, setCanvaBusy] = useState(false);
+  const ingesting = useRef(false);
   const [fmts, setFmts] = useState<AssetFmt[]>(["sq", "story", "link"]);
   const [previews, setPreviews] = useState<Partial<Record<AssetFmt, string>>>({});
   const [rendering, setRendering] = useState(false);
@@ -171,6 +176,56 @@ export default function MarketingPage() {
   }, [supabase]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
+
+  // Auto-ingest finished Canva designs: the scheduled agent leaves the JPEG
+  // as a data URL on the row; the first signed-in visit uploads it to public
+  // storage as the post's square asset and clears the blob. Zero manual steps.
+  useEffect(() => {
+    const pending = posts.filter((p) => p.canva_status === "ready" && p.canva_asset);
+    if (!pending.length || ingesting.current) return;
+    ingesting.current = true;
+    (async () => {
+      for (const p of pending.slice(0, 3)) {
+        try {
+          const blob = await (await fetch(p.canva_asset!)).blob();
+          const sign = await fetch("/api/marketing/assets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ postId: p.id, files: ["canva.jpg"] }),
+          });
+          if (!sign.ok) throw new Error("sign failed");
+          const { uploads } = await sign.json();
+          const up = uploads[0] as { signedUrl: string; path: string; publicUrl: string };
+          const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
+          if (!put.ok) throw new Error("upload failed");
+          const rest = (p.assets ?? []).filter((a) => a.fmt !== "sq");
+          await supabase.from("marketing_posts").update({
+            assets: [{ fmt: "sq", path: up.path, url: up.publicUrl }, ...rest],
+            canva_status: "done",
+            canva_asset: null,
+            status: p.status === "draft" ? "ready" : p.status,
+          }).eq("id", p.id);
+        } catch {
+          // viewer session or transient error — retried on the next visit
+        }
+      }
+      ingesting.current = false;
+      loadPosts();
+    })();
+  }, [posts, supabase, loadPosts]);
+
+  // Queue the current draft for the automated Canva design agent.
+  async function requestCanva() {
+    setCanvaBusy(true);
+    try {
+      const id = await saveDraft();
+      if (!id) return;
+      await supabase.from("marketing_posts").update({ canva_status: "requested", canva_error: null }).eq("id", id);
+      await loadPosts();
+    } finally {
+      setCanvaBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (tab !== "advisor" || advisor || advisorLoading) return;
@@ -880,6 +935,29 @@ export default function MarketingPage() {
                   </div>
                 )}
                 <div className="border-t border-slate-100 pt-3">
+                  <div className="mb-1.5 text-xs font-semibold text-slate-500">✨ {t("mktCanvaTitle")}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button className="btn-secondary !py-1.5 text-xs" onClick={requestCanva} disabled={canvaBusy || !hasCopy}>
+                      {canvaBusy ? "..." : t("mktCanvaBtn")}
+                    </button>
+                    {(() => {
+                      const cur = posts.find((p) => p.id === savedId);
+                      if (!cur?.canva_status) return null;
+                      return (
+                        <span className={cn("rounded-full px-2.5 py-1 text-xs font-bold",
+                          cur.canva_status === "requested" ? "bg-amber-100 text-amber-700"
+                          : cur.canva_status === "failed" ? "bg-red-100 text-red-700"
+                          : "bg-emerald-100 text-emerald-700")}>
+                          {cur.canva_status === "requested" ? t("mktCanvaPending")
+                            : cur.canva_status === "failed" ? `${t("mktCanvaFailed")}${cur.canva_error ? `: ${cur.canva_error.slice(0, 60)}` : ""}`
+                            : t("mktCanvaDone")}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">{t("mktCanvaHint")}</p>
+                </div>
+                <div className="border-t border-slate-100 pt-3">
                   <div className="mb-1.5 text-xs font-semibold text-slate-500">🎨 {t("mktCustomUpload")}</div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button className="btn-secondary !py-1.5 text-xs" onClick={() => customRef.current?.click()}>
@@ -1101,6 +1179,15 @@ export default function MarketingPage() {
                         )}
                         {p.ab_group && (
                           <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">A/B</span>
+                        )}
+                        {p.canva_status && p.canva_status !== "done" && (
+                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold",
+                            p.canva_status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700")}>
+                            ✨ Canva {p.canva_status === "requested" ? "…" : p.canva_status === "ready" ? "⤓" : "✗"}
+                          </span>
+                        )}
+                        {p.canva_status === "done" && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✨ Canva</span>
                         )}
                         {abWinners.has(p.id) && (
                           <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">🏆 {t("mktWinner")}</span>
