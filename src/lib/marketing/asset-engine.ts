@@ -4,7 +4,7 @@
 
 export type AssetFmt = "sq" | "story" | "link";
 export type AssetStyle = "navy" | "paper" | "teal" | "night" | "sand" | "rose" | "fresh";
-export type AssetLayout = "classic" | "coverfull" | "quote" | "split" | "minimal";
+export type AssetLayout = "classic" | "coverfull" | "quote" | "split" | "minimal" | "promo";
 
 export const ASSET_DIMS: Record<AssetFmt, [number, number]> = {
   sq: [1080, 1080],      // FB/IG feed square
@@ -40,6 +40,7 @@ export const STYLE_NAMES: Record<AssetStyle, { ar: string; en: string }> = {
 };
 
 export const LAYOUT_NAMES: Record<AssetLayout, { ar: string; en: string }> = {
+  promo:     { ar: "بانر ترويجي (زي إعلانات المتجر)", en: "Promo banner (store-ad style)" },
   classic:   { ar: "كلاسيكي", en: "Classic" },
   coverfull: { ar: "غلاف كامل", en: "Full cover" },
   quote:     { ar: "بطاقة اقتباس", en: "Quote card" },
@@ -54,6 +55,7 @@ export interface AssetInput {
   cta: string;       // e.g. «اطلبه الآن من متجر نهضة مصر»
   style: AssetStyle;
   layout?: AssetLayout; // defaults to "classic"
+  badge?: string;       // promo layout: discount ribbon text, e.g. "بخصم 30%"
 }
 
 export async function loadImage(src: string): Promise<HTMLImageElement> {
@@ -333,6 +335,146 @@ function layoutMinimal(ctx: CanvasRenderingContext2D, fmt: AssetFmt, W: number, 
   ctx.fillText(`متجر نهضة مصر  •  ${input.cta}`, W / 2, H * 0.93, W * 0.84);
 }
 
+// Store-ad promo banner, modeled on Nahdet Misr's real campaign creatives:
+// blurred atmospheric backdrop, top "order online" pill + discount ribbon,
+// two-tone centered hook, book cover with a floor reflection, dark footer
+// bar with the store identity + website, and a small terms line.
+function layoutPromo(ctx: CanvasRenderingContext2D, fmt: AssetFmt, W: number, H: number, p: Palette, input: AssetInput) {
+  // 1 — atmospheric backdrop: blurred cover + palette wash + vignette
+  if (input.cover) {
+    ctx.save();
+    ctx.filter = "blur(46px)";
+    drawCoverFill(ctx, input.cover, -60, -60, W + 120, H + 120);
+    ctx.restore();
+    ctx.fillStyle = "rgba(10,12,30,0.45)";
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    paintBackground(ctx, W, H, p);
+  }
+  const vg = ctx.createRadialGradient(W / 2, H * 0.45, W * 0.2, W / 2, H * 0.45, W * 0.85);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  const link = fmt === "link";
+  const u = link ? H : W; // scale unit
+
+  // 2 — top-start "order online" pill
+  const pillH = u * 0.075;
+  const pillW = u * 0.34;
+  const pillX = W * 0.045;
+  const pillY = H * (fmt === "story" ? 0.035 : 0.05);
+  ctx.save();
+  roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+  ctx.fillStyle = p.accent;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.font = `900 ${Math.round(pillH * 0.46)}px Cairo, sans-serif`;
+  ctx.fillText("🛒 اطلب اونلاين", pillX + pillW / 2, pillY + pillH * 0.66);
+  ctx.restore();
+
+  // 3 — top-end discount ribbon (flag with a notched tail)
+  if (input.badge) {
+    const rw = u * 0.2;
+    const rh = u * (fmt === "story" ? 0.16 : 0.19);
+    const rx = W - rw - W * 0.045;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(rx, 0);
+    ctx.lineTo(rx + rw, 0);
+    ctx.lineTo(rx + rw, rh);
+    ctx.lineTo(rx + rw / 2, rh - rh * 0.18);
+    ctx.lineTo(rx, rh);
+    ctx.closePath();
+    ctx.fillStyle = p.accent;
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    // split "بخصم 30%" style text onto two lines when it has a space
+    const parts = input.badge.trim().split(/\s+/);
+    ctx.font = `900 ${Math.round(rh * 0.2)}px Cairo, sans-serif`;
+    if (parts.length > 1) {
+      ctx.fillText(parts[0], rx + rw / 2, rh * 0.32, rw * 0.9);
+      ctx.font = `900 ${Math.round(rh * 0.3)}px Cairo, sans-serif`;
+      ctx.fillText(parts.slice(1).join(" "), rx + rw / 2, rh * 0.62, rw * 0.9);
+    } else {
+      ctx.fillText(input.badge, rx + rw / 2, rh * 0.45, rw * 0.9);
+    }
+  }
+
+  // 4 — two-tone hook: first line white, second line accent
+  const words = input.hook.split(/\s+/).filter(Boolean);
+  const mid = Math.ceil(words.length / 2);
+  const line1 = words.slice(0, mid).join(" ");
+  const line2 = words.slice(mid).join(" ");
+  const hookY = H * (fmt === "story" ? 0.22 : link ? 0.2 : 0.24);
+  ctx.textAlign = "center";
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `700 ${Math.round(u * 0.052)}px Cairo, sans-serif`;
+  ctx.fillText(line1, W / 2, hookY, W * 0.88);
+  ctx.fillStyle = p.accent === "#2f7df6" || p.accent === "#c9426f" ? p.accent : "#7fc7bb";
+  ctx.font = `900 ${Math.round(u * 0.066)}px Cairo, sans-serif`;
+  ctx.fillText(line2 || input.title, W / 2, hookY + u * 0.075, W * 0.88);
+  ctx.restore();
+
+  // 5 — book cover with floor reflection
+  if (input.cover) {
+    const cw = link ? W * 0.24 : W * 0.5;
+    const chMax = link ? H * 0.5 : H * (fmt === "story" ? 0.4 : 0.42);
+    const ccy = H * (fmt === "story" ? 0.56 : link ? 0.62 : 0.58);
+    const box = drawCover(ctx, input.cover, W / 2, ccy, cw, chMax);
+    // reflection: mirrored, squashed, faded
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.translate(0, (box.y + box.h) * 2 + 6);
+    ctx.scale(1, -0.35);
+    ctx.drawImage(input.cover, box.x, box.y, box.w, box.h);
+    ctx.restore();
+    const fade = ctx.createLinearGradient(0, box.y + box.h, 0, box.y + box.h + box.h * 0.4);
+    fade.addColorStop(0, "rgba(0,0,0,0)");
+    fade.addColorStop(1, "rgba(0,0,0,0.5)");
+    ctx.fillStyle = fade;
+    ctx.fillRect(box.x - 20, box.y + box.h, box.w + 40, box.h * 0.42);
+  }
+
+  // 6 — footer identity bar
+  const fh = u * 0.09;
+  const fw = W * 0.66;
+  const fx = (W - fw) / 2;
+  const fy = H - fh - H * 0.03;
+  ctx.save();
+  roundRect(ctx, fx, fy, fw, fh, fh * 0.3);
+  ctx.fillStyle = "rgba(8,10,24,0.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `900 ${Math.round(fh * 0.34)}px Cairo, sans-serif`;
+  ctx.fillText("متجر نهضة مصر", W / 2, fy + fh * 0.42);
+  ctx.fillStyle = p.accent === "#2f7df6" ? p.accent : "#f4c95d";
+  ctx.font = `700 ${Math.round(fh * 0.26)}px Cairo, sans-serif`;
+  ctx.fillText("nahdetmisrbookstore.com", W / 2, fy + fh * 0.8);
+  ctx.restore();
+  // terms line
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.font = `400 ${Math.round(u * 0.02)}px Cairo, sans-serif`;
+  ctx.textAlign = "start";
+  ctx.fillText("تطبق الشروط والأحكام", W * 0.045, H - H * 0.018);
+  ctx.textAlign = "center";
+}
+
 export async function renderAsset(fmt: AssetFmt, input: AssetInput): Promise<Blob> {
   await ensureFonts();
   const [W, H] = ASSET_DIMS[fmt];
@@ -345,7 +487,8 @@ export async function renderAsset(fmt: AssetFmt, input: AssetInput): Promise<Blo
   ctx.direction = "rtl";
 
   const layout = input.layout ?? "classic";
-  if (layout === "coverfull") layoutCoverFull(ctx, fmt, W, H, p, input);
+  if (layout === "promo") layoutPromo(ctx, fmt, W, H, p, input);
+  else if (layout === "coverfull") layoutCoverFull(ctx, fmt, W, H, p, input);
   else if (layout === "quote") layoutQuote(ctx, fmt, W, H, p, input);
   else if (layout === "split") layoutSplit(ctx, fmt, W, H, p, input);
   else if (layout === "minimal") layoutMinimal(ctx, fmt, W, H, p, input);

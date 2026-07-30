@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -139,6 +139,7 @@ export default function MarketingPage() {
   const [saving, setSaving] = useState(false);
   const [style, setStyle] = useState<AssetStyle>("navy");
   const [layout, setLayout] = useState<AssetLayout>("classic");
+  const [badge, setBadge] = useState("");
   const [fmts, setFmts] = useState<AssetFmt[]>(["sq", "story", "link"]);
   const [previews, setPreviews] = useState<Partial<Record<AssetFmt, string>>>({});
   const [rendering, setRendering] = useState(false);
@@ -176,7 +177,7 @@ export default function MarketingPage() {
       .finally(() => setAdvisorLoading(false));
   }, [tab, advisor, advisorLoading, lang]);
 
-  // Occasions text is localized server-side — refetch on UI language switch.
+  // Occasions text is localized server-side â€” refetch on UI language switch.
   useEffect(() => { setAdvisor(null); }, [lang]);
 
   // The free-first-chapter reader link (library books only), UTM-tagged so
@@ -230,7 +231,7 @@ export default function MarketingPage() {
     return winners;
   }, [posts]);
 
-  // Click toggles the book in/out of the selection — one book is a normal
+  // Click toggles the book in/out of the selection â€” one book is a normal
   // post, several books become a bundle/reading-list post (carousel ad).
   const applySelection = useCallback((next: HostedBook[]) => {
     setSelBooks(next);
@@ -331,17 +332,17 @@ export default function MarketingPage() {
     try {
       let cover: HTMLImageElement | null = null;
       if (coverUrl) { try { cover = await loadImage(coverUrl); } catch { cover = null; } }
-      const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
+      const cta = buyUrl ? (postLang === "en" ? "Order now â€” link in comments" : "Ø§Ø·Ù„Ø¨Ù‡ Ø§Ù„Ø¢Ù† â€” Ø§Ù„Ø±Ø§Ø¨Ø· ÙÙŠ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚Ø§Øª") : (postLang === "en" ? "Order now from our store" : "Ø§Ø·Ù„Ø¨Ù‡ Ø§Ù„Ø¢Ù† Ù…Ù† Ø§Ù„Ù…ØªØ¬Ø±");
       const next: Partial<Record<AssetFmt, string>> = {};
       for (const fmt of fmts) {
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout });
+        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
         next[fmt] = URL.createObjectURL(blob);
       }
       setPreviews(next);
     } finally {
       setRendering(false);
     }
-  }, [coverUrl, buyUrl, postLang, fmts, title, hook, summary, style, layout]);
+  }, [coverUrl, buyUrl, postLang, fmts, title, hook, summary, style, layout, badge]);
 
   async function uploadAssets() {
     const id = await saveDraft();
@@ -359,10 +360,10 @@ export default function MarketingPage() {
       const rows: { fmt: AssetFmt; path: string; url: string }[] = [];
       let cover: HTMLImageElement | null = null;
       if (coverUrl) { try { cover = await loadImage(coverUrl); } catch { cover = null; } }
-      const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
+      const cta = buyUrl ? (postLang === "en" ? "Order now â€” link in comments" : "Ø§Ø·Ù„Ø¨Ù‡ Ø§Ù„Ø¢Ù† â€” Ø§Ù„Ø±Ø§Ø¨Ø· ÙÙŠ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚Ø§Øª") : (postLang === "en" ? "Order now from our store" : "Ø§Ø·Ù„Ø¨Ù‡ Ø§Ù„Ø¢Ù† Ù…Ù† Ø§Ù„Ù…ØªØ¬Ø±");
       for (const up of d.uploads as { name: string; signedUrl: string; path: string; publicUrl: string }[]) {
         const fmt = up.name.replace(".jpg", "") as AssetFmt;
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout });
+        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
         const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
         if (!put.ok) throw new Error(`upload failed (${up.name})`);
         rows.push({ fmt, path: up.path, url: up.publicUrl });
@@ -421,7 +422,7 @@ export default function MarketingPage() {
 
   // A/B publish: A = the current copy, B = the next template variant. Both
   // share an ab_group and B reuses A's uploaded assets, so the only variable
-  // is the wording — a clean test.
+  // is the wording â€” a clean test.
   async function abPublish() {
     const id = await saveDraft();
     if (!id) return;
@@ -583,8 +584,8 @@ export default function MarketingPage() {
 
       {/* ============ CREATE ============ */}
       {tab === "create" && (
-        <div className="space-y-6 max-w-4xl">
-          {/* 1 — source */}
+        <div className="space-y-6 max-w-6xl">
+          {/* 1 â€” source */}
           <div className="card p-5 space-y-4">
             <div className="flex items-center gap-2 font-bold text-brand-700"><BookOpen size={18} />1. {t("mktSourceTitle")}</div>
             <div className="flex flex-wrap gap-2">
@@ -622,18 +623,18 @@ export default function MarketingPage() {
                 )}
                 {selBooks.length > 1 && (
                   <div className="rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-xs text-brand-800">
-                    📚 {t("mktBundleMode")} ({selBooks.length})
+                    ðŸ“š {t("mktBundleMode")} ({selBooks.length})
                   </div>
                 )}
                 {selBooks.length > 0 && (
                   <label className="flex items-center gap-2 text-sm text-slate-600">
                     <input type="checkbox" checked={freeChapter} onChange={(e) => setFreeChapter(e.target.checked)} />
-                    📖 {t("mktFreeChapter")}
+                    ðŸ“– {t("mktFreeChapter")}
                   </label>
                 )}
                 {bundleSugs.length > 0 && (
                   <div className="space-y-1.5">
-                    <div className="text-xs font-semibold text-slate-500">💡 {t("mktBundleSuggest")}</div>
+                    <div className="text-xs font-semibold text-slate-500">ðŸ’¡ {t("mktBundleSuggest")}</div>
                     <div className="flex flex-wrap gap-1.5">
                       {bundleSugs.filter((s) => !selBooks.some((x) => x.id === s.id)).map((s) => (
                         <button key={s.id} onClick={() => addSuggested(s)}
@@ -652,7 +653,7 @@ export default function MarketingPage() {
                 className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center hover:border-brand-400">
                 <UploadCloud className="h-9 w-9 text-brand-500" />
                 <div className="text-sm font-semibold text-slate-600">{parsing ? t("mktParsing") : t("mktDropEpub")}</div>
-                {epubText && <div className="text-xs text-emerald-600">{t("mktEpubLoaded")} — {formatNumber(epubText.length)} {t("mktChars")}</div>}
+                {epubText && <div className="text-xs text-emerald-600">{t("mktEpubLoaded")} â€” {formatNumber(epubText.length)} {t("mktChars")}</div>}
                 <input ref={epubRef} type="file" accept=".epub" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleEpub(f); }} />
               </div>
             )}
@@ -677,7 +678,7 @@ export default function MarketingPage() {
             )}
           </div>
 
-          {/* 2 — AI */}
+          {/* 2 â€” AI */}
           <div className="card p-5 space-y-4">
             <div className="flex items-center gap-2 font-bold text-brand-700"><Sparkles size={18} />2. {t("mktAiTitle")}</div>
             <div className="flex items-center gap-2 text-sm">
@@ -685,7 +686,7 @@ export default function MarketingPage() {
               {(["ar", "en"] as const).map((pl) => (
                 <button key={pl} onClick={() => setPostLang(pl)}
                   className={cn("rounded-lg border px-3 py-1 text-xs font-semibold", postLang === pl ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500 hover:border-slate-300")}>
-                  {pl === "ar" ? "عربي" : "English"}
+                  {pl === "ar" ? "Ø¹Ø±Ø¨ÙŠ" : "English"}
                 </button>
               ))}
             </div>
@@ -772,16 +773,16 @@ export default function MarketingPage() {
                     {savedId ? t("mktSaved") : saving ? "..." : t("mktSaveDraft")}
                   </button>
                   <button className="btn-secondary" onClick={loadPack} disabled={packLoading}>
-                    📅 {packLoading ? "..." : t("mktPack")}
+                    ðŸ“… {packLoading ? "..." : t("mktPack")}
                   </button>
                 </div>
                 {pack && (
                   <div className="space-y-2 rounded-lg border border-slate-200 p-3">
-                    <div className="text-sm font-bold text-slate-700">📅 {t("mktPackTitle")}</div>
+                    <div className="text-sm font-bold text-slate-700">ðŸ“… {t("mktPackTitle")}</div>
                     {pack.map((d) => (
                       <details key={d.day} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
                         <summary className="cursor-pointer text-xs font-semibold text-slate-600">
-                          {t("mktDay")} {d.day} — {d.theme}
+                          {t("mktDay")} {d.day} â€” {d.theme}
                         </summary>
                         <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-slate-600">{d.post_fb}</pre>
                         <div className="mt-2 flex gap-2">
@@ -803,7 +804,7 @@ export default function MarketingPage() {
           {/* Marketing director's plan */}
           {plan && <DirectorPlan plan={plan} />}
 
-          {/* 3 — assets */}
+          {/* 3 â€” assets */}
           {hasCopy && (
             <div className="card p-5 space-y-4">
               <div className="flex items-center gap-2 font-bold text-brand-700"><ImageIcon size={18} />3. {t("mktAssetsTitle")}</div>
@@ -826,6 +827,12 @@ export default function MarketingPage() {
                     </button>
                   ))}
                 </div>
+                {layout === "promo" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-500">{t("mktBadge")}</label>
+                    <input className="input !py-1.5 w-44" placeholder="بخصم 30%" value={badge} onChange={(e) => setBadge(e.target.value)} />
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex gap-3 text-xs text-slate-600">
@@ -861,7 +868,7 @@ export default function MarketingPage() {
             </div>
           )}
 
-          {/* 4 — publish */}
+          {/* 4 â€” publish */}
           {hasCopy && (
             <div className="card p-5 space-y-4">
               <div className="flex items-center gap-2 font-bold text-brand-700"><Send size={18} />4. {t("mktPublishTitle")}</div>
@@ -893,7 +900,7 @@ export default function MarketingPage() {
                 <div className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-sm border",
                   publishResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-700")}>
                   {publishResult.ok ? <CheckCircle2 size={16} className="mt-0.5" /> : <XCircle size={16} className="mt-0.5" />}
-                  <span>{publishResult.ok ? t("mktPublishedOk") : ""} {publishResult.errors.join(" — ")}</span>
+                  <span>{publishResult.ok ? t("mktPublishedOk") : ""} {publishResult.errors.join(" â€” ")}</span>
                 </div>
               )}
             </div>
@@ -908,7 +915,7 @@ export default function MarketingPage() {
             {/* Occasions */}
             {advisor.occasions.length > 0 && (
               <div className="space-y-2">
-                <h3 className="font-bold text-slate-700">🗓️ {t("mktOccasions")}</h3>
+                <h3 className="font-bold text-slate-700">ðŸ—“ï¸ {t("mktOccasions")}</h3>
                 <div className="grid gap-3 md:grid-cols-2">
                   {advisor.occasions.map((o) => (
                     <div key={o.key} className={cn("rounded-xl border p-4",
@@ -917,10 +924,10 @@ export default function MarketingPage() {
                         <span className="font-bold text-sm">{o.name}</span>
                         <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold",
                           o.inPrepWindow ? "bg-amber-200 text-amber-800" : "bg-slate-100 text-slate-500")}>
-                          {o.daysLeft <= 0 ? t("mktNow") : `${o.daysLeft} ${t("mktDaysLeft")}`}{o.approximate ? " ≈" : ""}
+                          {o.daysLeft <= 0 ? t("mktNow") : `${o.daysLeft} ${t("mktDaysLeft")}`}{o.approximate ? " â‰ˆ" : ""}
                         </span>
                       </div>
-                      {o.inPrepWindow && <div className="mt-1 text-xs font-bold text-amber-700">⏰ {t("mktStartNow")}</div>}
+                      {o.inPrepWindow && <div className="mt-1 text-xs font-bold text-amber-700">â° {t("mktStartNow")}</div>}
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{o.advice}</p>
                     </div>
                   ))}
@@ -931,12 +938,12 @@ export default function MarketingPage() {
             {/* Best posting hours */}
             {advisor.hours.length > 0 && (
               <div className="card p-5">
-                <h3 className="mb-3 font-bold text-slate-700">⏰ {t("mktBestHours")}</h3>
+                <h3 className="mb-3 font-bold text-slate-700">â° {t("mktBestHours")}</h3>
                 <div className="flex items-end gap-1" style={{ height: 90 }}>
                   {advisor.hours.map((x) => {
                     const max = Math.max(...advisor.hours.map((y) => y.orders), 1);
                     return (
-                      <div key={x.h} className="flex flex-1 flex-col items-center gap-1" title={`${x.h}:00 — ${x.orders}`}>
+                      <div key={x.h} className="flex flex-1 flex-col items-center gap-1" title={`${x.h}:00 â€” ${x.orders}`}>
                         <div className="w-full rounded-t bg-brand-400" style={{ height: `${Math.max((x.orders / max) * 70, 2)}px` }} />
                         <span className="text-[9px] text-slate-400">{x.h}</span>
                       </div>
@@ -949,7 +956,7 @@ export default function MarketingPage() {
 
             {/* What to promote next */}
             <div className="card overflow-x-auto">
-              <div className="p-4 pb-0 font-bold text-slate-700">🎯 {t("mktPromoteNext")}</div>
+              <div className="p-4 pb-0 font-bold text-slate-700">ðŸŽ¯ {t("mktPromoteNext")}</div>
               <table className="table-base">
                 <thead>
                   <tr>
@@ -969,7 +976,7 @@ export default function MarketingPage() {
                       </td>
                       <td className="font-semibold">{formatNumber(p.units_30)}</td>
                       <td className={cn("font-bold", (p.trend_pct ?? 0) >= 30 ? "text-emerald-600" : (p.trend_pct ?? 0) < 0 ? "text-red-500" : "text-slate-500")}>
-                        {p.trend_pct != null ? `${p.trend_pct > 0 ? "+" : ""}${p.trend_pct}%` : "—"}
+                        {p.trend_pct != null ? `${p.trend_pct > 0 ? "+" : ""}${p.trend_pct}%` : "â€”"}
                       </td>
                       <td>{formatNumber(p.ecom_stock)}</td>
                       <td>
@@ -1017,7 +1024,7 @@ export default function MarketingPage() {
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold">{p.book_title || "—"}</span>
+                        <span className="font-bold">{p.book_title || "â€”"}</span>
                         {statusChip(p.status)}
                         {p.channels?.includes("fb") && <span className="rounded bg-blue-50 px-1.5 text-[10px] font-bold text-blue-700">FB</span>}
                         {p.channels?.includes("ig") && <span className="rounded bg-pink-50 px-1.5 text-[10px] font-bold text-pink-700">IG</span>}
@@ -1031,7 +1038,7 @@ export default function MarketingPage() {
                           <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">A/B</span>
                         )}
                         {abWinners.has(p.id) && (
-                          <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">🏆 {t("mktWinner")}</span>
+                          <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">ðŸ† {t("mktWinner")}</span>
                         )}
                       </div>
                       <div className="mt-0.5 text-xs text-slate-400">{formatDateTime(p.created_at)}</div>
@@ -1042,19 +1049,19 @@ export default function MarketingPage() {
                       {fb && (
                         <div>
                           <div className="font-bold text-slate-400">Facebook</div>
-                          <div>{t("mktReach")}: {formatNumber(fb.reach ?? fb.impressions ?? 0)} · ❤ {formatNumber(fb.reactions ?? 0)} · 💬 {formatNumber(fb.comments ?? 0)} · ↗ {formatNumber(fb.shares ?? 0)}</div>
+                          <div>{t("mktReach")}: {formatNumber(fb.reach ?? fb.impressions ?? 0)} Â· â¤ {formatNumber(fb.reactions ?? 0)} Â· ðŸ’¬ {formatNumber(fb.comments ?? 0)} Â· â†— {formatNumber(fb.shares ?? 0)}</div>
                         </div>
                       )}
                       {ig && (
                         <div>
                           <div className="font-bold text-slate-400">Instagram</div>
-                          <div>{t("mktReach")}: {formatNumber(ig.reach ?? 0)} · ❤ {formatNumber(ig.likes ?? 0)} · 💬 {formatNumber(ig.comments ?? 0)}</div>
+                          <div>{t("mktReach")}: {formatNumber(ig.reach ?? 0)} Â· â¤ {formatNumber(ig.likes ?? 0)} Â· ðŸ’¬ {formatNumber(ig.comments ?? 0)}</div>
                         </div>
                       )}
                       {p.ad?.insights && (
                         <div>
                           <div className="font-bold text-slate-400">{t("mktAd")}</div>
-                          <div>{t("mktSpend")}: {formatMoney(p.ad.insights.spend ?? 0, lang)} · {t("mktResults")}: {formatNumber(p.ad.insights.results ?? 0)}</div>
+                          <div>{t("mktSpend")}: {formatMoney(p.ad.insights.spend ?? 0, lang)} Â· {t("mktResults")}: {formatNumber(p.ad.insights.results ?? 0)}</div>
                         </div>
                       )}
                       {p.status === "published" && (
@@ -1068,11 +1075,11 @@ export default function MarketingPage() {
                               <div>
                                 <div className="font-bold text-slate-400">{t("mktImpact")}</div>
                                 <div>
-                                  {t("mktImpactBefore")}: {formatNumber(im.before_units)} · {t("mktImpactAfter")}: {formatNumber(im.after_units)}
+                                  {t("mktImpactBefore")}: {formatNumber(im.before_units)} Â· {t("mktImpactAfter")}: {formatNumber(im.after_units)}
                                   <span className={cn("ms-1 font-bold", diff > 0 ? "text-emerald-600" : diff < 0 ? "text-red-500" : "text-slate-400")}>
                                     ({diff > 0 ? "+" : ""}{diff}%)
                                   </span>
-                                  · {formatMoney(im.after_revenue, lang)}
+                                  Â· {formatMoney(im.after_revenue, lang)}
                                 </div>
                               </div>
                             );
@@ -1080,7 +1087,7 @@ export default function MarketingPage() {
                         ) : (
                           <button className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-brand-400 hover:text-brand-700"
                             onClick={() => loadImpact(p.id)} disabled={impact[p.id] === "loading"}>
-                            📊 {impact[p.id] === "loading" ? "..." : impact[p.id] === "error" ? t("mktImpactError") : t("mktImpactBtn")}
+                            ðŸ“Š {impact[p.id] === "loading" ? "..." : impact[p.id] === "error" ? t("mktImpactError") : t("mktImpactBtn")}
                           </button>
                         )
                       )}
@@ -1165,9 +1172,9 @@ export default function MarketingPage() {
                   <th>{t("mktBookTitle")}</th>
                   <th>{t("status")}</th>
                   <th>FB {t("mktReach")}</th>
-                  <th>FB ❤/💬/↗</th>
+                  <th>FB â¤/ðŸ’¬/â†—</th>
                   <th>IG {t("mktReach")}</th>
-                  <th>IG ❤/💬</th>
+                  <th>IG â¤/ðŸ’¬</th>
                   <th>{t("mktSpend")}</th>
                   <th>{t("mktResults")}</th>
                   <th>{t("mktLastSync")}</th>
@@ -1185,9 +1192,9 @@ export default function MarketingPage() {
                       <td>{formatNumber(fb.reactions ?? 0)}/{formatNumber(fb.comments ?? 0)}/{formatNumber(fb.shares ?? 0)}</td>
                       <td>{formatNumber(ig.reach ?? 0)}</td>
                       <td>{formatNumber(ig.likes ?? 0)}/{formatNumber(ig.comments ?? 0)}</td>
-                      <td>{p.ad?.insights ? formatMoney(p.ad.insights.spend ?? 0, lang) : "—"}</td>
-                      <td>{p.ad?.insights ? formatNumber(p.ad.insights.results ?? 0) : "—"}</td>
-                      <td className="text-xs text-slate-400">{p.insights_at ? formatDateTime(p.insights_at) : "—"}</td>
+                      <td>{p.ad?.insights ? formatMoney(p.ad.insights.spend ?? 0, lang) : "â€”"}</td>
+                      <td>{p.ad?.insights ? formatNumber(p.ad.insights.results ?? 0) : "â€”"}</td>
+                      <td className="text-xs text-slate-400">{p.insights_at ? formatDateTime(p.insights_at) : "â€”"}</td>
                     </tr>
                   );
                 })}
@@ -1201,8 +1208,10 @@ export default function MarketingPage() {
   );
 }
 
+
 // The marketing-director deliverable: persona, go-to-market decision, full
-// per-platform media-buyer configurations, retargeting stack and A/B tests.
+// per-platform media-buyer configurations with manual setup walkthroughs,
+// retargeting stack, A/B tests, SEO checklist and keyword plan.
 function DirectorPlan({ plan }: { plan: MarketingPlan }) {
   const { t } = useLang();
   const [open, setOpen] = useState(0);
@@ -1215,81 +1224,99 @@ function DirectorPlan({ plan }: { plan: MarketingPlan }) {
 
   const row = (label: string, value?: string) =>
     value ? (
-      <div className="grid grid-cols-[110px_1fr] gap-2 text-xs">
-        <div className="font-semibold text-slate-500">{label}</div>
-        <div className="text-slate-700 whitespace-pre-wrap">{value}</div>
+      <div className="grid grid-cols-1 gap-1 md:grid-cols-[190px_1fr] md:gap-3">
+        <div className="text-base font-bold text-slate-500">{label}</div>
+        <div className="text-lg leading-relaxed text-slate-700 whitespace-pre-wrap">{value}</div>
+      </div>
+    ) : null;
+
+  const kwBucket = (label: string, list: string[] | undefined, tone: string) =>
+    list?.length ? (
+      <div className="rounded-lg border border-slate-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-base font-bold text-slate-700">{label}</span>
+          <button className="text-sm text-brand-600 hover:underline"
+            onClick={() => navigator.clipboard?.writeText(list.join("\n"))}>
+            {t("mktCopyList")}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {list.map((k, i) => (
+            <span key={i} className={cn("rounded-full px-3 py-1 text-base", tone)} dir="auto">{k}</span>
+          ))}
+        </div>
       </div>
     ) : null;
 
   return (
     <div className="card p-5 space-y-5">
-      <div className="flex items-center gap-2 font-bold text-brand-700">
-        <Target size={18} />
+      <div className="flex items-center gap-2 text-lg font-bold text-brand-700">
+        <Target size={20} />
         {t("mktPlanTitle")}
       </div>
 
       {/* Decision */}
-      <div className={cn("rounded-lg border px-4 py-3 text-sm", modeStyle)}>
-        <div className="mb-1 font-bold">{modeLabel}</div>
-        <div className="text-xs leading-relaxed">{plan.decision?.reason}</div>
+      <div className={cn("rounded-lg border px-4 py-3", modeStyle)}>
+        <div className="mb-1 text-lg font-bold">{modeLabel}</div>
+        <div className="text-base leading-relaxed">{plan.decision?.reason}</div>
       </div>
 
       {/* Occasion */}
       {plan.occasion && (
-        <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-xs leading-relaxed text-violet-800">
-          🗓️ <b>{t("mktOccasionNear")}:</b> {plan.occasion}
+        <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-base leading-relaxed text-violet-800">
+          ðŸ—“ï¸ <b>{t("mktOccasionNear")}:</b> {plan.occasion}
         </div>
       )}
 
       {/* Persona */}
       {plan.persona && (
-        <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-            <Users size={15} />
+        <div className="rounded-lg border border-slate-200 p-4 space-y-2.5">
+          <div className="flex items-center gap-2 text-lg font-bold text-slate-700">
+            <Users size={18} />
             {t("mktPersonaTitle")}: {plan.persona.name}
           </div>
-          <div className="flex flex-wrap gap-1.5 text-xs">
-            {plan.persona.age && <span className="rounded-full bg-slate-100 px-2.5 py-0.5">{t("mktAge")}: {plan.persona.age}</span>}
-            {plan.persona.gender && <span className="rounded-full bg-slate-100 px-2.5 py-0.5">{plan.persona.gender}</span>}
+          <div className="flex flex-wrap gap-1.5 text-base">
+            {plan.persona.age && <span className="rounded-full bg-slate-100 px-3 py-0.5">{t("mktAge")}: {plan.persona.age}</span>}
+            {plan.persona.gender && <span className="rounded-full bg-slate-100 px-3 py-0.5">{plan.persona.gender}</span>}
           </div>
-          <p className="text-xs leading-relaxed text-slate-600">{plan.persona.description}</p>
-          <div className="grid gap-3 md:grid-cols-2 text-xs">
+          <p className="text-base leading-relaxed text-slate-600">{plan.persona.description}</p>
+          <div className="grid gap-4 md:grid-cols-2 text-base">
             {plan.persona.pains?.length > 0 && (
               <div>
-                <div className="mb-1 font-semibold text-red-600">{t("mktPains")}</div>
-                <ul className="space-y-0.5 text-slate-600">{plan.persona.pains.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+                <div className="mb-1 font-bold text-red-600">{t("mktPains")}</div>
+                <ul className="space-y-1 text-slate-600">{plan.persona.pains.map((x, i) => <li key={i}>â€¢ {x}</li>)}</ul>
               </div>
             )}
             {plan.persona.motivations?.length > 0 && (
               <div>
-                <div className="mb-1 font-semibold text-emerald-600">{t("mktMotivations")}</div>
-                <ul className="space-y-0.5 text-slate-600">{plan.persona.motivations.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+                <div className="mb-1 font-bold text-emerald-600">{t("mktMotivations")}</div>
+                <ul className="space-y-1 text-slate-600">{plan.persona.motivations.map((x, i) => <li key={i}>â€¢ {x}</li>)}</ul>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Platform configs */}
+      {/* Platform configs â€” the manual setup guide */}
       <div className="space-y-2">
         {(plan.platforms ?? []).map((p: AdConfig, i: number) => (
           <div key={i} className="rounded-lg border border-slate-200">
-            <button className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-semibold text-slate-700"
+            <button className="flex w-full items-center justify-between px-4 py-3 text-lg font-bold text-slate-700"
               onClick={() => setOpen(open === i ? -1 : i)}>
-              <span className="flex items-center gap-2"><Megaphone size={14} className="text-brand-500" />{p.platform}</span>
-              <span className="text-slate-400">{open === i ? "−" : "+"}</span>
+              <span className="flex items-center gap-2"><Megaphone size={17} className="text-brand-500" />{p.platform}</span>
+              <span className="text-slate-400">{open === i ? "âˆ’" : "+"}</span>
             </button>
             {open === i && (
-              <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+              <div className="space-y-3 border-t border-slate-100 px-4 py-4">
                 {row(t("mktObjective"), p.objective)}
                 {row(t("mktAge"), p.age)}
                 {row(t("mktGender"), p.gender)}
                 {row(t("mktGeo"), p.geo)}
                 {p.interests?.length > 0 && (
-                  <div className="grid grid-cols-[110px_1fr] gap-2 text-xs">
-                    <div className="font-semibold text-slate-500">{t("mktInterests")}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {p.interests.map((x, j) => <span key={j} className="rounded-full bg-brand-50 px-2 py-0.5 text-brand-700" dir="auto">{x}</span>)}
+                  <div className="grid grid-cols-1 gap-1 md:grid-cols-[190px_1fr] md:gap-3">
+                    <div className="text-base font-bold text-slate-500">{t("mktInterests")}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.interests.map((x, j) => <span key={j} className="rounded-full bg-brand-50 px-3 py-1 text-base text-brand-700" dir="auto">{x}</span>)}
                     </div>
                   </div>
                 )}
@@ -1299,10 +1326,25 @@ function DirectorPlan({ plan }: { plan: MarketingPlan }) {
                 {row(t("mktCreative"), p.creative)}
                 {row(t("mktCta"), p.cta)}
                 {row(t("mktSchedule"), p.schedule)}
+                {p.steps && p.steps.length > 0 && (
+                  <div className="rounded-lg bg-brand-50 border border-brand-100 px-4 py-3">
+                    <div className="mb-2 flex items-center gap-1.5 text-base font-bold text-brand-800">
+                      ðŸ§­ {t("mktSetupGuide")}
+                    </div>
+                    <ol className="space-y-2 text-base leading-relaxed text-brand-900">
+                      {p.steps.map((s, j) => (
+                        <li key={j} className="flex gap-2.5">
+                          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{j + 1}</span>
+                          <span>{s.replace(/^\d+[.)]\s*/, "")}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
                 {p.tips?.length > 0 && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
-                    <div className="mb-1 flex items-center gap-1 font-semibold"><Lightbulb size={12} />{t("mktTips")}</div>
-                    <ul className="space-y-0.5">{p.tips.map((x, j) => <li key={j}>• {x}</li>)}</ul>
+                  <div className="rounded-lg bg-amber-50 border border-amber-100 px-4 py-3 text-base text-amber-800">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-bold"><Lightbulb size={15} />{t("mktTips")}</div>
+                    <ul className="space-y-1.5 leading-relaxed">{p.tips.map((x, j) => <li key={j}>â€¢ {x}</li>)}</ul>
                   </div>
                 )}
               </div>
@@ -1314,23 +1356,62 @@ function DirectorPlan({ plan }: { plan: MarketingPlan }) {
       {/* Retargeting + A/B */}
       <div className="grid gap-3 md:grid-cols-2">
         {plan.retargeting?.length > 0 && (
-          <div className="rounded-lg border border-slate-200 p-3 text-xs">
-            <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-700"><Repeat size={13} />{t("mktRetargetingTitle")}</div>
-            <ul className="space-y-1 text-slate-600">{plan.retargeting.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+          <div className="rounded-lg border border-slate-200 p-4 text-base">
+            <div className="mb-2 flex items-center gap-1.5 font-bold text-slate-700"><Repeat size={16} />{t("mktRetargetingTitle")}</div>
+            <ul className="space-y-1.5 leading-relaxed text-slate-600">{plan.retargeting.map((x, i) => <li key={i}>â€¢ {x}</li>)}</ul>
           </div>
         )}
         {plan.abTests?.length > 0 && (
-          <div className="rounded-lg border border-slate-200 p-3 text-xs">
-            <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-700"><SplitSquareHorizontal size={13} />{t("mktAbTitle")}</div>
-            <ul className="space-y-1 text-slate-600">{plan.abTests.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+          <div className="rounded-lg border border-slate-200 p-4 text-base">
+            <div className="mb-2 flex items-center gap-1.5 font-bold text-slate-700"><SplitSquareHorizontal size={16} />{t("mktAbTitle")}</div>
+            <ul className="space-y-1.5 leading-relaxed text-slate-600">{plan.abTests.map((x, i) => <li key={i}>â€¢ {x}</li>)}</ul>
           </div>
         )}
       </div>
 
+      {/* SEO checklist */}
+      {plan.seo && plan.seo.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
+          <div className="mb-2 flex items-center gap-1.5 text-lg font-bold text-emerald-800">
+            <Search size={17} />{t("mktSeoTitle")}
+          </div>
+          <ul className="space-y-2 text-base leading-relaxed text-slate-700">
+            {plan.seo.map((x, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-1 text-emerald-500">âœ”</span>
+                <span>{x}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Keyword plan */}
+      {plan.keywords && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-1.5 text-lg font-bold text-slate-700">
+            ðŸ”‘ {t("mktKeywordsTitle")}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {kwBucket(t("mktKwTrans"), plan.keywords.transactional, "bg-emerald-100 text-emerald-800")}
+            {kwBucket(t("mktKwInfo"), plan.keywords.informational, "bg-sky-100 text-sky-800")}
+            {kwBucket(t("mktKwNeg"), plan.keywords.negatives, "bg-red-100 text-red-700")}
+            {plan.keywords.research?.length ? (
+              <div className="rounded-lg border border-slate-200 p-4">
+                <div className="mb-2 text-base font-bold text-slate-700">{t("mktKwResearch")}</div>
+                <ol className="space-y-1.5 text-base leading-relaxed text-slate-600">
+                  {plan.keywords.research.map((x, i) => <li key={i}>{i + 1}. {x}</li>)}
+                </ol>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {/* Multi-book idea */}
       {plan.multiBook && (
-        <div className="rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-xs text-brand-800">
-          <b>📚 {t("mktMultiBookTitle")}:</b> {plan.multiBook}
+        <div className="rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-base leading-relaxed text-brand-800">
+          <b>ðŸ“š {t("mktMultiBookTitle")}:</b> {plan.multiBook}
         </div>
       )}
     </div>

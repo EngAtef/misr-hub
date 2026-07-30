@@ -24,6 +24,14 @@ export interface AdConfig {
   cta: string;
   schedule: string;
   tips: string[];
+  steps?: string[]; // numbered manual-setup walkthrough (Ads Manager / Google Ads UI)
+}
+
+export interface KeywordPlan {
+  transactional: string[]; // buy-intent keywords for Search campaigns
+  informational: string[]; // content/blog-intent keywords (SEO capture)
+  negatives: string[];     // account/campaign negative keywords
+  research: string[];      // how to expand the list yourself
 }
 
 export interface MarketingPlan {
@@ -41,7 +49,9 @@ export interface MarketingPlan {
   abTests: string[];
   multiBook: string;
   bundleTitles?: string[];
-  occasion?: string; // nearest fitting Egyptian retail occasion + advice
+  occasion?: string;   // nearest fitting Egyptian retail occasion + advice
+  seo?: string[];      // on-page/technical SEO checklist for the book's product page
+  keywords?: KeywordPlan;
 }
 
 interface GenreDirector {
@@ -329,20 +339,50 @@ export function buildMarketingPlan(opts: {
     schedule,
     tips: pickAll([
       {
+        ar: "تحديث Andromeda 2026: الكرياتيف بقى 56% من الأداء — التنويع الحقيقي (زوايا وأفكار مختلفة مش نفس الصورة بعنوان جديد) هو أهم رافعة. استهدف 8–12 كرياتيف مختلف فعلًا في الحملة",
+        en: "Andromeda 2026: creative now drives ~56% of performance — genuine diversity (different angles/concepts, not the same visual with a new headline) is the #1 lever. Aim for 8–12 truly distinct creatives per campaign",
+      },
+      {
+        ar: "فيديو 9:16 الرأسي هو الفورمات الأولى في 2026 — حتى الغلاف بحركة Zoom بطيئة + الاقتباس كنص أحسن من صورة ثابتة",
+        en: "9:16 vertical video is 2026's priority format — even a slow-zoom cover with the quote as text overlay beats a static image",
+      },
+      {
         ar: "استبعد المشترين آخر 30 يوم من حملات الـ Prospecting (Custom Audience من البيكسل أو من ملف عملائك)",
         en: "Exclude last-30-day purchasers from prospecting (Custom Audience from the pixel or your customer file)",
       },
       {
-        ar: "الجمهور الأعرض بيكسب في مصر غالبًا — جرّب Adset بدون اهتمامات (Broad) جنب Adset الاهتمامات وسيب التحسين يشتغل",
-        en: "Broad usually wins in Egypt — run a no-interests (Broad) ad set next to the interests one and let optimization work",
+        ar: "الجمهور الأعرض بيكسب — سيب Advantage+ Audience شغال، والاهتمامات كاقتراح (suggestion) مش قيد",
+        en: "Broad wins — keep Advantage+ Audience on, with interests as a suggestion, not a constraint",
       },
       {
-        ar: "3 إعلانات كحد أقصى داخل كل مجموعة — أكتر من كده بيشتّت الميزانية",
-        en: "Max 3 ads per ad set — more just fragments the budget",
+        ar: "جدّد الكرياتيف كل 2–3 أسابيع أو لما الـ Frequency يعدي 3 — التعب الإبداعي أسرع في عصر Andromeda",
+        en: "Refresh creative every 2–3 weeks or once frequency passes 3 — creative fatigue hits faster in the Andromeda era",
       },
       {
-        ar: "تأكد إن حدث Purchase بيتسجل صح (خصوصًا الدفع بالكارت — فيه فجوة تتبع معروفة عندك في الدفع الإلكتروني)",
-        en: "Verify the Purchase event fires correctly (especially card payments — your store has a known online-payment tracking gap)",
+        ar: "تأكد إن حدث Purchase بيتسجل صح (خصوصًا الدفع بالكارت — فيه فجوة تتبع معروفة عندك في الدفع الإلكتروني) + فعّل Conversions API مش البيكسل بس",
+        en: "Verify the Purchase event fires correctly (especially card payments — your store has a known online-payment tracking gap) + use the Conversions API, not just the pixel",
+      },
+    ], l),
+    steps: pickAll([
+      {
+        ar: "افتح Ads Manager → Create → الهدف Sales → اختار Advantage+ sales campaign (الهيكل القياسي في 2026)",
+        en: "Open Ads Manager → Create → objective: Sales → choose Advantage+ sales campaign (the standard 2026 structure)",
+      },
+      {
+        ar: "مستوى الحملة: الميزانية اليومية 200–300 ج.م، الدولة مصر، واستورد جمهور المشترين 30 يوم كـ Existing customers للاستبعاد",
+        en: "Campaign level: daily budget 200–300 EGP, country Egypt, and upload your 30-day purchasers as Existing customers for exclusion",
+      },
+      {
+        ar: "مستوى الإعلان: ارفع 8–12 كرياتيف مختلف (المقاسات التلاتة من الاستوديو + فيديو رأسي لو متاح)، فعّل Advantage+ creative",
+        en: "Ad level: upload 8–12 distinct creatives (the Studio's 3 formats + vertical video if available), enable Advantage+ creative",
+      },
+      {
+        ar: "الـ Primary text = بوست الفيسبوك من الاستوديو، Headline = الـ hook، الزر Shop Now، واللينك برابط UTM",
+        en: "Primary text = the Studio's Facebook post, headline = the hook, button Shop Now, link with the UTM template",
+      },
+      {
+        ar: "قبل التشغيل: Events Manager → اتأكد إن Purchase أخضر ومتسجل من آخر 24 ساعة، وراجع الـ Frequency وقواعد الإيقاف/التوسيع بعد 48 ساعة",
+        en: "Before launch: Events Manager → confirm Purchase is green and firing within 24h; review frequency and the kill/scale rules after 48h",
       },
     ], l),
   };
@@ -376,7 +416,78 @@ export function buildMarketingPlan(opts: {
     ], l),
   };
 
-  const platforms = [meta, boost];
+  const mainTitle = (opts.titles[0] ?? "").trim();
+
+  const google: AdConfig = {
+    platform: l === "ar" ? "Google Ads (بحث + Performance Max)" : "Google Ads (Search + Performance Max)",
+    objective: l === "ar"
+      ? "المبيعات — حملة Search تلتقط نية الشراء الجاهزة (اسم الكتاب/المؤلف) + حملة Performance Max بالـ Merchant Center feed (إعلانات Shopping ≈ 60–65% من نقرات الريتيل في 2026)"
+      : "Sales — a Search campaign captures ready buy-intent (book/author name) + a Performance Max campaign on the Merchant Center feed (Shopping ads ≈ 60–65% of retail clicks in 2026)",
+    age: l === "ar" ? "الكل (Google يستهدف بالنية مش بالديموغرافيا)" : "All (Google targets intent, not demographics)",
+    gender: l === "ar" ? "الكل" : "All",
+    geo: l === "ar"
+      ? `مصر — Presence only (مش Presence or interest)، واللغات: العربية + الإنجليزية`
+      : `Egypt — Presence only (not Presence or interest), languages: Arabic + English`,
+    interests: [],
+    placements: l === "ar" ? "Search أولًا؛ PMax يغطي Shopping/YouTube/Display تلقائيًا" : "Search first; PMax covers Shopping/YouTube/Display automatically",
+    budget: l === "ar"
+      ? "ابدأ 100–150 ج.م/يوم للبحث + 150 ج.م/يوم للـ PMax. المزايدة: Maximize conversions بدون tCPA لحد ما توصل 30 تحويل/شهر، بعدها حوّل Broad match + tCPA (المعيار في 2026)"
+      : "Start 100–150 EGP/day Search + 150 EGP/day PMax. Bidding: Maximize conversions without tCPA until you reach 30 conv/month, then switch to Broad match + tCPA (the 2026 standard)",
+    duration: l === "ar" ? "دائم (Always-on) — البحث بيلتقط طلب موجود أصلًا، مش بيصنعه" : "Always-on — Search captures existing demand, it doesn't create it",
+    creative: l === "ar"
+      ? "إعلان RSA واحد قوي لكل مجموعة: 10+ عناوين (منها اسم الكتاب والمؤلف والسعر والتوصيل)، 4 أوصاف، وثبّت (Pin) عنوان اسم الكتاب في الموضع الأول"
+      : "One strong RSA per ad group: 10+ headlines (book name, author, price, delivery), 4 descriptions, pin the book-title headline in position 1",
+    cta: l === "ar"
+      ? "صفحة الهبوط = صفحة الكتاب مباشرة (مش الرئيسية) + نفس الـ UTM standard"
+      : "Landing page = the book's product page directly (never the homepage) + the same UTM standard",
+    schedule: l === "ar" ? "على مدار اليوم — راجع تقرير الأوقات بعد أسبوعين" : "All day — review the time report after two weeks",
+    tips: pickAll([
+      {
+        ar: "الـ Negative keywords أهم من أي وقت (Broad بيتوسع بقوة): استبعد pdf، تحميل، مجانا، ملخص، اقتباسات على مستوى الحساب",
+        en: "Negative keywords matter more than ever (broad expands aggressively): exclude pdf, download, free, summary, quotes at account level",
+      },
+      {
+        ar: "PMax 2026: أضف Search themes (لحد 25 لكل asset group) — اسم الكتاب، المؤلف، النوع؛ واعمل asset group لكل قسم كتب مش واحدة للكل",
+        en: "PMax 2026: add search themes (up to 25 per asset group) — book title, author, genre; and build an asset group per book category, not one for everything",
+      },
+      {
+        ar: "فعّل Enhanced conversions + اربط GA4 — من غير تتبع نظيف الـ Smart Bidding بيشتغل أعمى",
+        en: "Enable Enhanced conversions + link GA4 — without clean tracking, Smart Bidding flies blind",
+      },
+      {
+        ar: "سجّل في Google Merchant Center حتى من غير إعلانات — الـ Free listings بتعرض كتبك في تبويب Shopping مجانًا",
+        en: "Register in Google Merchant Center even without ads — free listings show your books in the Shopping tab at no cost",
+      },
+    ], l),
+    steps: pickAll([
+      {
+        ar: "ads.google.com → New campaign → Sales → Search. سمّيها «كتب — بحث Brand+Titles»",
+        en: "ads.google.com → New campaign → Sales → Search. Name it “Books — Search Brand+Titles”",
+      },
+      {
+        ar: "Settings: مصر (Presence only)، عربي+إنجليزي، Maximize conversions، واقفل Search partners وDisplay network",
+        en: "Settings: Egypt (Presence only), Arabic+English, Maximize conversions, and untick Search partners and Display network",
+      },
+      {
+        ar: `مجموعة إعلانية لكل كتاب/سلسلة: ابدأ Phrase match بالكلمات الشرائية اللي تحت${mainTitle ? ` (جاهزة لـ «${mainTitle}»)` : ""}، وبعد 30 تحويل/شهر حوّلها Broad`,
+        en: `One ad group per book/series: start Phrase match with the transactional keywords below${mainTitle ? ` (ready-made for “${mainTitle}”)` : ""}, switch to Broad after 30 conv/month`,
+      },
+      {
+        ar: "أضف الـ Negatives قايمة مشتركة على مستوى الحساب، والأصول: Sitelinks (الأقسام) + Promotion (خصمك الحالي) + Price assets",
+        en: "Add the negatives as a shared account-level list, plus assets: Sitelinks (categories) + Promotion (your current discount) + Price assets",
+      },
+      {
+        ar: "حملة تانية: Performance Max مربوطة بالـ Merchant Center feed، asset group لكل قسم، وSearch themes من القايمة",
+        en: "Second campaign: Performance Max on the Merchant Center feed, one asset group per category, search themes from the list",
+      },
+      {
+        ar: "Tools → Conversions: اتأكد إن Purchase أساسي (Primary) وEnhanced conversions مفعّلة، واربط GA4",
+        en: "Tools → Conversions: make sure Purchase is Primary with Enhanced conversions on, and link GA4",
+      },
+    ], l),
+  };
+
+  const platforms = [meta, boost, google];
   if (d.tiktok) {
     platforms.push({
       platform: l === "ar" ? "TikTok (خطوة تالية — يدوي حاليًا)" : "TikTok (next step — manual for now)",
@@ -446,5 +557,93 @@ export function buildMarketingPlan(opts: {
     multiBook: pick(d.multiBook, l),
     bundleTitles: opts.bundleTitles,
     occasion: opts.occasion || undefined,
+    seo: buildSeoChecklist(mainTitle, l),
+    keywords: buildKeywordPlan(mainTitle, opts.genreKey, l),
+  };
+}
+
+// On-page + technical SEO checklist for the book's product page, with the
+// title substituted so it reads as a fill-in-the-blanks recipe.
+function buildSeoChecklist(title: string, l: PlanLang): string[] {
+  const tt = title || (l === "ar" ? "اسم الكتاب" : "Book Title");
+  return pickAll([
+    {
+      ar: `عنوان الصفحة (Title tag): «${tt} – اسم المؤلف | متجر نهضة مصر» — الكلمة المفتاحية أول العنوان، أقل من 60 حرف`,
+      en: `Title tag: “${tt} – Author Name | Nahdet Misr Store” — keyword first, under 60 characters`,
+    },
+    {
+      ar: `الوصف (Meta description): جملة بيع + السعر + «توصيل لباب البيت» + CTA، 150–160 حرف — ده إعلانك المجاني في نتائج البحث`,
+      en: `Meta description: selling line + price + “door delivery” + CTA, 150–160 chars — this is your free ad in the results`,
+    },
+    {
+      ar: `H1 واحد = اسم الكتاب، ووصف المنتج 300+ كلمة أصلية (نبذة، عن المؤلف، لمين الكتاب ده) — مش نسخ كلام الناشر المتكرر في كل المواقع`,
+      en: `One H1 = the book title, and a 300+ word original product description (synopsis, about the author, who it's for) — not the publisher blurb duplicated across every site`,
+    },
+    {
+      ar: `Structured data: schema.org/Book جوّه Product (المؤلف، ISBN، السعر، التوفر، التقييمات) — بيفتح Rich results بالنجوم والسعر`,
+      en: `Structured data: schema.org/Book inside Product (author, ISBN, price, availability, ratings) — unlocks rich results with stars and price`,
+    },
+    {
+      ar: `صور الغلاف: ملف باسم الكتاب (${tt.replace(/\s+/g, "-") || "book"}.webp) + Alt text باسم الكتاب والمؤلف — بحث الصور مصدر زيارات حقيقي للكتب`,
+      en: `Cover images: file named after the book + alt text with title and author — image search is a real traffic source for books`,
+    },
+    {
+      ar: "فعّل تقييمات المشترين على صفحة الكتاب (UGC) — التقييمات كلمات مفتاحية مجانية ومحتوى متجدد",
+      en: "Enable buyer reviews on the book page (UGC) — reviews are free keywords and fresh content",
+    },
+    {
+      ar: "روابط داخلية: من صفحة القسم وصفحات «كتب مشابهة» للكتاب — وسجّل الموقع في Google Search Console وتابع استعلامات الظهور",
+      en: "Internal links from the category page and “similar books” — and register in Google Search Console to watch impression queries",
+    },
+    {
+      ar: "المحتوى المعلوماتي: مقال «ملخص/مراجعة» على مدونة المتجر يلتقط الباحثين عن الملخص ويحوّلهم لصفحة الشراء — النية دي أضعاف حجم نية الشراء",
+      en: "Informational capture: a “summary/review” blog article catches summary-seekers and funnels them to the buy page — that intent is several times the buy-intent volume",
+    },
+  ], l);
+}
+
+// Ready-made keyword lists per book + genre, in both intents, plus the
+// research method to expand them.
+function buildKeywordPlan(title: string, genreKey: string, l: PlanLang): KeywordPlan {
+  const tt = title || (l === "ar" ? "اسم الكتاب" : "book title");
+  const genreKw: Record<string, { ar: string[]; en: string[] }> = {
+    kids: { ar: ["قصص أطفال", "كتب أطفال تعليمية", "قصص قبل النوم"], en: ["children's books arabic", "kids stories"] },
+    religion: { ar: ["كتب دينية", "كتب إسلامية"], en: ["islamic books arabic"] },
+    selfdev: { ar: ["كتب تطوير الذات", "كتب تنمية بشرية"], en: ["self development books arabic"] },
+    novel: { ar: ["روايات عربية", "روايات جديدة"], en: ["arabic novels"] },
+    history: { ar: ["كتب تاريخ", "كتب تاريخ مصر"], en: ["egypt history books"] },
+    general: { ar: ["كتب", "شراء كتب اون لاين"], en: ["buy arabic books online"] },
+  };
+  const g = genreKw[genreKey] ?? genreKw.general;
+
+  if (l === "en") {
+    return {
+      transactional: [
+        `buy ${tt}`, `${tt} book price`, `${tt} book Egypt`, `order ${tt} online`, ...g.en,
+        "buy books online egypt", "bookstore delivery egypt",
+      ],
+      informational: [`${tt} summary`, `${tt} review`, `${tt} quotes`, `who wrote ${tt}`],
+      negatives: ["pdf", "free download", "epub", "audiobook free", "summary", "wikipedia", "jobs"],
+      research: [
+        "Type the book/author name in Google and harvest the autocomplete suggestions + “People also ask”",
+        "Google Ads → Tools → Keyword Planner → seed it with the title, author and genre; export volumes for Egypt",
+        "Steal proven demand: search competitors' book pages ranking for your titles and note their title-tag wording",
+        "After 2 weeks, mine Search Console queries + the Search terms report — promote converting queries to exact keywords and junk queries to negatives",
+      ],
+    };
+  }
+  return {
+    transactional: [
+      `شراء كتاب ${tt}`, `كتاب ${tt}`, `${tt} سعر`, `اطلب ${tt} اون لاين`, `${tt} متجر نهضة مصر`,
+      ...g.ar, "شراء كتب اون لاين مصر", "مكتبة توصيل للمنزل",
+    ],
+    informational: [`ملخص كتاب ${tt}`, `مراجعة ${tt}`, `اقتباسات من ${tt}`, `مؤلف كتاب ${tt}`],
+    negatives: ["pdf", "تحميل", "مجانا", "مجاني", "اون لاين مجانا", "ملخص", "اقتباسات", "ويكيبيديا", "وظائف"],
+    research: [
+      "اكتب اسم الكتاب/المؤلف في جوجل والقط اقتراحات الإكمال التلقائي + أسئلة «People also ask» — دي نوايا بحث حقيقية جاهزة",
+      "Google Ads → Tools → Keyword Planner → حط اسم الكتاب والمؤلف والنوع كبذور وصدّر أحجام البحث لمصر",
+      "اسرق الطلب المثبت: شوف صفحات المنافسين اللي بتتصدر لكتبك ولاحظ صياغة عناوينهم",
+      "بعد أسبوعين: تقرير Search terms في الإعلانات + استعلامات Search Console — رقّي اللي بيحوّل لـ Exact، وحط الزبالة في الـ Negatives",
+    ],
   };
 }

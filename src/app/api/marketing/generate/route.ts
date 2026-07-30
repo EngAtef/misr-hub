@@ -158,16 +158,18 @@ ${multiNote}
 4. Provide 8-12 hashtags mixing Arabic + English tags relevant to this genre.
 5. As marketing director, define the buyer persona for THIS specific book (who exactly buys it in Egypt: age, gender skew, life situation, pains, motivations).
 6. Decide: should this be published as a paid ad, organic only, or both? Give the reasoning a director would give.
-7. As media buyer, write the COMPLETE ad configuration per platform (Meta campaign + organic boost${titles.length > 1 ? " + carousel notes for the bundle" : ""}, and TikTok if this genre fits): campaign objective, exact age range, gender, geo (Egypt — prioritize these real top cities by actual store orders: ${topCities.join(", ") || "Cairo, Giza, Alexandria"}), Meta interest targeting names, placements, daily budget in EGP with kill/scale rules, test duration, creative guidance, CTA button, schedule, and 2-4 pro tips each.
+7. As media buyer, write the COMPLETE ad configuration per platform (Meta Advantage+ sales campaign + organic boost${titles.length > 1 ? " + carousel notes for the bundle" : ""}, Google Ads Search + Performance Max, and TikTok if this genre fits): campaign objective, exact age range, gender, geo (Egypt — prioritize these real top cities by actual store orders: ${topCities.join(", ") || "Cairo, Giza, Alexandria"}), interest targeting/search themes, placements, daily budget in EGP with kill/scale rules, test duration, creative guidance (2026 best practice: creative diversity is Meta's #1 lever — 8-12 distinct concepts, 9:16 video priority; Google: RSA with 10+ headlines, broad match + smart bidding after 30 conv/month, PMax search themes), CTA, schedule, 2-4 pro tips each, AND a numbered "steps" walkthrough as if setting the campaign up manually in Ads Manager / Google Ads UI.
 8. Recommend retargeting audiences (the store app can export: abandoned-cart Meta Custom Audience, and a lookalike seed of 3+ order customers) and 3-4 A/B tests.
+8b. Add an SEO checklist for this book's product page (title tag formula, meta description, 300+ word description, Book/Product structured data, image alt, reviews, internal links, a summary-intent blog article) and a keyword plan: transactional keywords, informational keywords, negative keywords (pdf/تحميل/مجانا...), and 3-4 keyword-research steps.
 ${research ? "9. FIRST use web search (2-3 searches max) for current Meta/TikTok book-marketing best practices and any trends about this book/author/genre, then apply. Put learnings in research_notes (2-4 bullets)." : ""}
 Never invent facts about the book not supported by its text. Do not mention you are an AI. Post copy (summary/hook/post_fb/post_ig/post_wa/hashtags) in ${langName}; ALL plan text (persona, decision, platform configs, tips, retargeting, A/B tests) in ${planLang === "en" ? "English" : "Arabic"} — these can differ.
 Return ONLY a JSON object, no markdown fences, with exactly these keys:
 {"summary": "...", "hook": "...", "post_fb": "...", "post_ig": "...", "post_wa": "...", "hashtags": "#tag1 #tag2 ...", "research_notes": "...",
  "plan": {"persona": {"name": "...", "age": "...", "gender": "...", "description": "...", "pains": ["..."], "motivations": ["..."]},
   "decision": {"mode": "ad"|"organic"|"both", "reason": "..."},
-  "platforms": [{"platform": "...", "objective": "...", "age": "...", "gender": "...", "geo": "...", "interests": ["..."], "placements": "...", "budget": "...", "duration": "...", "creative": "...", "cta": "...", "schedule": "...", "tips": ["..."]}],
-  "retargeting": ["..."], "abTests": ["..."], "multiBook": "..."}}`;
+  "platforms": [{"platform": "...", "objective": "...", "age": "...", "gender": "...", "geo": "...", "interests": ["..."], "placements": "...", "budget": "...", "duration": "...", "creative": "...", "cta": "...", "schedule": "...", "tips": ["..."], "steps": ["1. ...", "2. ..."]}],
+  "retargeting": ["..."], "abTests": ["..."], "multiBook": "...",
+  "seo": ["..."], "keywords": {"transactional": ["..."], "informational": ["..."], "negatives": ["..."], "research": ["..."]}}}`;
 
   const client = new Anthropic({ apiKey: config.aiKey });
   try {
@@ -215,8 +217,18 @@ Return ONLY a JSON object, no markdown fences, with exactly these keys:
         occasion: occasionHint(new Date(), detectGenreKey(text, title), planLang),
         lang: planLang,
       });
-    } else if (!plan.occasion) {
-      plan.occasion = occasionHint(new Date(), detectGenreKey(text, title), planLang);
+    } else {
+      // Backfill anything the model skipped from the rule-based director.
+      if (!plan.occasion) plan.occasion = occasionHint(new Date(), detectGenreKey(text, title), planLang);
+      if (!plan.seo?.length || !plan.keywords?.transactional?.length) {
+        const fallback = buildMarketingPlan({
+          genreKey: detectGenreKey(text, title),
+          titles: titles.length ? titles : [title],
+          lang: planLang,
+        });
+        if (!plan.seo?.length) plan.seo = fallback.seo;
+        if (!plan.keywords?.transactional?.length) plan.keywords = fallback.keywords;
+      }
     }
 
     return NextResponse.json({
