@@ -928,7 +928,7 @@ export default function MarketingPage() {
                     </button>
                   ))}
                 </div>
-                {(layout === "promo" || layout === "modern" || layout === "elegant") && (
+                {(layout === "promo" || layout === "modern" || layout === "elegant" || layout.startsWith("tpl-")) && (
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-slate-500">{t("mktBadge")}</label>
                     <input className="input !py-1.5 w-44" placeholder="بخصم 30%" value={badge} onChange={(e) => setBadge(e.target.value)} />

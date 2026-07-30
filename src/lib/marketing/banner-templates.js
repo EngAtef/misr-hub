@@ -72,7 +72,7 @@ function orderPill(u, p, y) {
   </div>`;
 }
 
-function footerBar(u, p, W, H) {
+function footerBar(u, p, W, H, termsColor) {
   const fw = Math.round(W * 0.72);
   return `
   <div style="position:absolute;bottom:${Math.round(H * 0.028)}px;left:${Math.round((W - fw) / 2)}px;width:${fw}px;z-index:6;background:rgba(7,9,22,.93);border:1px solid rgba(255,255,255,.28);border-radius:${Math.round(20 * u)}px;box-shadow:0 ${Math.round(12 * u)}px ${Math.round(30 * u)}px rgba(0,0,0,.45);padding:${Math.round(16 * u)}px ${Math.round(26 * u)}px;">
@@ -87,7 +87,7 @@ function footerBar(u, p, W, H) {
       </td>
     </tr></table>
   </div>
-  <div style="position:absolute;bottom:${Math.round(10 * u)}px;left:${Math.round(48 * u)}px;color:rgba(255,255,255,.72);font-size:${Math.round(19 * u)}px;z-index:6;">تطبق الشروط والأحكام</div>`;
+  <div style="position:absolute;bottom:${Math.round(10 * u)}px;left:${Math.round(48 * u)}px;color:${termsColor || "rgba(255,255,255,.72)"};font-size:${Math.round(19 * u)}px;z-index:6;">تطبق الشروط والأحكام</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,13 +210,75 @@ function elegantHtml(fmt, W, H, o) {
   </div>`;
 }
 
-export const HTML_BANNER_LAYOUTS = ["promo", "modern", "elegant"];
+// ---------------------------------------------------------------------------
+// CANVA TEMPLATE LAYOUTS — premium background artwork generated once in Canva
+// and hosted in the app's own storage (marketing/templates/{key}.jpg,
+// 1080×1920, cover-cropped per format). The app composes cover + hook +
+// badge + brand footer on top locally: zero Canva calls at design time.
+export const CANVA_TEMPLATES = {
+  kids: {
+    ar: "سماء الليل (أطفال) — Canva", en: "Night sky (kids) — Canva",
+    accent: "#f4c95d", line2: "#ffd98a", genres: ["kids"],
+  },
+  spiritual: {
+    ar: "نور روحاني (إيمانيات) — Canva", en: "Heavenly light (faith) — Canva",
+    accent: "#e8d5a8", line2: "#f5e6bd", genres: ["religion"],
+  },
+  modernblue: {
+    ar: "أزرق عصري (تطوير وروايات) — Canva", en: "Modern blue (self-dev) — Canva",
+    accent: "#8fdcff", line2: "#bfeaff", genres: ["selfdev", "novel"],
+  },
+  luxury: {
+    ar: "فاخر مزخرف (هدايا) — Canva", en: "Ornate luxury (gifts) — Canva",
+    accent: "#8a6a1f", line2: "#6d5418", genres: ["history", "general"],
+  },
+};
+// storage file key for each template ("modernblue" reuses modern.jpg)
+const TPL_FILE = { kids: "kids", spiritual: "spiritual", modernblue: "modern", luxury: "luxury" };
+export function canvaTemplateUrl(supaBase, key) {
+  return `${supaBase}/storage/v1/object/public/flipbooks/marketing/templates/${TPL_FILE[key] || key}.jpg`;
+}
+
+function canvaTplHtml(tplKey, fmt, W, H, o) {
+  const u = Math.min(W, H) / 1080;
+  const t = CANVA_TEMPLATES[tplKey] || CANVA_TEMPLATES.kids;
+  // luxury is a LIGHT backdrop — dark text, light footer treatment
+  const light = tplKey === "luxury";
+  const { l1, l2 } = splitHook(o.hook, o.title);
+  const link = fmt === "link";
+  const story = fmt === "story";
+  const hookTop = Math.round(H * (story ? 0.13 : link ? 0.12 : 0.14));
+  const coverTop = Math.round(H * (story ? 0.32 : link ? 0.28 : 0.33));
+  const coverZone = H * (story ? 0.5 : link ? 0.5 : 0.46) - 90 * u;
+  const coverW = Math.round(Math.min(W * (link ? 0.21 : 0.44), coverZone * 0.72));
+  const p = o.palette;
+
+  return `
+  <div style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;">
+    <img src="${o.tplUrl}" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);${W / H > 1080 / 1920 ? "width:100%;height:auto;" : "height:100%;width:auto;"}min-width:100%;min-height:100%;" />
+  </div>
+  ${light ? "" : `<div style="position:absolute;bottom:0;left:0;width:100%;height:${Math.round(H * 0.22)}px;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(4,6,16,.55) 100%);"></div>`}
+  ${orderPill(u, p, Math.round(H * 0.032))}
+  ${ribbonHtml(o.badge, u, p)}
+  <div style="position:absolute;top:${hookTop}px;left:0;width:100%;text-align:center;z-index:5;padding:0 ${Math.round(W * 0.08)}px;box-sizing:border-box;">
+    <div style="color:${light ? "#2b3990" : "#ffffff"};font-weight:700;font-size:${Math.round((link ? 42 : 50) * u)}px;line-height:1.55;${light ? "" : "text-shadow:0 4px 18px rgba(0,0,0,.55);"}">${esc(l1)}</div>
+    <div style="color:${light ? t.line2 : t.accent};font-weight:900;font-size:${Math.round((link ? 54 : 64) * u)}px;line-height:1.45;${light ? "" : "text-shadow:0 6px 22px rgba(0,0,0,.55);"}">${esc(l2 || o.title)}</div>
+  </div>
+  ${o.coverSrc ? `
+  <div style="position:absolute;top:${coverTop}px;left:${Math.round((W - coverW) / 2)}px;width:${coverW}px;z-index:4;">
+    <img src="${o.coverSrc}" style="width:100%;border-radius:${Math.round(10 * u)}px;border:2px solid rgba(255,255,255,.35);box-shadow:0 ${Math.round(34 * u)}px ${Math.round(64 * u)}px rgba(0,0,0,${light ? ".35" : ".55"});" />
+  </div>` : ""}
+  ${footerBar(u, p, W, H, light ? "rgba(43,57,144,.8)" : undefined)}`;
+}
+
+export const HTML_BANNER_LAYOUTS = ["promo", "modern", "elegant", "tpl-kids", "tpl-spiritual", "tpl-modernblue", "tpl-luxury"];
 
 // Returns the full inner HTML for a hidden host element of size W×H.
 // opts: { coverSrc, blurredBg, title, hook, cta, badge, palette, fontFamily }
 export function bannerHtml(layout, fmt, W, H, opts) {
   const inner =
-    layout === "modern" ? modernHtml(fmt, W, H, opts)
+    String(layout).startsWith("tpl-") ? canvaTplHtml(String(layout).slice(4), fmt, W, H, opts)
+    : layout === "modern" ? modernHtml(fmt, W, H, opts)
     : layout === "elegant" ? elegantHtml(fmt, W, H, opts)
     : promoHtml(fmt, W, H, opts);
   return `<div style="position:relative;width:${W}px;height:${H}px;overflow:hidden;background:#0b0e1e;direction:rtl;font-family:${opts.fontFamily || "Cairo, sans-serif"};">${inner}</div>`;

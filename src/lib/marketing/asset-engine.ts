@@ -4,7 +4,10 @@
 
 export type AssetFmt = "sq" | "story" | "link";
 export type AssetStyle = "navy" | "paper" | "teal" | "night" | "sand" | "rose" | "fresh";
-export type AssetLayout = "classic" | "coverfull" | "quote" | "split" | "minimal" | "promo" | "modern" | "elegant";
+export type AssetLayout =
+  | "classic" | "coverfull" | "quote" | "split" | "minimal"
+  | "promo" | "modern" | "elegant"
+  | "tpl-kids" | "tpl-spiritual" | "tpl-modernblue" | "tpl-luxury";
 
 export const ASSET_DIMS: Record<AssetFmt, [number, number]> = {
   sq: [1080, 1080],      // FB/IG feed square
@@ -40,6 +43,10 @@ export const STYLE_NAMES: Record<AssetStyle, { ar: string; en: string }> = {
 };
 
 export const LAYOUT_NAMES: Record<AssetLayout, { ar: string; en: string }> = {
+  "tpl-kids":       { ar: "🎨 سماء الليل (أطفال) — Canva", en: "🎨 Night sky (kids) — Canva" },
+  "tpl-spiritual":  { ar: "🎨 نور روحاني (إيمانيات) — Canva", en: "🎨 Heavenly light (faith) — Canva" },
+  "tpl-modernblue": { ar: "🎨 أزرق عصري (تطوير) — Canva", en: "🎨 Modern blue (self-dev) — Canva" },
+  "tpl-luxury":     { ar: "🎨 فاخر مزخرف (هدايا) — Canva", en: "🎨 Ornate luxury (gifts) — Canva" },
   promo:     { ar: "بانر ترويجي (زي إعلانات المتجر)", en: "Promo banner (store-ad style)" },
   modern:    { ar: "بوستر عصري", en: "Modern poster" },
   elegant:   { ar: "فاخر ذهبي", en: "Elegant gold" },
@@ -492,7 +499,7 @@ export async function renderAsset(fmt: AssetFmt, input: AssetInput): Promise<Blo
 
   // HTML/CSS-template layouts render through html2canvas for design quality
   // no hand-drawn canvas can match; canvas layouts below stay as fallback.
-  if (layout === "promo" || layout === "modern" || layout === "elegant") {
+  if (layout === "promo" || layout === "modern" || layout === "elegant" || layout.startsWith("tpl-")) {
     try {
       const { renderHtmlBanner } = await import("./html-banner");
       return await renderHtmlBanner(fmt, W, H, p, input);
