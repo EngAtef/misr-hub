@@ -4,7 +4,7 @@
 
 export type AssetFmt = "sq" | "story" | "link";
 export type AssetStyle = "navy" | "paper" | "teal" | "night" | "sand" | "rose" | "fresh";
-export type AssetLayout = "classic" | "coverfull" | "quote" | "split" | "minimal" | "promo";
+export type AssetLayout = "classic" | "coverfull" | "quote" | "split" | "minimal" | "promo" | "modern" | "elegant";
 
 export const ASSET_DIMS: Record<AssetFmt, [number, number]> = {
   sq: [1080, 1080],      // FB/IG feed square
@@ -41,6 +41,8 @@ export const STYLE_NAMES: Record<AssetStyle, { ar: string; en: string }> = {
 
 export const LAYOUT_NAMES: Record<AssetLayout, { ar: string; en: string }> = {
   promo:     { ar: "بانر ترويجي (زي إعلانات المتجر)", en: "Promo banner (store-ad style)" },
+  modern:    { ar: "بوستر عصري", en: "Modern poster" },
+  elegant:   { ar: "فاخر ذهبي", en: "Elegant gold" },
   classic:   { ar: "كلاسيكي", en: "Classic" },
   coverfull: { ar: "غلاف كامل", en: "Full cover" },
   quote:     { ar: "بطاقة اقتباس", en: "Quote card" },
@@ -487,6 +489,18 @@ export async function renderAsset(fmt: AssetFmt, input: AssetInput): Promise<Blo
   ctx.direction = "rtl";
 
   const layout = input.layout ?? "classic";
+
+  // HTML/CSS-template layouts render through html2canvas for design quality
+  // no hand-drawn canvas can match; canvas layouts below stay as fallback.
+  if (layout === "promo" || layout === "modern" || layout === "elegant") {
+    try {
+      const { renderHtmlBanner } = await import("./html-banner");
+      return await renderHtmlBanner(fmt, W, H, p, input);
+    } catch {
+      // fall through to the canvas engine
+    }
+  }
+
   if (layout === "promo") layoutPromo(ctx, fmt, W, H, p, input);
   else if (layout === "coverfull") layoutCoverFull(ctx, fmt, W, H, p, input);
   else if (layout === "quote") layoutQuote(ctx, fmt, W, H, p, input);
