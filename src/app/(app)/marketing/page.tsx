@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen, UploadCloud, Wand2, Image as ImageIcon, Send, RefreshCw,
   Megaphone, Trash2, ExternalLink, Search, Sparkles, Play, Pause, CheckCircle2, XCircle,
-  Target, Users, Lightbulb, SplitSquareHorizontal, Repeat, Plus, Check,
+  Target, Users, Lightbulb, SplitSquareHorizontal, Repeat, Plus, Check, X,
 } from "lucide-react";
 import type { MarketingPlan, AdConfig } from "@/lib/marketing/director";
 import { createClient } from "@/lib/supabase/client";
@@ -140,6 +140,10 @@ export default function MarketingPage() {
   const [style, setStyle] = useState<AssetStyle>("navy");
   const [layout, setLayout] = useState<AssetLayout>("classic");
   const [badge, setBadge] = useState("");
+  // Ready-made designs (Canva exports / designer files) per format — these
+  // replace the generated design for that format everywhere downstream.
+  const [custom, setCustom] = useState<Partial<Record<AssetFmt, File>>>({});
+  const customRef = useRef<HTMLInputElement>(null);
   const [fmts, setFmts] = useState<AssetFmt[]>(["sq", "story", "link"]);
   const [previews, setPreviews] = useState<Partial<Record<AssetFmt, string>>>({});
   const [rendering, setRendering] = useState(false);
@@ -327,6 +331,44 @@ export default function MarketingPage() {
     return data.id;
   }
 
+  // Re-encode an uploaded design to the exact Meta dimensions (cover-fit crop).
+  const fileToAsset = useCallback(async (file: File, fmt: AssetFmt): Promise<Blob> => {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await loadImage(url);
+      const [W, H] = ASSET_DIMS[fmt];
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const x = c.getContext("2d")!;
+      const s = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+      const sw = W / s, sh = H / s;
+      x.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, W, H);
+      return await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/jpeg", 0.92));
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
+  // Assign uploaded files to formats by aspect ratio (tall→story, wide→link,
+  // square-ish→sq); collisions fall back to the first free selected format.
+  async function pickCustomFiles(files: FileList) {
+    const next = { ...custom };
+    for (const f of Array.from(files)) {
+      const url = URL.createObjectURL(f);
+      try {
+        const img = await loadImage(url);
+        const r = img.naturalWidth / img.naturalHeight;
+        let fmt: AssetFmt = r > 1.4 ? "link" : r < 0.72 ? "story" : "sq";
+        if (next[fmt]) fmt = (fmts.find((k) => !next[k]) ?? fmt);
+        next[fmt] = f;
+      } catch { /* skip unreadable file */ }
+      URL.revokeObjectURL(url);
+    }
+    setCustom(next);
+    setPreviews({});
+    setAssetUrls([]);
+  }
+
   const renderPreviews = useCallback(async () => {
     setRendering(true);
     try {
@@ -335,14 +377,16 @@ export default function MarketingPage() {
       const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
       const next: Partial<Record<AssetFmt, string>> = {};
       for (const fmt of fmts) {
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
+        const blob = custom[fmt]
+          ? await fileToAsset(custom[fmt]!, fmt)
+          : await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
         next[fmt] = URL.createObjectURL(blob);
       }
       setPreviews(next);
     } finally {
       setRendering(false);
     }
-  }, [coverUrl, buyUrl, postLang, fmts, title, hook, summary, style, layout, badge]);
+  }, [coverUrl, buyUrl, postLang, fmts, title, hook, summary, style, layout, badge, custom, fileToAsset]);
 
   async function uploadAssets() {
     const id = await saveDraft();
@@ -363,7 +407,9 @@ export default function MarketingPage() {
       const cta = buyUrl ? (postLang === "en" ? "Order now — link in comments" : "اطلبه الآن — الرابط في التعليقات") : (postLang === "en" ? "Order now from our store" : "اطلبه الآن من المتجر");
       for (const up of d.uploads as { name: string; signedUrl: string; path: string; publicUrl: string }[]) {
         const fmt = up.name.replace(".jpg", "") as AssetFmt;
-        const blob = await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
+        const blob = custom[fmt]
+          ? await fileToAsset(custom[fmt]!, fmt)
+          : await renderAsset(fmt, { cover, title, hook: hook || summary.slice(0, 120), cta, style, layout, badge: badge || undefined });
         const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
         if (!put.ok) throw new Error(`upload failed (${up.name})`);
         rows.push({ fmt, path: up.path, url: up.publicUrl });
@@ -833,6 +879,25 @@ export default function MarketingPage() {
                     <input className="input !py-1.5 w-44" placeholder="بخصم 30%" value={badge} onChange={(e) => setBadge(e.target.value)} />
                   </div>
                 )}
+                <div className="border-t border-slate-100 pt-3">
+                  <div className="mb-1.5 text-xs font-semibold text-slate-500">🎨 {t("mktCustomUpload")}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button className="btn-secondary !py-1.5 text-xs" onClick={() => customRef.current?.click()}>
+                      <UploadCloud size={14} />{t("mktCustomPick")}
+                    </button>
+                    <input ref={customRef} type="file" accept="image/*" multiple className="hidden"
+                      onChange={(e) => { if (e.target.files?.length) pickCustomFiles(e.target.files); e.target.value = ""; }} />
+                    {(Object.keys(custom) as AssetFmt[]).map((f) => (
+                      <span key={f} className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-200 px-2.5 py-1 text-xs text-violet-700">
+                        {ASSET_LABELS[f][lang]}: {custom[f]!.name.slice(0, 18)}
+                        <button onClick={() => { const n = { ...custom }; delete n[f]; setCustom(n); setPreviews({}); }}>
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">{t("mktCustomHint")}</p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex gap-3 text-xs text-slate-600">
