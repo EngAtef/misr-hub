@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, TrendingDown, TrendingUp, Radar, Download } from "lucide-react";
+import { UploadCloud, TrendingDown, TrendingUp, Radar, Download, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, DeltaBadge } from "@/components/ui";
@@ -74,6 +74,20 @@ export default function TrafficPage() {
   const [txMap, setTxMap] = useState<Map<string, number> | null>(null);
   const [monthOrders, setMonthOrders] = useState<OrderSlim[]>([]);
   const [itemGaps, setItemGaps] = useState<ItemGap[]>([]);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const syncFromGa4 = useCallback(async () => {
+    setSyncState("syncing");
+    try {
+      const res = await fetch("/api/cron/ga4-sync", { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      setSyncState("done");
+      setReloadKey((k) => k + 1);
+    } catch {
+      setSyncState("error");
+    }
+  }, []);
 
   useEffect(() => {
     supabase.rpc("fn_ga4_months").then(({ data }) => {
@@ -96,7 +110,7 @@ export default function TrafficPage() {
       }
       setTxMap(map);
     })();
-  }, [supabase]);
+  }, [supabase, reloadKey]);
 
   const loadMonth = useCallback(
     async (month: string) => {
@@ -168,7 +182,7 @@ export default function TrafficPage() {
 
   useEffect(() => {
     if (selected) loadMonth(selected);
-  }, [selected, loadMonth]);
+  }, [selected, loadMonth, reloadKey]);
 
   // GA4 summary of the comparison month
   useEffect(() => {
@@ -269,7 +283,14 @@ export default function TrafficPage() {
         <div className="card p-12 text-center space-y-4">
           <UploadCloud className="mx-auto h-12 w-12 text-slate-300" />
           <p className="text-slate-500">{t("noTraffic")}</p>
-          <Link href="/data-center" className="btn-primary inline-flex">{t("dataCenter")}</Link>
+          {syncState === "error" && <p className="text-xs font-semibold text-red-600">{t("syncGa4Fail")}</p>}
+          <div className="flex items-center justify-center gap-2">
+            <button className="btn-primary inline-flex" onClick={syncFromGa4} disabled={syncState === "syncing"}>
+              <RefreshCw size={14} className={syncState === "syncing" ? "animate-spin" : undefined} />
+              {t("syncGa4")}
+            </button>
+            <Link href="/data-center" className="btn-secondary inline-flex">{t("dataCenter")}</Link>
+          </div>
         </div>
       </div>
     );
@@ -286,6 +307,12 @@ export default function TrafficPage() {
         subtitle={t("trafficSubtitle")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {syncState === "error" && <span className="text-xs font-semibold text-red-600">{t("syncGa4Fail")}</span>}
+            {syncState === "done" && <span className="text-xs font-semibold text-emerald-600">{t("syncGa4Done")}</span>}
+            <button className="btn-secondary" onClick={syncFromGa4} disabled={syncState === "syncing"}>
+              <RefreshCw size={14} className={syncState === "syncing" ? "animate-spin" : undefined} />
+              {t("syncGa4")}
+            </button>
             <select className="input !w-auto" value={selected ?? ""} onChange={(e) => setSelected(e.target.value)}>
               {months.map((m) => (
                 <option key={m.period_month} value={m.period_month}>

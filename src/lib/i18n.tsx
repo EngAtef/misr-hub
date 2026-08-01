@@ -564,6 +564,9 @@ const dict = {
   // Traffic (GA4)
   traffic: { ar: "الزيارات", en: "Traffic" },
   trafficSubtitle: { ar: "تحليل زيارات الموقع (GA4) والفجوات مقابل المبيعات الفعلية", en: "GA4 website traffic analysis and gaps vs actual sales" },
+  syncGa4: { ar: "مزامنة من GA4", en: "Sync from GA4" },
+  syncGa4Done: { ar: "تمت المزامنة", en: "Synced" },
+  syncGa4Fail: { ar: "فشلت المزامنة — تحقق من إعدادات GA4", en: "Sync failed — check GA4 configuration" },
   views: { ar: "المشاهدات", en: "Views" },
   activeUsers: { ar: "المستخدمون", en: "Active Users" },
   addToCarts: { ar: "إضافات للسلة", en: "Add to Carts" },

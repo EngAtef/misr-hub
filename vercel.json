@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/marketing-guard",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/ga4-sync",
+      "schedule": "30 4 * * *"
     }
   ]
 }
