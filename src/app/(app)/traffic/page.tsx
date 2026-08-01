@@ -9,9 +9,17 @@ import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, 
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
-import { ChannelsReport, HealthReport, MatrixReport, AudienceReport, SeoReport, TrafficAlarms } from "@/components/traffic-growth";
+import {
+  ChannelsReport,
+  HealthReport,
+  MatrixReport,
+  AudienceReport,
+  SeoReport,
+  TrafficAlarms,
+  useTrafficAlarms,
+} from "@/components/traffic-growth";
 
-type TrafficTab = "overview" | "channels" | "health" | "matrix" | "audience" | "seo";
+type TrafficTab = "overview" | "alarms" | "channels" | "health" | "matrix" | "audience" | "seo";
 
 interface MonthRow {
   period_month: string;
@@ -80,6 +88,8 @@ export default function TrafficPage() {
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
   const [reloadKey, setReloadKey] = useState(0);
   const [tab, setTab] = useState<TrafficTab>("overview");
+  const { alarms, error: alarmsError } = useTrafficAlarms();
+  const redAlarms = alarms?.filter((a) => a.severity === "red").length ?? 0;
 
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
 
@@ -382,6 +392,7 @@ export default function TrafficPage() {
         {(
           [
             ["overview", t("trafficTabOverview")],
+            ["alarms", t("alarmsTitle")],
             ["channels", t("trafficTabChannels")],
             ["health", t("trafficTabHealth")],
             ["matrix", t("trafficTabMatrix")],
@@ -398,12 +409,16 @@ export default function TrafficPage() {
             )}
           >
             {label}
+            {key === "alarms" && redAlarms > 0 && (
+              <span className="ms-1.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">
+                {redAlarms}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      <TrafficAlarms />
-
+      {tab === "alarms" && <TrafficAlarms alarms={alarms} error={alarmsError} />}
       {tab === "channels" && <ChannelsReport />}
       {tab === "health" && <HealthReport />}
       {tab === "matrix" && (

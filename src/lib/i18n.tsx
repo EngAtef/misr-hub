@@ -614,6 +614,8 @@ const dict = {
   gscPagesTitle: { ar: "أعلى الصفحات في نتائج جوجل", en: "Top pages in Google results" },
   noGrowthData: { ar: "لا توجد بيانات بعد — اضغط \"مزامنة من GA4\" أولاً لسحب البيانات اليومية والقنوات", en: "No data yet — press \"Sync from GA4\" first to pull daily & channel data" },
   alarmsTitle: { ar: "التنبيهات الذكية", en: "Smart alarms" },
+  alarmsHint: { ar: "فحوصات تلقائية على الإنفاق والتتبع والمخزون والترتيب والتوصيل — الأحمر يحتاج تدخل اليوم", en: "Automatic checks on ad spend, tracking, stock, rankings and delivery — red needs action today" },
+  queryFailed: { ar: "تعذّر تحميل البيانات", en: "Could not load the data" },
   alarmsOk: { ar: "كل شيء سليم — لا توجد تنبيهات حالياً", en: "All clear — no alarms right now" },
   alarmDeadSpend: { ar: "حملة \"{name}\": إنفاق {spend} ج.م خلال آخر 10 أيام بدون أي طلب مطابق — أوقفها أو راجع الاستهداف", en: "Campaign \"{name}\": {spend} EGP spent in the last 10 days with zero matched orders — pause it or fix targeting" },
   alarmLowRoas: { ar: "حملة \"{name}\" خاسرة: إنفاق {spend} ج.م مقابل إيراد فعلي {revenue} ج.م فقط", en: "Campaign \"{name}\" is losing money: {spend} EGP spent vs only {revenue} EGP actual revenue" },

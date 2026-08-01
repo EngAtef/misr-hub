@@ -30,6 +30,18 @@ function ExportButton({ name, rows }: { name: string; rows: unknown[] }) {
   );
 }
 
+// Surfaces a failed query instead of pretending there is no data — the
+// difference matters (a timeout looks identical to an empty table otherwise).
+function ErrorNote({ message }: { message: string }) {
+  const { t } = useLang();
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <div className="font-bold">{t("queryFailed")}</div>
+      <div className="mt-0.5 text-xs opacity-80" dir="ltr">{message}</div>
+    </div>
+  );
+}
+
 // ------------------------------------------------- generic drill-down drawer
 
 export interface DetailSpec {
@@ -211,15 +223,30 @@ interface Alarm {
   data: Record<string, string | number>;
 }
 
-export function TrafficAlarms() {
-  const { t } = useLang();
+// Loaded once by the Traffic page so the tab can show a count badge without
+// rendering the whole panel on every tab.
+export function useTrafficAlarms() {
   const supabase = useMemo(() => createClient(), []);
   const [alarms, setAlarms] = useState<Alarm[] | null>(null);
-  const [open, setOpen] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.rpc("fn_traffic_alarms").then(({ data }) => setAlarms((data as Alarm[]) ?? []));
+    let cancelled = false;
+    supabase.rpc("fn_traffic_alarms").then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) setError(error.message);
+      setAlarms((data as Alarm[]) ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [supabase]);
+
+  return { alarms, error };
+}
+
+export function TrafficAlarms({ alarms, error }: { alarms: Alarm[] | null; error?: string | null }) {
+  const { t } = useLang();
 
   const text = (a: Alarm): string => {
     const d = a.data;
@@ -261,7 +288,8 @@ export function TrafficAlarms() {
     }
   };
 
-  if (!alarms) return null;
+  if (error) return <ErrorNote message={error} />;
+  if (!alarms) return <Spinner />;
 
   const styles = {
     red: "border-red-200 bg-red-50 text-red-800",
@@ -269,38 +297,30 @@ export function TrafficAlarms() {
     info: "border-brand-200 bg-brand-50 text-brand-800",
   };
 
-  const exportRows = alarms.map((a) => ({ kind: a.kind, severity: a.severity, detail: text(a) }));
+  const order: Record<string, number> = { red: 0, amber: 1, info: 2 };
+  const sorted = [...alarms].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+  const exportRows = sorted.map((a) => ({ kind: a.kind, severity: a.severity, detail: text(a) }));
 
   return (
-    <div className="mb-6">
-      <div className="mb-2 flex items-center justify-between">
-        <button className="flex items-center gap-2 text-sm font-bold text-slate-600" onClick={() => setOpen((o) => !o)}>
-          {alarms.length ? (
-            <AlertTriangle size={15} className="text-amber-500" />
-          ) : (
-            <CheckCircle2 size={15} className="text-emerald-500" />
-          )}
-          {t("alarmsTitle")}
-          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", alarms.length ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>
-            {alarms.length}
-          </span>
-        </button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">{t("alarmsHint")}</p>
         <ExportButton name="traffic-alarms" rows={exportRows} />
       </div>
-      {open &&
-        (alarms.length === 0 ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-            {t("alarmsOk")}
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-2">
-            {alarms.map((a, i) => (
-              <div key={i} className={cn("rounded-xl border px-4 py-2.5 text-sm", styles[a.severity])}>
-                {text(a)}
-              </div>
-            ))}
-          </div>
-        ))}
+      {sorted.length === 0 ? (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 size={16} />
+          {t("alarmsOk")}
+        </div>
+      ) : (
+        <div className="grid gap-2 md:grid-cols-2">
+          {sorted.map((a, i) => (
+            <div key={i} className={cn("rounded-xl border px-4 py-2.5 text-sm", styles[a.severity])}>
+              {text(a)}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -467,15 +487,18 @@ export function ChannelsReport() {
   const [channels, setChannels] = useState<ChannelRow[] | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [quality, setQuality] = useState<Record<string, unknown>[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const { spec, setSpec } = useDetail();
 
   useEffect(() => {
     let cancelled = false;
     setChannels(null);
+    setError(null);
     const p_from = isoDaysAgo(days - 1);
     const p_to = isoDaysAgo(0);
-    supabase.rpc("fn_channel_summary", { p_from, p_to }).then(({ data }) => {
+    supabase.rpc("fn_channel_summary", { p_from, p_to }).then(({ data, error }) => {
       if (cancelled) return;
+      if (error) setError(error.message);
       const d = (data ?? {}) as { channels?: ChannelRow[]; campaigns?: CampaignRow[] };
       setChannels(d.channels ?? []);
       setCampaigns(d.campaigns ?? []);
@@ -536,6 +559,7 @@ export function ChannelsReport() {
     [campaigns, applyCa]
   );
 
+  if (error) return <ErrorNote message={error} />;
   if (!channels) return <Spinner />;
   if (!channels.length)
     return <div className="card p-8 text-center text-sm text-slate-500">{t("noGrowthData")}</div>;
@@ -908,7 +932,6 @@ interface GscTermRow {
 export function SeoReport({ months }: { months: string[] }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const [days, setDays] = useState(30);
   const [daily, setDaily] = useState<GscDailyRow[] | null>(null);
   const [month, setMonth] = useState(months[0] ?? "");
   const [queries, setQueries] = useState<GscTermRow[]>([]);
@@ -916,14 +939,20 @@ export function SeoReport({ months }: { months: string[] }) {
   const [nearWins, setNearWins] = useState<GscTermRow[]>([]);
   const { spec, setSpec } = useDetail();
 
+  // one control: the selected month drives KPIs, chart and every table
   useEffect(() => {
+    if (!month) return;
     let cancelled = false;
     setDaily(null);
+    const start = new Date(month);
+    const monthEnd = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0))
+      .toISOString()
+      .slice(0, 10);
     supabase
       .from("gsc_daily")
       .select("date, clicks, impressions, position")
-      .gte("date", isoDaysAgo(days - 1))
-      .lte("date", isoDaysAgo(0))
+      .gte("date", month)
+      .lte("date", monthEnd)
       .order("date")
       .then(({ data }) => {
         if (!cancelled) setDaily((data as GscDailyRow[]) ?? []);
@@ -931,7 +960,7 @@ export function SeoReport({ months }: { months: string[] }) {
     return () => {
       cancelled = true;
     };
-  }, [supabase, days]);
+  }, [supabase, month]);
 
   useEffect(() => {
     if (!month) return;
@@ -951,9 +980,33 @@ export function SeoReport({ months }: { months: string[] }) {
     };
   }, [supabase, month]);
 
-  if (!daily) return <Spinner />;
+  const monthPicker = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs text-slate-500">{t("seoHint")}</p>
+      <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
+        {months.map((m) => (
+          <option key={m} value={m}>
+            {new Date(m).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  if (!daily)
+    return (
+      <div className="space-y-6">
+        {monthPicker}
+        <Spinner />
+      </div>
+    );
   if (!daily.length && !queries.length)
-    return <div className="card p-8 text-center text-sm text-slate-500">{t("seoSetupHint")}</div>;
+    return (
+      <div className="space-y-6">
+        {monthPicker}
+        <div className="card p-8 text-center text-sm text-slate-500">{t("seoSetupHint")}</div>
+      </div>
+    );
 
   const totals = {
     clicks: daily.reduce((s, r) => s + (r.clicks ?? 0), 0),
@@ -1020,19 +1073,7 @@ export function SeoReport({ months }: { months: string[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-slate-500">{t("seoHint")}</p>
-        <div className="flex items-center gap-2">
-          <RangePicker value={days} onChange={setDays} options={[30, 90]} />
-          <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
-            {months.map((m) => (
-              <option key={m} value={m}>
-                {new Date(m).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {monthPicker}
 
       <div className="grid grid-cols-3 gap-4">
         <KpiCard label={t("clicksLbl")} value={formatNumber(totals.clicks)} accent="green" />
