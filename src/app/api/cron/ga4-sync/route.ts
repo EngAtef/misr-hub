@@ -9,15 +9,23 @@ import {
   syncGa4Month,
   type Ga4SyncResult,
 } from "@/lib/google/ga4";
+import { getGscConfig, syncGscMonth, type GscSyncResult } from "@/lib/google/gsc";
 
 export const maxDuration = 60;
 
 // Pulls GA4 pages / transactions / items straight from the Data API into the
 // same tables the manual Data Center import fills. Runs daily via Vercel Cron
 // (GET) and on demand from the Traffic page (POST, admin/manager only).
-// Optional query param: ?backfill=6 re-syncs the last 6 calendar months.
+// Optional query params: ?backfill=6 re-syncs the last 6 calendar months;
+// ?months=2026-03-01,2026-04-01 syncs exactly those months (used by the
+// Traffic page to backfill history one month per request, avoiding timeouts).
 
 function monthsFromRequest(request: NextRequest): string[] {
+  const explicit = (request.nextUrl.searchParams.get("months") ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m) => /^\d{4}-\d{2}-01$/.test(m));
+  if (explicit.length) return explicit.slice(0, 12);
   const backfill = Number(request.nextUrl.searchParams.get("backfill"));
   if (Number.isInteger(backfill) && backfill > 0) return backfillMonths(Math.min(backfill, 36));
   return defaultSyncMonths();
@@ -35,11 +43,17 @@ async function runSync(supabase: SupabaseClient, months: string[]) {
       { status: 400 }
     );
   }
-  const results: Ga4SyncResult[] = [];
+  const gscCfg = await getGscConfig(supabase);
+  const results: (Ga4SyncResult & { gsc?: GscSyncResult | string })[] = [];
   for (const month of months) {
-    results.push(await syncGa4Month(cfg, supabase, month));
+    const r: Ga4SyncResult & { gsc?: GscSyncResult | string } = await syncGa4Month(cfg, supabase, month);
+    if (gscCfg) {
+      // Search Console is additive — a failure there must not block GA4 data
+      r.gsc = await syncGscMonth(gscCfg, supabase, month).catch((e) => String(e));
+    }
+    results.push(r);
   }
-  return NextResponse.json({ ok: true, results });
+  return NextResponse.json({ ok: true, results, gsc_configured: !!gscCfg });
 }
 
 export async function GET(request: NextRequest) {

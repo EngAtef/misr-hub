@@ -94,6 +94,98 @@ async function answerQuestion(q: string, db: SupabaseClient): Promise<Answer> {
     };
   }
 
+  // Website traffic / tracking health (GA4 API sync)
+  if (/traffic|session|visitor|زيارات|زوار|جلسات|تتبع|tracking|ga4/i.test(q)) {
+    const to = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const { data } = await db.rpc("fn_tracking_daily", { p_from: from, p_to: to });
+    const days = (data as { day: string; sessions: number; ga4_purchases: number; orders: number }[]) ?? [];
+    const sessions = days.reduce((s, r) => s + Number(r.sessions || 0), 0);
+    if (!sessions) return { answer: { ar: "لا توجد بيانات زيارات بعد — اضغط \"مزامنة من GA4\" في صفحة الزيارات.", en: "No traffic data yet — press 'Sync from GA4' on the Traffic page." }, link: "/traffic" };
+    const ga4P = days.reduce((s, r) => s + Number(r.ga4_purchases || 0), 0);
+    const orders = days.reduce((s, r) => s + Number(r.orders || 0), 0);
+    const rate = orders > 0 ? ((ga4P / orders) * 100).toFixed(1) : "—";
+    const cr = sessions > 0 ? ((orders / sessions) * 100).toFixed(2) : "—";
+    return {
+      answer: {
+        ar: `آخر 30 يوم: ${num(sessions)} جلسة على الموقع حققت ${num(orders)} طلب فعلي (معدل تحويل ${cr}%). GA4 تتبّع ${num(ga4P)} عملية شراء — نسبة التتبع ${rate}%.`,
+        en: `Last 30 days: ${num(sessions)} website sessions produced ${num(orders)} actual orders (CR ${cr}%). GA4 tracked ${num(ga4P)} purchases — tracking rate ${rate}%.`,
+      },
+      table: {
+        columns: ["Day", "Sessions", "GA4 Purchases", "Orders"],
+        rows: days.slice(-7).map((r) => [r.day, num(Number(r.sessions)), num(Number(r.ga4_purchases)), num(Number(r.orders))]),
+      },
+      link: "/traffic",
+    };
+  }
+
+  // Traffic channels / campaigns ROI (GA4 attribution + Meta spend)
+  if (/channel|قناة|قنوات|مصدر|traffic source|فيسبوك ولا|أفضل حملة|افضل حملة/i.test(q)) {
+    const to = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const { data } = await db.rpc("fn_channel_summary", { p_from: from, p_to: to });
+    const d = (data ?? {}) as { channels?: Record<string, unknown>[]; campaigns?: Record<string, unknown>[] };
+    const channels = (d.channels ?? []).slice(0, 8);
+    if (!channels.length) return { answer: { ar: "لا توجد بيانات قنوات بعد — اضغط \"مزامنة من GA4\" في صفحة الزيارات.", en: "No channel data yet — press 'Sync from GA4' on the Traffic page." }, link: "/traffic" };
+    return {
+      answer: {
+        ar: "أداء قنوات الزيارات آخر 30 يوم (الطلبات الفعلية مطابقة برقم المعاملة):",
+        en: "Traffic channel performance, last 30 days (actual orders matched by transaction id):",
+      },
+      table: {
+        columns: ["Channel", "Sessions", "Actual Orders", "Delivered", "Revenue"],
+        rows: channels.map((c) => [
+          `${c.source}/${c.medium}`,
+          num(c.sessions as number),
+          num(c.orders as number),
+          num(c.delivered as number),
+          money(c.order_revenue as number),
+        ]),
+      },
+      link: "/traffic",
+    };
+  }
+
+  // Google SEO (Search Console)
+  if (/seo|بحث جوجل|جوجل|google search|ترتيب|ranking/i.test(q)) {
+    const { data: latest } = await db.from("gsc_queries").select("period_month").order("period_month", { ascending: false }).limit(1);
+    const m = (latest as { period_month: string }[] | null)?.[0]?.period_month;
+    if (!m) return { answer: { ar: "Search Console غير مفعّل بعد — أضف رابط الموقع في الإعدادات ثم اضغط مزامنة.", en: "Search Console isn't connected yet — add the property URL in Settings, then Sync." }, link: "/settings" };
+    const { data: rows } = await db.from("gsc_queries").select("query, clicks, impressions, position").eq("period_month", m).order("clicks", { ascending: false }).limit(10);
+    const list = (rows as { query: string; clicks: number; impressions: number; position: number }[]) ?? [];
+    return {
+      answer: {
+        ar: "أعلى كلمات البحث في جوجل التي تجلب زيارات للموقع (آخر شهر مُزامن):",
+        en: "Top Google search queries bringing visits (latest synced month):",
+      },
+      table: {
+        columns: ["Query", "Clicks", "Impressions", "Position"],
+        rows: list.map((r) => [r.query, num(r.clicks), num(r.impressions), Number(r.position).toFixed(1)]),
+      },
+      link: "/traffic",
+    };
+  }
+
+  // What visitors search for inside the store (GA4 site search)
+  if (/site search|search terms|يبحث|بيدوروا|بحث الموقع|بيدور/i.test(q)) {
+    const { data: latest } = await db.from("ga4_search_terms").select("period_month").order("period_month", { ascending: false }).limit(1);
+    const m = (latest as { period_month: string }[] | null)?.[0]?.period_month;
+    if (!m) return { answer: { ar: "لا توجد بيانات بحث الموقع بعد — اضغط \"مزامنة من GA4\".", en: "No site-search data yet — press 'Sync from GA4'." }, link: "/traffic" };
+    const { data: rows } = await db.from("ga4_search_terms").select("term, searches, sessions").eq("period_month", m).order("searches", { ascending: false }).limit(10);
+    const list = (rows as { term: string; searches: number; sessions: number }[]) ?? [];
+    return {
+      answer: {
+        ar: "أكثر ما يبحث عنه الزوار داخل المتجر (آخر شهر مُزامن) — الكلمات غير المتوفرة في الكتالوج فرص توريد:",
+        en: "What visitors search for inside the store (latest synced month) — unmatched terms are sourcing opportunities:",
+      },
+      table: {
+        columns: ["Term", "Searches", "Sessions"],
+        rows: list.map((r) => [r.term, num(r.searches), num(r.sessions)]),
+      },
+      link: "/traffic",
+    };
+  }
+
   // Who bought a specific book (purchasers)
   const buyMatch = q.match(/(?:who bought|buyers of|purchasers of|مين اشترى|مشتري|مشترين)\s+(.+)/i);
   if (buyMatch) {
@@ -174,8 +266,8 @@ async function answerQuestion(q: string, db: SupabaseClient): Promise<Answer> {
   // Fallback
   return {
     answer: {
-      ar: "أقدر أساعدك في: المبيعات والإيراد، أعلى الكتب مبيعاً، الكتب اللي محتاجة مخزون، أداء الإعلانات (ROAS الفعلي)، تقدم الأهداف، شرائح العملاء، ومين اشترى كتاب معين. اسألني بأي صيغة.",
-      en: "I can help with: sales & revenue, top-selling books, books needing stock, ad performance (actual ROAS), target progress, customer segments, and who bought a specific book. Ask me anything.",
+      ar: "أقدر أساعدك في: المبيعات والإيراد، أعلى الكتب مبيعاً، الكتب اللي محتاجة مخزون، أداء الإعلانات (ROAS الفعلي)، زيارات الموقع وقنوات الزيارات، بحث جوجل (SEO)، ما يبحث عنه الزوار داخل المتجر، تقدم الأهداف، شرائح العملاء، ومين اشترى كتاب معين. اسألني بأي صيغة.",
+      en: "I can help with: sales & revenue, top-selling books, books needing stock, ad performance (actual ROAS), website traffic & channels, Google SEO, what visitors search for in the store, target progress, customer segments, and who bought a specific book. Ask me anything.",
     },
   };
 }

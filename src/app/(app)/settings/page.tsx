@@ -216,6 +216,20 @@ export default function SettingsPage() {
           ]}
         />
         <IntegrationCard
+          settingKey="gsc"
+          title="Google Search Console"
+          description="Google search queries, clicks and rankings for the SEO tab on the Traffic page. Uses the same service account as the GA4 card above — only the property URL is needed here."
+          fields={[
+            { key: "site_url", label: "GSC property URL", placeholder: "sc-domain:example.com or https://www.example.com/" },
+          ]}
+          steps={[
+            { text: "Enable the 'Google Search Console API' in the same Google Cloud project", url: "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com" },
+            { text: "Search Console → Settings → Users and permissions → Add user → paste the service-account email (Restricted is enough)", url: "https://search.google.com/search-console" },
+            { text: "Copy the property exactly as shown in Search Console: 'sc-domain:example.com' for domain properties, or the full URL for URL-prefix properties. Paste it below and Save." },
+            { text: "Press 'Sync from GA4' on the Traffic page — Search Console data syncs in the same run." },
+          ]}
+        />
+        <IntegrationCard
           settingKey="courier"
           title="Courier / Shipping (Bosta · Mylerz · Aramex · R2S)"
           description="Live AWB tracking — real-time delivery status, actual SLA per city, failed-delivery reasons, and stuck-shipment detection before the customer complains. Needs your courier's API key."

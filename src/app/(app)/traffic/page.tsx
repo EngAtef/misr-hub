@@ -9,9 +9,9 @@ import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, 
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
-import { ChannelsReport, HealthReport, MatrixReport, AudienceReport } from "@/components/traffic-growth";
+import { ChannelsReport, HealthReport, MatrixReport, AudienceReport, SeoReport } from "@/components/traffic-growth";
 
-type TrafficTab = "overview" | "channels" | "health" | "matrix" | "audience";
+type TrafficTab = "overview" | "channels" | "health" | "matrix" | "audience" | "seo";
 
 interface MonthRow {
   period_month: string;
@@ -81,17 +81,37 @@ export default function TrafficPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [tab, setTab] = useState<TrafficTab>("overview");
 
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
+
+  // Syncs current + previous month, then backfills any of the last 12 months
+  // that have never been synced — one request per month to stay inside the
+  // serverless time limit. Re-presses skip months that already exist.
   const syncFromGa4 = useCallback(async () => {
     setSyncState("syncing");
+    setSyncProgress(null);
     try {
       const res = await fetch("/api/cron/ga4-sync", { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
+      const have = new Set(months.map((m) => m.period_month));
+      const now = new Date();
+      const targets: string[] = [];
+      for (let i = 2; i < 12; i++) {
+        targets.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 10));
+      }
+      const missing = targets.filter((m) => !have.has(m));
+      for (let i = 0; i < missing.length; i++) {
+        setSyncProgress(`${i + 1}/${missing.length}`);
+        const r = await fetch(`/api/cron/ga4-sync?months=${missing[i]}`, { method: "POST" });
+        if (!r.ok) break; // keep what synced so far; a re-press resumes
+      }
+      setSyncProgress(null);
       setSyncState("done");
       setReloadKey((k) => k + 1);
     } catch {
+      setSyncProgress(null);
       setSyncState("error");
     }
-  }, []);
+  }, [months]);
 
   useEffect(() => {
     supabase.rpc("fn_ga4_months").then(({ data }) => {
@@ -291,7 +311,7 @@ export default function TrafficPage() {
           <div className="flex items-center justify-center gap-2">
             <button className="btn-primary inline-flex" onClick={syncFromGa4} disabled={syncState === "syncing"}>
               <RefreshCw size={14} className={syncState === "syncing" ? "animate-spin" : undefined} />
-              {t("syncGa4")}
+              {syncProgress ?? t("syncGa4")}
             </button>
             <Link href="/data-center" className="btn-secondary inline-flex">{t("dataCenter")}</Link>
           </div>
@@ -315,7 +335,7 @@ export default function TrafficPage() {
             {syncState === "done" && <span className="text-xs font-semibold text-emerald-600">{t("syncGa4Done")}</span>}
             <button className="btn-secondary" onClick={syncFromGa4} disabled={syncState === "syncing"}>
               <RefreshCw size={14} className={syncState === "syncing" ? "animate-spin" : undefined} />
-              {t("syncGa4")}
+              {syncProgress ?? t("syncGa4")}
             </button>
             {tab === "overview" && (
               <>
@@ -356,6 +376,7 @@ export default function TrafficPage() {
             ["health", t("trafficTabHealth")],
             ["matrix", t("trafficTabMatrix")],
             ["audience", t("trafficTabAudience")],
+            ["seo", t("trafficTabSeo")],
           ] as [TrafficTab, string][]
         ).map(([key, label]) => (
           <button
@@ -378,6 +399,9 @@ export default function TrafficPage() {
       )}
       {tab === "audience" && (
         <AudienceReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />
+      )}
+      {tab === "seo" && (
+        <SeoReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />
       )}
 
       {tab === "overview" && s && (

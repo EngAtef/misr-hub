@@ -12,21 +12,22 @@ import { normalizeTxId, type Ga4Row, type Ga4Transaction, type Ga4Item } from "@
 // as a fallback.
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
+const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
-export interface Ga4Config {
-  propertyId: string;
+export interface GoogleSA {
   email: string;
   privateKey: string;
 }
 
-export async function getGa4Config(supabase: SupabaseClient): Promise<Ga4Config | null> {
-  const { data } = await supabase.from("app_settings").select("value").eq("key", "ga4_api").maybeSingle();
-  const v = (data?.value ?? {}) as { property_id?: string; service_account_json?: string };
+export interface Ga4Config extends GoogleSA {
+  propertyId: string;
+}
 
-  let propertyId = v.property_id?.trim() || process.env.GA4_PROPERTY_ID || "";
-  // tolerate "properties/123456789" or a pasted label — keep the digits
-  propertyId = propertyId.replace(/\D/g, "") || propertyId;
+// The service account pasted in the Settings "Google Analytics 4 (API)" card
+// is shared by every Google integration (GA4 + Search Console).
+export async function getServiceAccount(supabase: SupabaseClient): Promise<GoogleSA | null> {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "ga4_api").maybeSingle();
+  const v = (data?.value ?? {}) as { service_account_json?: string };
 
   let email = process.env.GOOGLE_SA_EMAIL;
   let privateKey = process.env.GOOGLE_SA_PRIVATE_KEY;
@@ -42,28 +43,40 @@ export async function getGa4Config(supabase: SupabaseClient): Promise<Ga4Config 
     }
   }
   privateKey = privateKey?.replace(/\\n/g, "\n");
-
-  if (!propertyId || !email || !privateKey) return null;
-  return { propertyId, email, privateKey };
+  if (!email || !privateKey) return null;
+  return { email, privateKey };
 }
 
-let cachedToken: { email: string; token: string; exp: number } | null = null;
+export async function getGa4Config(supabase: SupabaseClient): Promise<Ga4Config | null> {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "ga4_api").maybeSingle();
+  const v = (data?.value ?? {}) as { property_id?: string };
+
+  let propertyId = v.property_id?.trim() || process.env.GA4_PROPERTY_ID || "";
+  // tolerate "properties/123456789" or a pasted label — keep the digits
+  propertyId = propertyId.replace(/\D/g, "") || propertyId;
+
+  const sa = await getServiceAccount(supabase);
+  if (!propertyId || !sa) return null;
+  return { propertyId, ...sa };
+}
+
+const tokenCache = new Map<string, { token: string; exp: number }>();
 
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
-async function getAccessToken(cfg: Ga4Config): Promise<string> {
+export async function getAccessToken(sa: GoogleSA, scope = ANALYTICS_SCOPE): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  if (cachedToken && cachedToken.email === cfg.email && cachedToken.exp - 120 > now) {
-    return cachedToken.token;
-  }
+  const cacheKey = `${sa.email}|${scope}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.exp - 120 > now) return cached.token;
 
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = b64url(
-    JSON.stringify({ iss: cfg.email, scope: SCOPE, aud: TOKEN_URL, iat: now, exp: now + 3600 })
+    JSON.stringify({ iss: sa.email, scope, aud: TOKEN_URL, iat: now, exp: now + 3600 })
   );
   const signer = createSign("RSA-SHA256");
   signer.update(`${header}.${claims}`);
-  const signature = signer.sign(cfg.privateKey).toString("base64url");
+  const signature = signer.sign(sa.privateKey).toString("base64url");
 
   const res = await fetch(TOKEN_URL, {
     method: "POST",
@@ -75,10 +88,10 @@ async function getAccessToken(cfg: Ga4Config): Promise<string> {
   });
   const data = await res.json();
   if (!res.ok || !data.access_token) {
-    throw new Error(`GA4 auth failed: ${data.error_description ?? data.error ?? res.status}`);
+    throw new Error(`Google auth failed: ${data.error_description ?? data.error ?? res.status}`);
   }
-  cachedToken = { email: cfg.email, token: data.access_token, exp: now + (Number(data.expires_in) || 3600) };
-  return cachedToken.token;
+  tokenCache.set(cacheKey, { token: data.access_token, exp: now + (Number(data.expires_in) || 3600) });
+  return data.access_token;
 }
 
 interface ReportRow {
@@ -113,7 +126,7 @@ const num = (v: string | undefined): number | null => {
 };
 
 // month is "YYYY-MM-01"; the range is clamped so we never ask for future days.
-function monthRange(month: string): { startDate: string; endDate: string } | null {
+export function monthRange(month: string): { startDate: string; endDate: string } | null {
   const start = new Date(`${month}T00:00:00Z`);
   const today = new Date();
   if (start.getTime() > today.getTime()) return null;

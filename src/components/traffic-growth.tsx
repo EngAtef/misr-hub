@@ -508,6 +508,159 @@ export function HealthReport() {
   );
 }
 
+// ---------------------------------------------------------------- SEO (GSC)
+
+interface GscDailyRow {
+  date: string;
+  clicks: number | null;
+  impressions: number | null;
+  position: number | null;
+}
+interface GscTermRow {
+  query?: string;
+  page?: string;
+  clicks: number | null;
+  impressions: number | null;
+  ctr: number | null;
+  position: number | null;
+}
+
+export function SeoReport({ months }: { months: string[] }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [days, setDays] = useState(30);
+  const [daily, setDaily] = useState<GscDailyRow[] | null>(null);
+  const [month, setMonth] = useState(months[0] ?? "");
+  const [queries, setQueries] = useState<GscTermRow[]>([]);
+  const [pages, setPages] = useState<GscTermRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDaily(null);
+    supabase
+      .from("gsc_daily")
+      .select("date, clicks, impressions, position")
+      .gte("date", isoDaysAgo(days - 1))
+      .lte("date", isoDaysAgo(0))
+      .order("date")
+      .then(({ data }) => {
+        if (!cancelled) setDaily((data as GscDailyRow[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, days]);
+
+  useEffect(() => {
+    if (!month) return;
+    let cancelled = false;
+    Promise.all([
+      supabase.from("gsc_queries").select("query, clicks, impressions, ctr, position").eq("period_month", month).order("clicks", { ascending: false }).limit(50),
+      supabase.from("gsc_pages").select("page, clicks, impressions, ctr, position").eq("period_month", month).order("clicks", { ascending: false }).limit(25),
+    ]).then(([q, p]) => {
+      if (cancelled) return;
+      setQueries((q.data as GscTermRow[]) ?? []);
+      setPages((p.data as GscTermRow[]) ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, month]);
+
+  if (!daily) return <Spinner />;
+  if (!daily.length && !queries.length)
+    return <div className="card p-8 text-center text-sm text-slate-500">{t("seoSetupHint")}</div>;
+
+  const totals = {
+    clicks: daily.reduce((s, r) => s + (r.clicks ?? 0), 0),
+    impressions: daily.reduce((s, r) => s + (r.impressions ?? 0), 0),
+    position:
+      daily.length > 0
+        ? daily.reduce((s, r) => s + (r.position ?? 0), 0) / daily.filter((r) => r.position != null).length
+        : 0,
+  };
+
+  const gscTable = (rows: GscTermRow[], keyName: "query" | "page", title: string) =>
+    rows.length > 0 && (
+      <div className="card p-5">
+        <h3 className="mb-3 text-sm font-bold text-slate-700">{title}</h3>
+        <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>{keyName === "query" ? t("termLbl") : t("pagePath")}</th>
+                <th>{t("clicksLbl")}</th>
+                <th>{t("impressionsLbl")}</th>
+                <th>CTR</th>
+                <th>{t("avgPosition")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const pos = r.position ?? 0;
+                return (
+                  <tr key={r[keyName]}>
+                    <td className={cn("!whitespace-normal max-w-md font-medium", keyName === "page" && "font-mono text-xs truncate")} dir={keyName === "page" ? "ltr" : undefined}>
+                      {keyName === "page" ? (r.page ?? "").replace(/^https?:\/\/[^/]+/, "") || "/" : r.query}
+                    </td>
+                    <td className="font-semibold">{formatNumber(r.clicks ?? 0)}</td>
+                    <td className="text-slate-500">{formatNumber(r.impressions ?? 0)}</td>
+                    <td>{((r.ctr ?? 0) * 100).toFixed(1)}%</td>
+                    <td className={cn("font-bold", pos <= 5 ? "text-emerald-600" : pos > 10 ? "text-red-600" : "text-amber-600")}>
+                      {pos.toFixed(1)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-slate-500">{t("seoHint")}</p>
+        <div className="flex items-center gap-2">
+          <RangePicker value={days} onChange={setDays} options={[30, 90]} />
+          <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {new Date(m).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <KpiCard label={t("clicksLbl")} value={formatNumber(totals.clicks)} accent="green" />
+        <KpiCard label={t("impressionsLbl")} value={formatNumber(totals.impressions)} />
+        <KpiCard
+          label={t("avgPosition")}
+          value={Number.isFinite(totals.position) ? totals.position.toFixed(1) : "—"}
+          accent={totals.position <= 10 ? "green" : "amber"}
+        />
+      </div>
+
+      {daily.length > 0 && (
+        <ChartCard title={t("clicksLbl")}>
+          <TrendChart
+            data={daily as unknown as Record<string, unknown>[]}
+            xKey="date"
+            series={[{ key: "clicks", name: t("clicksLbl"), color: "#059669" }]}
+            height={220}
+          />
+        </ChartCard>
+      )}
+
+      {gscTable(queries, "query", t("googleQueries"))}
+      {gscTable(pages, "page", t("gscPagesTitle"))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Audience
 
 interface SearchTermRow {
