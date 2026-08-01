@@ -9,9 +9,9 @@ import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, 
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
-import { ChannelsReport, HealthReport, MatrixReport } from "@/components/traffic-growth";
+import { ChannelsReport, HealthReport, MatrixReport, AudienceReport } from "@/components/traffic-growth";
 
-type TrafficTab = "overview" | "channels" | "health" | "matrix";
+type TrafficTab = "overview" | "channels" | "health" | "matrix" | "audience";
 
 interface MonthRow {
   period_month: string;
@@ -355,6 +355,7 @@ export default function TrafficPage() {
             ["channels", t("trafficTabChannels")],
             ["health", t("trafficTabHealth")],
             ["matrix", t("trafficTabMatrix")],
+            ["audience", t("trafficTabAudience")],
           ] as [TrafficTab, string][]
         ).map(([key, label]) => (
           <button
@@ -374,6 +375,9 @@ export default function TrafficPage() {
       {tab === "health" && <HealthReport />}
       {tab === "matrix" && (
         <MatrixReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />
+      )}
+      {tab === "audience" && (
+        <AudienceReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />
       )}
 
       {tab === "overview" && s && (

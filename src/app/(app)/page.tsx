@@ -5,6 +5,7 @@ import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, DeltaBadge } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
+import { TrafficKpis } from "@/components/traffic-growth";
 import { TrendChart, DonutChart } from "@/components/charts";
 
 // Clear ranked list for ALL cities: name, count, share bar — scrolls inside the card
@@ -125,6 +126,8 @@ export default function OverviewPage() {
               delta={pk && <DeltaBadge current={k.avg_order_value} previous={pk.avg_order_value} fmtPrev={money} />}
             />
           </div>
+
+          <TrafficKpis from={range.from} to={range.to} />
 
           <ChartCard title={t("ordersPerDay")}>
             <TrendChart

@@ -11,6 +11,8 @@ interface AlertsData {
   tracking_month: string | null;
   tracking_rate: number | null;
   untracked: number | null;
+  tracking_rate_7d: number | null;
+  tracking_rate_30d: number | null;
   stockouts: number;
   cancel_rate_recent: number;
   cancel_rate_prior: number;
@@ -72,6 +74,23 @@ export function AlertsBar() {
         icon: Radar,
         titleKey: "alertTracking",
         body: fill(t("alertTrackingBody"), { rate: data.tracking_rate, n: formatNumber(data.untracked ?? 0) }),
+        href: "/traffic",
+      });
+    }
+
+    // sudden daily-tracking drop (GA4 API data): 7d rate well below 30d rate
+    if (
+      data.tracking_rate_7d !== null &&
+      data.tracking_rate_30d !== null &&
+      data.tracking_rate_30d > 0 &&
+      data.tracking_rate_7d < data.tracking_rate_30d * 0.85
+    ) {
+      out.push({
+        key: "tracking-drop",
+        severity: "red",
+        icon: Radar,
+        titleKey: "alertTrackingDrop",
+        body: fill(t("alertTrackingDropBody"), { r7: data.tracking_rate_7d, r30: data.tracking_rate_30d }),
         href: "/traffic",
       });
     }

@@ -338,6 +338,72 @@ export async function fetchGa4Items(cfg: Ga4Config, month: string): Promise<Ga4I
   return out;
 }
 
+// ---- monthly audience reports (phase 2) ----
+
+interface MonthlyRow {
+  period_month: string;
+  [k: string]: string | number | null;
+}
+
+async function fetchMonthlyReport(
+  cfg: Ga4Config,
+  month: string,
+  dimension: string,
+  keyColumn: string,
+  metrics: { api: string; column: string }[],
+  skipValues: string[] = ["(not set)"]
+): Promise<MonthlyRow[]> {
+  const range = monthRange(month);
+  if (!range) return [];
+  const rows = await runReport(cfg, {
+    dateRanges: [range],
+    dimensions: [{ name: dimension }],
+    metrics: metrics.map((m) => ({ name: m.api })),
+  });
+  const seen = new Set<string>();
+  const out: MonthlyRow[] = [];
+  for (const r of rows) {
+    const key = r.dimensionValues[0]?.value?.trim();
+    if (!key || skipValues.includes(key) || seen.has(key)) continue;
+    seen.add(key);
+    const row: MonthlyRow = { period_month: month, [keyColumn]: key };
+    metrics.forEach((m, i) => {
+      row[m.column] = num(r.metricValues[i]?.value);
+    });
+    out.push(row);
+  }
+  return out;
+}
+
+const SESSION_ECOM_METRICS = [
+  { api: "sessions", column: "sessions" },
+  { api: "activeUsers", column: "active_users" },
+  { api: "addToCarts", column: "add_to_carts" },
+  { api: "ecommercePurchases", column: "purchases" },
+  { api: "purchaseRevenue", column: "revenue" },
+];
+
+export const fetchGa4SearchTerms = (cfg: Ga4Config, month: string) =>
+  fetchMonthlyReport(cfg, month, "searchTerm", "term", [
+    { api: "sessions", column: "sessions" },
+    { api: "eventCount", column: "searches" },
+  ]);
+
+export const fetchGa4Cities = (cfg: Ga4Config, month: string) =>
+  fetchMonthlyReport(cfg, month, "city", "city", SESSION_ECOM_METRICS);
+
+export const fetchGa4Devices = (cfg: Ga4Config, month: string) =>
+  fetchMonthlyReport(cfg, month, "deviceCategory", "device", SESSION_ECOM_METRICS);
+
+export const fetchGa4Landing = (cfg: Ga4Config, month: string) =>
+  fetchMonthlyReport(cfg, month, "landingPage", "landing_page", [
+    { api: "sessions", column: "sessions" },
+    { api: "activeUsers", column: "active_users" },
+    { api: "bounceRate", column: "bounce_rate" },
+    { api: "ecommercePurchases", column: "purchases" },
+    { api: "purchaseRevenue", column: "revenue" },
+  ]);
+
 // Current month plus the previous one — GA4 data can lag ~48h, so re-syncing
 // the previous month for a few days after month end keeps it accurate.
 export function defaultSyncMonths(): string[] {
@@ -363,6 +429,7 @@ export interface Ga4SyncResult {
   items: number;
   daily: number;
   sources: number;
+  audience: number;
 }
 
 // Mirrors the manual Data Center import exactly: pages/items replace the
@@ -373,13 +440,21 @@ export async function syncGa4Month(
   supabase: SupabaseClient,
   month: string
 ): Promise<Ga4SyncResult> {
-  const [pages, transactions, items, daily, sources] = await Promise.all([
-    fetchGa4Pages(cfg, month),
-    fetchGa4Transactions(cfg, month),
-    fetchGa4Items(cfg, month),
-    fetchGa4Daily(cfg, month),
-    fetchGa4Sources(cfg, month),
-  ]);
+  // audience reports are non-critical — one failing (e.g. an incompatible
+  // dimension on this property) must not break the core sync
+  const safe = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
+  const [pages, transactions, items, daily, sources, searchTerms, cities, devices, landing] =
+    await Promise.all([
+      fetchGa4Pages(cfg, month),
+      fetchGa4Transactions(cfg, month),
+      fetchGa4Items(cfg, month),
+      fetchGa4Daily(cfg, month),
+      fetchGa4Sources(cfg, month),
+      safe(fetchGa4SearchTerms(cfg, month)),
+      safe(fetchGa4Cities(cfg, month)),
+      safe(fetchGa4Devices(cfg, month)),
+      safe(fetchGa4Landing(cfg, month)),
+    ]);
 
   if (pages.length) {
     await supabase.from("ga4_pages").delete().eq("period_month", month);
@@ -418,6 +493,21 @@ export async function syncGa4Month(
     if (error) throw new Error(`ga4_sources: ${error.message}`);
   }
 
+  const monthly: [string, MonthlyRow[]][] = [
+    ["ga4_search_terms", searchTerms],
+    ["ga4_cities", cities],
+    ["ga4_devices", devices],
+    ["ga4_landing", landing.slice(0, 2000)],
+  ];
+  for (const [table, rows] of monthly) {
+    if (!rows.length) continue;
+    await supabase.from(table).delete().eq("period_month", month);
+    for (let i = 0; i < rows.length; i += 1000) {
+      const { error } = await supabase.from(table).insert(rows.slice(i, i + 1000));
+      if (error) throw new Error(`${table}: ${error.message}`);
+    }
+  }
+
   return {
     month,
     pages: pages.length,
@@ -425,5 +515,6 @@ export async function syncGa4Month(
     items: items.length,
     daily: daily.length,
     sources: sources.length,
+    audience: searchTerms.length + cities.length + devices.length + landing.length,
   };
 }

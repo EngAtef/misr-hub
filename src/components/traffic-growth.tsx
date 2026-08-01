@@ -12,6 +12,51 @@ import { KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
 import { formatNumber, formatMoney, cn } from "@/lib/utils";
 
+// rough Arabic text normalizer so GA4 search terms match catalog names
+const normalizeAr = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[ً-ْـ]/g, "")
+    .replace(/[أإآا]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// GA4 reports Egyptian cities in English while order exports use Arabic
+const CITY_AR: Record<string, string[]> = {
+  cairo: ["القاهره"],
+  alexandria: ["الاسكندريه", "اسكندريه"],
+  giza: ["الجيزه", "جيزه"],
+  "shubra el kheima": ["القليوبيه", "شبرا الخيمه"],
+  "port said": ["بورسعيد"],
+  suez: ["السويس"],
+  mansoura: ["المنصوره", "الدقهليه"],
+  "el mahalla el kubra": ["المحله الكبري", "الغربيه"],
+  tanta: ["طنطا", "الغربيه"],
+  asyut: ["اسيوط"],
+  ismailia: ["الاسماعيليه"],
+  faiyum: ["الفيوم"],
+  fayoum: ["الفيوم"],
+  zagazig: ["الزقازيق", "الشرقيه"],
+  damietta: ["دمياط"],
+  aswan: ["اسوان"],
+  luxor: ["الاقصر"],
+  minya: ["المنيا"],
+  "beni suef": ["بني سويف"],
+  qena: ["قنا"],
+  sohag: ["سوهاج"],
+  hurghada: ["الغردقه", "البحر الاحمر"],
+  banha: ["بنها", "القليوبيه"],
+  "kafr el sheikh": ["كفر الشيخ"],
+  damanhur: ["دمنهور", "البحيره"],
+  "6th of october city": ["اكتوبر", "السادس من اكتوبر"],
+  "10th of ramadan city": ["العاشر من رمضان"],
+  "new cairo": ["القاهره الجديده", "التجمع"],
+  matruh: ["مطروح", "مرسي مطروح"],
+  arish: ["العريش", "شمال سيناء"],
+};
+
 const isoDaysAgo = (days: number) => {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -43,6 +88,51 @@ function RangePicker({
           {labels[d]}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------- Overview strip
+
+// Compact GA4 KPI row for the Overview page (renders nothing until the
+// GA4 sync has daily data for the selected range).
+export function TrafficKpis({ from, to }: { from: string | null; to: string | null }) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [sums, setSums] = useState<{ sessions: number; purchases: number } | null>(null);
+
+  useEffect(() => {
+    if (!from || !to) return;
+    let cancelled = false;
+    supabase
+      .from("ga4_daily")
+      .select("sessions, purchases")
+      .gte("date", from)
+      .lte("date", to)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const list = (data as { sessions: number | null; purchases: number | null }[]) ?? [];
+        if (!list.length) {
+          setSums(null);
+          return;
+        }
+        setSums({
+          sessions: list.reduce((s, r) => s + (r.sessions ?? 0), 0),
+          purchases: list.reduce((s, r) => s + (r.purchases ?? 0), 0),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, from, to]);
+
+  if (!sums || sums.sessions === 0) return null;
+  const cr = (sums.purchases / sums.sessions) * 100;
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      <KpiCard label={t("sessionsLbl")} value={formatNumber(sums.sessions)} />
+      <KpiCard label={t("ga4PurchasesLbl")} value={formatNumber(sums.purchases)} accent="slate" />
+      <KpiCard label="CR" value={`${cr.toFixed(2)}%`} accent={cr >= 1 ? "green" : "amber"} />
     </div>
   );
 }
@@ -272,19 +362,38 @@ interface DailyRow {
   order_revenue: number;
 }
 
+interface FunnelTotals {
+  add_to_carts: number;
+  checkouts: number;
+}
+
 export function HealthReport() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [days, setDays] = useState(60);
   const [rows, setRows] = useState<DailyRow[] | null>(null);
+  const [funnelExtra, setFunnelExtra] = useState<FunnelTotals | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setRows(null);
+    const p_from = isoDaysAgo(days - 1);
+    const p_to = isoDaysAgo(0);
+    supabase.rpc("fn_tracking_daily", { p_from, p_to }).then(({ data }) => {
+      if (!cancelled) setRows((data as DailyRow[]) ?? []);
+    });
     supabase
-      .rpc("fn_tracking_daily", { p_from: isoDaysAgo(days - 1), p_to: isoDaysAgo(0) })
+      .from("ga4_daily")
+      .select("add_to_carts, checkouts")
+      .gte("date", p_from)
+      .lte("date", p_to)
       .then(({ data }) => {
-        if (!cancelled) setRows((data as DailyRow[]) ?? []);
+        if (cancelled) return;
+        const list = (data as { add_to_carts: number | null; checkouts: number | null }[]) ?? [];
+        setFunnelExtra({
+          add_to_carts: list.reduce((s, r) => s + (r.add_to_carts ?? 0), 0),
+          checkouts: list.reduce((s, r) => s + (r.checkouts ?? 0), 0),
+        });
       });
     return () => {
       cancelled = true;
@@ -343,6 +452,38 @@ export function HealthReport() {
         </div>
       )}
 
+      {funnelExtra && (
+        <div className="card p-5">
+          <h3 className="mb-4 text-sm font-bold text-slate-700">{t("funnelTitle")}</h3>
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
+            {(() => {
+              const steps = [
+                { label: t("sessionsLbl"), value: rows.reduce((s, r) => s + r.sessions, 0) },
+                { label: t("addToCarts"), value: funnelExtra.add_to_carts },
+                { label: t("beginCheckout"), value: funnelExtra.checkouts },
+                { label: t("ga4PurchasesLbl"), value: rows.reduce((s, r) => s + r.ga4_purchases, 0) },
+                { label: t("actualOrdersLbl"), value: rows.reduce((s, r) => s + r.orders, 0) },
+              ];
+              return steps.map((st, i) => {
+                const prev = i > 0 ? steps[i - 1].value : null;
+                const pct = prev && prev > 0 ? (st.value / prev) * 100 : null;
+                return (
+                  <div key={st.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold text-slate-500">{st.label}</div>
+                    <div className="mt-1 text-xl font-bold text-slate-800">{formatNumber(st.value)}</div>
+                    {pct != null && (
+                      <div className={cn("mt-0.5 text-[11px] font-bold", pct < 20 ? "text-red-600" : "text-emerald-600")}>
+                        {pct.toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+
       <ChartCard title={t("trafficTabHealth")}>
         <TrendChart
           data={rows as unknown as Record<string, unknown>[]}
@@ -363,6 +504,262 @@ export function HealthReport() {
           height={200}
         />
       </ChartCard>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Audience
+
+interface SearchTermRow {
+  term: string;
+  sessions: number | null;
+  searches: number | null;
+}
+interface CityRow {
+  city: string;
+  sessions: number | null;
+  purchases: number | null;
+  revenue: number | null;
+}
+interface DeviceRow {
+  device: string;
+  sessions: number | null;
+  add_to_carts: number | null;
+  purchases: number | null;
+  revenue: number | null;
+}
+interface LandingRow {
+  landing_page: string;
+  sessions: number | null;
+  bounce_rate: number | null;
+  purchases: number | null;
+}
+interface CityOrders {
+  city: string;
+  orders: number;
+  delivered: number;
+  revenue: number;
+}
+
+export function AudienceReport({ months }: { months: string[] }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [month, setMonth] = useState(months[0] ?? "");
+  const [loading, setLoading] = useState(true);
+  const [terms, setTerms] = useState<SearchTermRow[]>([]);
+  const [cities, setCities] = useState<CityRow[]>([]);
+  const [devices, setDevices] = useState<DeviceRow[]>([]);
+  const [landing, setLanding] = useState<LandingRow[]>([]);
+  const [cityOrders, setCityOrders] = useState<CityOrders[]>([]);
+  const [catalog, setCatalog] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!month) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const monthEnd = new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 0)
+        .toISOString()
+        .slice(0, 10);
+      const [te, ci, de, la, co] = await Promise.all([
+        supabase.from("ga4_search_terms").select("term, sessions, searches").eq("period_month", month).order("searches", { ascending: false }).limit(100),
+        supabase.from("ga4_cities").select("city, sessions, purchases, revenue").eq("period_month", month).order("sessions", { ascending: false }).limit(40),
+        supabase.from("ga4_devices").select("device, sessions, add_to_carts, purchases, revenue").eq("period_month", month),
+        supabase.from("ga4_landing").select("landing_page, sessions, bounce_rate, purchases").eq("period_month", month).order("sessions", { ascending: false }).limit(25),
+        supabase.rpc("fn_orders_by_city", { p_from: month, p_to: monthEnd, p_limit: 100 }),
+      ]);
+      // catalog names once, for the "no match" flag on search terms
+      const names: string[] = [];
+      for (let offset = 0; offset < 30000; offset += 1000) {
+        const { data } = await supabase.from("stock_items").select("product_name").range(offset, offset + 999);
+        const chunk = (data as { product_name: string | null }[]) ?? [];
+        for (const s of chunk) if (s.product_name) names.push(normalizeAr(s.product_name));
+        if (chunk.length < 1000) break;
+      }
+      if (cancelled) return;
+      setTerms((te.data as SearchTermRow[]) ?? []);
+      setCities((ci.data as CityRow[]) ?? []);
+      setDevices((de.data as DeviceRow[]) ?? []);
+      setLanding((la.data as LandingRow[]) ?? []);
+      setCityOrders((co.data as CityOrders[]) ?? []);
+      setCatalog(names);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, month]);
+
+  const cityOrderLookup = useMemo(() => {
+    const map = new Map<string, CityOrders>();
+    for (const o of cityOrders) map.set(normalizeAr(o.city), o);
+    return map;
+  }, [cityOrders]);
+
+  const findCityOrders = (ga4City: string): CityOrders | null => {
+    const direct = cityOrderLookup.get(normalizeAr(ga4City));
+    if (direct) return direct;
+    for (const ar of CITY_AR[ga4City.toLowerCase()] ?? []) {
+      for (const [key, val] of cityOrderLookup) {
+        if (key.includes(ar)) return val;
+      }
+    }
+    return null;
+  };
+
+  const termHasMatch = (term: string) => {
+    const n = normalizeAr(term);
+    if (n.length < 3) return true;
+    return catalog.some((name) => name.includes(n));
+  };
+
+  if (!months.length)
+    return <div className="card p-8 text-center text-sm text-slate-500">{t("noGrowthData")}</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {new Date(m).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          {devices.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {devices.map((d) => {
+                const cr = d.sessions ? ((d.purchases ?? 0) / d.sessions) * 100 : 0;
+                return (
+                  <KpiCard
+                    key={d.device}
+                    label={`${t("devicesTitle")}: ${d.device}`}
+                    value={`CR ${cr.toFixed(2)}%`}
+                    sub={`${formatNumber(d.sessions ?? 0)} ${t("sessionsLbl")} · ${formatNumber(d.purchases ?? 0)} ${t("ga4PurchasesLbl")}`}
+                    accent={cr >= 1 ? "green" : "amber"}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {terms.length > 0 && (
+            <div className="card p-5">
+              <h3 className="mb-1 text-sm font-bold text-slate-700">{t("siteSearchTitle")}</h3>
+              <p className="mb-3 text-xs text-slate-500">{t("siteSearchHint")}</p>
+              <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
+                <table className="table-base">
+                  <thead>
+                    <tr>
+                      <th>{t("termLbl")}</th>
+                      <th>{t("searchesLbl")}</th>
+                      <th>{t("sessionsLbl")}</th>
+                      <th>{t("status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {terms.map((tr) => (
+                      <tr key={tr.term}>
+                        <td className="!whitespace-normal max-w-md font-medium">{tr.term}</td>
+                        <td className="font-semibold">{formatNumber(tr.searches ?? 0)}</td>
+                        <td>{formatNumber(tr.sessions ?? 0)}</td>
+                        <td>
+                          {!termHasMatch(tr.term) && (
+                            <span className="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-700">
+                              {t("notStocked")}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {cities.length > 0 && (
+            <div className="card p-5">
+              <h3 className="mb-1 text-sm font-bold text-slate-700">{t("cityGapTitle")}</h3>
+              <p className="mb-3 text-xs text-slate-500">{t("cityGapHint")}</p>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="table-base">
+                  <thead>
+                    <tr>
+                      <th>{t("city")}</th>
+                      <th>{t("sessionsLbl")}</th>
+                      <th>{t("ga4PurchasesLbl")}</th>
+                      <th>{t("actualOrdersLbl")}</th>
+                      <th>{t("delivered")}</th>
+                      <th>CR%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cities.slice(0, 25).map((c) => {
+                      const o = findCityOrders(c.city);
+                      const cr = c.sessions ? ((o?.orders ?? c.purchases ?? 0) / c.sessions) * 100 : 0;
+                      return (
+                        <tr key={c.city}>
+                          <td dir="ltr" className="font-medium">{c.city}</td>
+                          <td className="font-semibold">{formatNumber(c.sessions ?? 0)}</td>
+                          <td>{formatNumber(c.purchases ?? 0)}</td>
+                          <td className="font-semibold">{o ? formatNumber(o.orders) : "—"}</td>
+                          <td className="text-emerald-700">{o ? formatNumber(o.delivered) : "—"}</td>
+                          <td className={cn("font-bold", cr >= 1.5 ? "text-emerald-600" : cr < 0.5 ? "text-red-600" : "")}>
+                            {cr.toFixed(2)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {landing.length > 0 && (
+            <div className="card p-5">
+              <h3 className="mb-3 text-sm font-bold text-slate-700">{t("landingTitle")}</h3>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="table-base">
+                  <thead>
+                    <tr>
+                      <th>{t("pagePath")}</th>
+                      <th>{t("sessionsLbl")}</th>
+                      <th>{t("bounceRate")}</th>
+                      <th>{t("ga4PurchasesLbl")}</th>
+                      <th>CR%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {landing.map((l) => {
+                      const cr = l.sessions ? ((l.purchases ?? 0) / l.sessions) * 100 : 0;
+                      const bounce = (l.bounce_rate ?? 0) * 100;
+                      return (
+                        <tr key={l.landing_page}>
+                          <td dir="ltr" className="font-mono text-xs max-w-md truncate">{l.landing_page}</td>
+                          <td className="font-semibold">{formatNumber(l.sessions ?? 0)}</td>
+                          <td className={cn(bounce > 40 ? "text-red-600 font-semibold" : "")}>{bounce.toFixed(0)}%</td>
+                          <td>{formatNumber(l.purchases ?? 0)}</td>
+                          <td className={cn("font-bold", cr >= 1.5 ? "text-emerald-600" : cr < 0.5 ? "text-red-600" : "")}>
+                            {cr.toFixed(2)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
