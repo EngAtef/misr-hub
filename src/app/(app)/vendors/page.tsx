@@ -25,61 +25,11 @@ interface VendorKpis {
   avg_price: number;
 }
 
-interface SummaryRow {
-  vendor: string; units: number; revenue: number; orders: number; titles: number; customers: number;
-  delivered_units: number; cancelled_units: number; avg_price: number; revenue_share_pct: number;
-}
-
-function VendorComparison({ rows }: { rows: SummaryRow[] | null }) {
-  const { t, lang } = useLang();
-  if (rows === null) return null;
-  if (!rows.length) return null;
-  return (
-    <div className="mb-6">
-      <h2 className="mb-2 text-lg font-bold">{t("vendorCompare")}</h2>
-      <div className="card overflow-x-auto">
-        <table className="table-base">
-          <thead>
-            <tr>
-              <th>{t("selectVendor")}</th>
-              <th>{t("vendorUnits")}</th>
-              <th>{t("vendorRevenue")}</th>
-              <th>{t("vendorRevShare")}</th>
-              <th>{t("vendorOrders")}</th>
-              <th>{t("vendorTitles")}</th>
-              <th>{t("vendorCustomers")}</th>
-              <th>{t("vendorDeliveredUnits")}</th>
-              <th>{t("vendorCancelledUnits")}</th>
-              <th>{t("vendorAvgPrice")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.vendor}>
-                <td className="font-semibold">{r.vendor === "AL-Adwaa" ? t("vendorAlAdwaa") : r.vendor}</td>
-                <td className="font-semibold">{formatNumber(r.units)}</td>
-                <td className="text-emerald-700 font-semibold">{formatMoney(r.revenue, lang)}</td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-100">
-                      <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.min(100, r.revenue_share_pct)}%` }} />
-                    </div>
-                    <span className="font-bold">{r.revenue_share_pct}%</span>
-                  </div>
-                </td>
-                <td>{formatNumber(r.orders)}</td>
-                <td>{formatNumber(r.titles)}</td>
-                <td>{formatNumber(r.customers)}</td>
-                <td>{formatNumber(r.delivered_units)}</td>
-                <td className={cn(r.cancelled_units > 0 && "text-red-600")}>{formatNumber(r.cancelled_units)}</td>
-                <td>{formatMoney(r.avg_price, lang)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+interface ExportLine {
+  order_number: string; order_date: string | null; order_status: string | null; payment_method: string | null;
+  customer_name: string | null; customer_phone: string | null; city: string | null; area: string | null;
+  sku: string; product_name: string | null; quantity: number; unit_price: number | null;
+  total_before_discount: number | null; total_paid: number | null;
 }
 
 export default function VendorsPage() {
@@ -88,7 +38,7 @@ export default function VendorsPage() {
   const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
 
   const [grp, setGrp] = useState<VendorGroup>("adwaa");
-  const [summary, setSummary] = useState<SummaryRow[] | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [kpis, setKpis] = useState<VendorKpis | null>(null);
   const [prevKpis, setPrevKpis] = useState<VendorKpis | null>(null);
   const [monthly, setMonthly] = useState<{ month: string; units: number; revenue: number; orders: number }[]>([]);
@@ -96,17 +46,35 @@ export default function VendorsPage() {
   const [cities, setCities] = useState<{ city: string; units: number; revenue: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // both vendors side by side, current range
-  useEffect(() => {
-    let cancelled = false;
-    const p = rangeParams(range);
-    supabase.rpc("fn_vendor_grp_summary", { p_from: p.p_from, p_to: p.p_to }).then(({ data }) => {
-      if (!cancelled) setSummary((data as SummaryRow[]) ?? []);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase, range]);
+  // full order-lines export for the current vendor + date range,
+  // formatted so the file can be sent to the vendor as-is
+  const exportOrders = useCallback(async () => {
+    setExporting(true);
+    try {
+      const p = rangeParams(range);
+      const { data } = await supabase.rpc("fn_vendor_grp_export", { p_group: grp, p_from: p.p_from, p_to: p.p_to });
+      const lines = ((data as ExportLine[]) ?? []).map((r) => ({
+        "Order Number": r.order_number,
+        "Order Date": r.order_date ? r.order_date.slice(0, 10) : "",
+        "Status": r.order_status ?? "",
+        "Customer Name": r.customer_name ?? "",
+        "Customer Phone": r.customer_phone ?? "",
+        "City": r.city ?? "",
+        "Area": r.area ?? "",
+        "SKU": r.sku,
+        "Product Title": r.product_name ?? "",
+        "Quantity": r.quantity,
+        "Unit Price": r.unit_price ?? "",
+        "Total Before Discount": r.total_before_discount ?? "",
+        "Total Paid": r.total_paid ?? "",
+        "Payment Method": r.payment_method ?? "",
+      }));
+      const vendorSlug = grp === "adwaa" ? "al-adwaa" : "nm-books";
+      downloadCsv(`${vendorSlug}-orders-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(lines));
+    } finally {
+      setExporting(false);
+    }
+  }, [supabase, grp, range]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -194,13 +162,15 @@ export default function VendorsPage() {
             {t("vendorNmBooks")}
           </button>
         </div>
+        <button className="btn-secondary" onClick={exportOrders} disabled={exporting}>
+          <Download size={15} />
+          {exporting ? t("vendorExporting") : t("vendorExportOrders")}
+        </button>
         <div className="flex items-start gap-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-800">
           <Info size={15} className="shrink-0 mt-0.5" />
           {t("vendorCatNote")}
         </div>
       </div>
-
-      <VendorComparison rows={summary} />
 
       {loading ? (
         <Spinner />

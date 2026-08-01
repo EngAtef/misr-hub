@@ -144,16 +144,17 @@ export function BarsChart({
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout={layout} margin={{ top: 8, right: 12, left: 0, bottom: 0 }} barCategoryGap="25%">
         <CartesianGrid strokeDasharray="4 6" stroke="#eef2f7" horizontal={layout === "horizontal"} vertical={layout === "vertical"} />
+        {/* recharts drops children wrapped in React fragments (react-is doesn't
+            flag them under React 19), so each axis must be a direct child */}
         {layout === "horizontal" ? (
-          <>
-            <XAxis dataKey={xKey} tick={{ ...axisStyle, fontSize: 10.5 }} stroke="#e2e8f0" tickLine={false} interval={0} angle={-25} textAnchor="end" height={70} />
-            <YAxis tick={axisStyle} stroke="transparent" tickLine={false} tickFormatter={compactFmt} width={44} />
-          </>
+          <XAxis dataKey={xKey} tick={{ ...axisStyle, fontSize: 10.5 }} stroke="#e2e8f0" tickLine={false} interval={0} angle={-25} textAnchor="end" height={70} />
         ) : (
-          <>
-            <XAxis type="number" tick={axisStyle} stroke="#e2e8f0" tickLine={false} tickFormatter={compactFmt} />
-            <YAxis type="category" dataKey={xKey} tick={{ ...axisStyle, fill: "#475569" }} stroke="transparent" tickLine={false} width={150} />
-          </>
+          <XAxis type="number" tick={axisStyle} stroke="#e2e8f0" tickLine={false} tickFormatter={compactFmt} />
+        )}
+        {layout === "horizontal" ? (
+          <YAxis tick={axisStyle} stroke="transparent" tickLine={false} tickFormatter={compactFmt} width={44} />
+        ) : (
+          <YAxis type="category" dataKey={xKey} tick={{ ...axisStyle, fill: "#475569" }} stroke="transparent" tickLine={false} width={150} />
         )}
         <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f1f5f9", opacity: 0.6 }} />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={9} />
@@ -165,6 +166,7 @@ export function BarsChart({
             fill={s.color ?? CHART_COLORS[i]}
             radius={layout === "horizontal" ? [6, 6, 0, 0] : [0, 6, 6, 0]}
             maxBarSize={38}
+            isAnimationActive={false}
           />
         ))}
       </BarChart>
