@@ -9,7 +9,7 @@ import {
   syncGa4Month,
   type Ga4SyncResult,
 } from "@/lib/google/ga4";
-import { getGscConfig, syncGscMonth, type GscSyncResult } from "@/lib/google/gsc";
+import { getGscConfig, resolveGscSite, syncGscMonth, type GscSyncResult } from "@/lib/google/gsc";
 
 export const maxDuration = 60;
 
@@ -43,7 +43,18 @@ async function runSync(supabase: SupabaseClient, months: string[]) {
       { status: 400 }
     );
   }
-  const gscCfg = await getGscConfig(supabase);
+  // resolve the GSC property once per run (also normalizes a pasted bare
+  // domain into the exact property id); a failure is reported, not fatal
+  let gscCfg = await getGscConfig(supabase);
+  let gscError: string | null = null;
+  if (gscCfg) {
+    try {
+      gscCfg = await resolveGscSite(gscCfg, supabase);
+    } catch (e) {
+      gscError = String(e);
+      gscCfg = null;
+    }
+  }
   const results: (Ga4SyncResult & { gsc?: GscSyncResult | string })[] = [];
   for (const month of months) {
     const r: Ga4SyncResult & { gsc?: GscSyncResult | string } = await syncGa4Month(cfg, supabase, month);
@@ -53,7 +64,7 @@ async function runSync(supabase: SupabaseClient, months: string[]) {
     }
     results.push(r);
   }
-  return NextResponse.json({ ok: true, results, gsc_configured: !!gscCfg });
+  return NextResponse.json({ ok: true, results, gsc_configured: !!gscCfg, gsc_error: gscError });
 }
 
 export async function GET(request: NextRequest) {

@@ -98,7 +98,17 @@ export default function TrafficPage() {
       for (let i = 2; i < 12; i++) {
         targets.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 10));
       }
-      const missing = targets.filter((m) => !have.has(m));
+      // when Search Console is configured, months that have GA4 data but no
+      // GSC data yet also need a re-sync (e.g. GSC connected after backfill)
+      let gscHave: Set<string> | null = null;
+      const { data: gscSetting } = await supabase.from("app_settings").select("value").eq("key", "gsc").maybeSingle();
+      if ((gscSetting?.value as { site_url?: string } | null)?.site_url) {
+        const { data: gd } = await supabase.from("gsc_daily").select("date").limit(2000);
+        gscHave = new Set(
+          ((gd as { date: string }[]) ?? []).map((r) => `${r.date.slice(0, 7)}-01`)
+        );
+      }
+      const missing = targets.filter((m) => !have.has(m) || (gscHave !== null && !gscHave.has(m)));
       for (let i = 0; i < missing.length; i++) {
         setSyncProgress(`${i + 1}/${missing.length}`);
         const r = await fetch(`/api/cron/ga4-sync?months=${missing[i]}`, { method: "POST" });
@@ -111,7 +121,7 @@ export default function TrafficPage() {
       setSyncProgress(null);
       setSyncState("error");
     }
-  }, [months]);
+  }, [months, supabase]);
 
   useEffect(() => {
     supabase.rpc("fn_ga4_months").then(({ data }) => {

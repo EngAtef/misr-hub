@@ -23,6 +23,53 @@ export async function getGscConfig(supabase: SupabaseClient): Promise<GscConfig 
   return { siteUrl, sa };
 }
 
+// Users paste the bare domain more often than the exact GSC property id, so
+// probe the likely formats and keep whichever one Google accepts.
+function siteCandidates(raw: string): string[] {
+  const v = raw.trim();
+  if (v.startsWith("sc-domain:") || /^https?:\/\//i.test(v)) return [v];
+  const domain = v.replace(/\/+$/, "").replace(/^www\./i, "");
+  return [
+    `sc-domain:${domain}`,
+    `https://${domain}/`,
+    `https://www.${domain}/`,
+    `http://${domain}/`,
+    `http://www.${domain}/`,
+  ];
+}
+
+// Resolves the working property id (probing with a tiny query) and persists
+// the normalized value back to settings so future syncs skip the probe.
+export async function resolveGscSite(cfg: GscConfig, supabase: SupabaseClient): Promise<GscConfig> {
+  const candidates = siteCandidates(cfg.siteUrl);
+  let lastError = "";
+  for (const candidate of candidates) {
+    try {
+      await gscQuery({ ...cfg, siteUrl: candidate }, defaultProbeMonth(), ["date"], 1);
+      if (candidate !== cfg.siteUrl) {
+        try {
+          const { data } = await supabase.from("app_settings").select("value").eq("key", "gsc").maybeSingle();
+          const merged = { ...((data?.value as Record<string, string>) ?? {}), site_url: candidate };
+          await supabase
+            .from("app_settings")
+            .upsert({ key: "gsc", value: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
+        } catch {
+          // persisting the normalized url is a nicety — probing again next run is fine
+        }
+      }
+      return { ...cfg, siteUrl: candidate };
+    } catch (e) {
+      lastError = String(e);
+    }
+  }
+  throw new Error(`No accessible GSC property for "${cfg.siteUrl}". Last error: ${lastError}`);
+}
+
+function defaultProbeMonth(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+}
+
 interface GscRow {
   keys: string[];
   clicks: number;
