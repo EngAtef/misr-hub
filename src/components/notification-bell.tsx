@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, MessageSquare, X, CheckCheck, Megaphone } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, MessageSquare, X, CheckCheck, Megaphone, ArrowUpRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { sanitizeHtml } from "@/lib/rich-text";
@@ -30,6 +31,7 @@ interface DirectoryUser {
 /** Sidebar bell + inbox icons with unread badges, notification panel and sender. */
 export function NotificationBell({ profile }: { profile: Profile }) {
   const { t, lang } = useLang();
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [counts, setCounts] = useState({ messages: 0, notifications: 0 });
   const [open, setOpen] = useState(false);
@@ -192,11 +194,18 @@ export function NotificationBell({ profile }: { profile: Profile }) {
                       "block w-full border-b border-slate-50 px-4 py-3 text-start hover:bg-slate-50",
                       !n.read_at && "bg-brand-50/50"
                     )}
-                    onClick={() => markRead(n.id)}
+                    onClick={() => {
+                      markRead(n.id);
+                      if (n.link) {
+                        setOpen(false);
+                        router.push(n.link);
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-slate-800">
+                      <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
                         {n.title || n.sender_email || t("notifications")}
+                        {n.link && <ArrowUpRight size={12} className="shrink-0 text-brand-400 rtl:-scale-x-100" />}
                       </span>
                       {!n.read_at && <span className="h-2 w-2 shrink-0 rounded-full bg-brand-500" />}
                     </div>
