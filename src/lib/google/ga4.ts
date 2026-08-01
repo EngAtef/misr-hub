@@ -166,16 +166,31 @@ export async function fetchGa4Pages(cfg: Ga4Config, month: string): Promise<Ga4R
     });
 }
 
-export async function fetchGa4Transactions(cfg: Ga4Config, month: string): Promise<Ga4Transaction[]> {
+// Transactions with their session source/medium/campaign so orders can be
+// attributed to channels. A transaction occasionally spans two attribution
+// rows; the row with the most purchases wins.
+export type Ga4TxAttributed = Ga4Transaction & {
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+};
+
+export async function fetchGa4Transactions(cfg: Ga4Config, month: string): Promise<Ga4TxAttributed[]> {
   const range = monthRange(month);
   if (!range) return [];
   const rows = await runReport(cfg, {
     dateRanges: [range],
-    dimensions: [{ name: "transactionId" }],
+    dimensions: [
+      { name: "transactionId" },
+      { name: "sessionSource" },
+      { name: "sessionMedium" },
+      { name: "sessionCampaignName" },
+    ],
     metrics: [{ name: "ecommercePurchases" }, { name: "purchaseRevenue" }],
+    orderBys: [{ metric: { metricName: "ecommercePurchases" }, desc: true }],
   });
   const seen = new Set<string>();
-  const out: Ga4Transaction[] = [];
+  const out: Ga4TxAttributed[] = [];
   for (const r of rows) {
     const raw = r.dimensionValues[0]?.value?.trim();
     if (!raw || raw === "(not set)" || raw === "0") continue;
@@ -187,7 +202,107 @@ export async function fetchGa4Transactions(cfg: Ga4Config, month: string): Promi
       period_month: month,
       purchases: num(r.metricValues[0]?.value),
       revenue: num(r.metricValues[1]?.value),
+      source: r.dimensionValues[1]?.value ?? null,
+      medium: r.dimensionValues[2]?.value ?? null,
+      campaign: r.dimensionValues[3]?.value ?? null,
     });
+  }
+  return out;
+}
+
+const ga4Date = (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+
+export interface Ga4DailyRow {
+  date: string;
+  sessions: number | null;
+  active_users: number | null;
+  views: number | null;
+  add_to_carts: number | null;
+  checkouts: number | null;
+  purchases: number | null;
+  revenue: number | null;
+}
+
+export async function fetchGa4Daily(cfg: Ga4Config, month: string): Promise<Ga4DailyRow[]> {
+  const range = monthRange(month);
+  if (!range) return [];
+  const rows = await runReport(cfg, {
+    dateRanges: [range],
+    dimensions: [{ name: "date" }],
+    metrics: [
+      { name: "sessions" },
+      { name: "activeUsers" },
+      { name: "screenPageViews" },
+      { name: "addToCarts" },
+      { name: "checkouts" },
+      { name: "ecommercePurchases" },
+      { name: "purchaseRevenue" },
+    ],
+  });
+  return rows
+    .filter((r) => /^\d{8}$/.test(r.dimensionValues[0]?.value ?? ""))
+    .map((r) => ({
+      date: ga4Date(r.dimensionValues[0].value),
+      sessions: num(r.metricValues[0]?.value),
+      active_users: num(r.metricValues[1]?.value),
+      views: num(r.metricValues[2]?.value),
+      add_to_carts: num(r.metricValues[3]?.value),
+      checkouts: num(r.metricValues[4]?.value),
+      purchases: num(r.metricValues[5]?.value),
+      revenue: num(r.metricValues[6]?.value),
+    }));
+}
+
+export interface Ga4SourceRow {
+  date: string;
+  source: string;
+  medium: string;
+  campaign: string;
+  sessions: number | null;
+  active_users: number | null;
+  add_to_carts: number | null;
+  purchases: number | null;
+  revenue: number | null;
+}
+
+export async function fetchGa4Sources(cfg: Ga4Config, month: string): Promise<Ga4SourceRow[]> {
+  const range = monthRange(month);
+  if (!range) return [];
+  const rows = await runReport(cfg, {
+    dateRanges: [range],
+    dimensions: [
+      { name: "date" },
+      { name: "sessionSource" },
+      { name: "sessionMedium" },
+      { name: "sessionCampaignName" },
+    ],
+    metrics: [
+      { name: "sessions" },
+      { name: "activeUsers" },
+      { name: "addToCarts" },
+      { name: "ecommercePurchases" },
+      { name: "purchaseRevenue" },
+    ],
+  });
+  const seen = new Set<string>();
+  const out: Ga4SourceRow[] = [];
+  for (const r of rows) {
+    if (!/^\d{8}$/.test(r.dimensionValues[0]?.value ?? "")) continue;
+    const row: Ga4SourceRow = {
+      date: ga4Date(r.dimensionValues[0].value),
+      source: r.dimensionValues[1]?.value ?? "",
+      medium: r.dimensionValues[2]?.value ?? "",
+      campaign: r.dimensionValues[3]?.value ?? "",
+      sessions: num(r.metricValues[0]?.value),
+      active_users: num(r.metricValues[1]?.value),
+      add_to_carts: num(r.metricValues[2]?.value),
+      purchases: num(r.metricValues[3]?.value),
+      revenue: num(r.metricValues[4]?.value),
+    };
+    const key = `${row.date}|${row.source}|${row.medium}|${row.campaign}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
   }
   return out;
 }
@@ -246,19 +361,24 @@ export interface Ga4SyncResult {
   pages: number;
   transactions: number;
   items: number;
+  daily: number;
+  sources: number;
 }
 
 // Mirrors the manual Data Center import exactly: pages/items replace the
 // month's rows, transactions upsert by id (merged across all uploads).
+// Daily metrics and traffic sources upsert on their natural keys.
 export async function syncGa4Month(
   cfg: Ga4Config,
   supabase: SupabaseClient,
   month: string
 ): Promise<Ga4SyncResult> {
-  const [pages, transactions, items] = await Promise.all([
+  const [pages, transactions, items, daily, sources] = await Promise.all([
     fetchGa4Pages(cfg, month),
     fetchGa4Transactions(cfg, month),
     fetchGa4Items(cfg, month),
+    fetchGa4Daily(cfg, month),
+    fetchGa4Sources(cfg, month),
   ]);
 
   if (pages.length) {
@@ -284,5 +404,26 @@ export async function syncGa4Month(
     }
   }
 
-  return { month, pages: pages.length, transactions: transactions.length, items: items.length };
+  for (let i = 0; i < daily.length; i += 500) {
+    const { error } = await supabase
+      .from("ga4_daily")
+      .upsert(daily.slice(i, i + 500), { onConflict: "date" });
+    if (error) throw new Error(`ga4_daily: ${error.message}`);
+  }
+
+  for (let i = 0; i < sources.length; i += 1000) {
+    const { error } = await supabase
+      .from("ga4_sources")
+      .upsert(sources.slice(i, i + 1000), { onConflict: "date,source,medium,campaign" });
+    if (error) throw new Error(`ga4_sources: ${error.message}`);
+  }
+
+  return {
+    month,
+    pages: pages.length,
+    transactions: transactions.length,
+    items: items.length,
+    daily: daily.length,
+    sources: sources.length,
+  };
 }

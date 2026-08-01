@@ -9,6 +9,9 @@ import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, 
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
+import { ChannelsReport, HealthReport, MatrixReport } from "@/components/traffic-growth";
+
+type TrafficTab = "overview" | "channels" | "health" | "matrix";
 
 interface MonthRow {
   period_month: string;
@@ -76,6 +79,7 @@ export default function TrafficPage() {
   const [itemGaps, setItemGaps] = useState<ItemGap[]>([]);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
   const [reloadKey, setReloadKey] = useState(0);
+  const [tab, setTab] = useState<TrafficTab>("overview");
 
   const syncFromGa4 = useCallback(async () => {
     setSyncState("syncing");
@@ -313,34 +317,66 @@ export default function TrafficPage() {
               <RefreshCw size={14} className={syncState === "syncing" ? "animate-spin" : undefined} />
               {t("syncGa4")}
             </button>
-            <select className="input !w-auto" value={selected ?? ""} onChange={(e) => setSelected(e.target.value)}>
-              {months.map((m) => (
-                <option key={m.period_month} value={m.period_month}>
-                  {monthLabel(m.period_month, lang)}
-                </option>
-              ))}
-            </select>
-            {months.length > 1 && (
-              <select
-                className={cn("input !w-auto", compareMonth && "!border-violet-400 !text-violet-700")}
-                value={compareMonth}
-                onChange={(e) => setCompareMonth(e.target.value)}
-              >
-                <option value="">{t("noCompare")}</option>
-                {months
-                  .filter((m) => m.period_month !== selected)
-                  .map((m) => (
+            {tab === "overview" && (
+              <>
+                <select className="input !w-auto" value={selected ?? ""} onChange={(e) => setSelected(e.target.value)}>
+                  {months.map((m) => (
                     <option key={m.period_month} value={m.period_month}>
-                      {t("vsLbl")} {monthLabel(m.period_month, lang)}
+                      {monthLabel(m.period_month, lang)}
                     </option>
                   ))}
-              </select>
+                </select>
+                {months.length > 1 && (
+                  <select
+                    className={cn("input !w-auto", compareMonth && "!border-violet-400 !text-violet-700")}
+                    value={compareMonth}
+                    onChange={(e) => setCompareMonth(e.target.value)}
+                  >
+                    <option value="">{t("noCompare")}</option>
+                    {months
+                      .filter((m) => m.period_month !== selected)
+                      .map((m) => (
+                        <option key={m.period_month} value={m.period_month}>
+                          {t("vsLbl")} {monthLabel(m.period_month, lang)}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              </>
             )}
           </div>
         }
       />
 
-      {s && (
+      <div className="mb-6 flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+        {(
+          [
+            ["overview", t("trafficTabOverview")],
+            ["channels", t("trafficTabChannels")],
+            ["health", t("trafficTabHealth")],
+            ["matrix", t("trafficTabMatrix")],
+          ] as [TrafficTab, string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              "rounded-lg px-4 py-2 text-sm font-semibold transition",
+              tab === key ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "channels" && <ChannelsReport />}
+      {tab === "health" && <HealthReport />}
+      {tab === "matrix" && (
+        <MatrixReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />
+      )}
+
+      {tab === "overview" && s && (
         <div className="space-y-6">
           {ps && compareMonth && (
             <div className="flex items-center gap-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2 text-xs font-semibold text-violet-700">
