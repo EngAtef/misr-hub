@@ -417,6 +417,42 @@ export const fetchGa4Landing = (cfg: Ga4Config, month: string) =>
     { api: "purchaseRevenue", column: "revenue" },
   ]);
 
+export interface Ga4HourRow {
+  period_month: string;
+  dow: number;
+  hour: number;
+  sessions: number | null;
+  purchases: number | null;
+}
+
+export async function fetchGa4Hours(cfg: Ga4Config, month: string): Promise<Ga4HourRow[]> {
+  const range = monthRange(month);
+  if (!range) return [];
+  const rows = await runReport(cfg, {
+    dateRanges: [range],
+    dimensions: [{ name: "dayOfWeek" }, { name: "hour" }],
+    metrics: [{ name: "sessions" }, { name: "ecommercePurchases" }],
+  });
+  const seen = new Set<string>();
+  const out: Ga4HourRow[] = [];
+  for (const r of rows) {
+    const dow = Number(r.dimensionValues[0]?.value);
+    const hour = Number(r.dimensionValues[1]?.value);
+    if (!Number.isInteger(dow) || !Number.isInteger(hour)) continue;
+    const key = `${dow}|${hour}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      period_month: month,
+      dow,
+      hour,
+      sessions: num(r.metricValues[0]?.value),
+      purchases: num(r.metricValues[1]?.value),
+    });
+  }
+  return out;
+}
+
 // Current month plus the previous one — GA4 data can lag ~48h, so re-syncing
 // the previous month for a few days after month end keeps it accurate.
 export function defaultSyncMonths(): string[] {
@@ -456,7 +492,7 @@ export async function syncGa4Month(
   // audience reports are non-critical — one failing (e.g. an incompatible
   // dimension on this property) must not break the core sync
   const safe = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-  const [pages, transactions, items, daily, sources, searchTerms, cities, devices, landing] =
+  const [pages, transactions, items, daily, sources, searchTerms, cities, devices, landing, hours] =
     await Promise.all([
       fetchGa4Pages(cfg, month),
       fetchGa4Transactions(cfg, month),
@@ -467,6 +503,7 @@ export async function syncGa4Month(
       safe(fetchGa4Cities(cfg, month)),
       safe(fetchGa4Devices(cfg, month)),
       safe(fetchGa4Landing(cfg, month)),
+      safe(fetchGa4Hours(cfg, month)),
     ]);
 
   if (pages.length) {
@@ -506,11 +543,12 @@ export async function syncGa4Month(
     if (error) throw new Error(`ga4_sources: ${error.message}`);
   }
 
-  const monthly: [string, MonthlyRow[]][] = [
+  const monthly: [string, (MonthlyRow | Ga4HourRow)[]][] = [
     ["ga4_search_terms", searchTerms],
     ["ga4_cities", cities],
     ["ga4_devices", devices],
     ["ga4_landing", landing.slice(0, 2000)],
+    ["ga4_hours", hours],
   ];
   for (const [table, rows] of monthly) {
     if (!rows.length) continue;

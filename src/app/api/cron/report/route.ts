@@ -182,6 +182,50 @@ export async function GET(request: NextRequest) {
     // best-effort
   }
 
+  // Website traffic digest + smart alarms (best-effort — GA4 sync since 055/059)
+  let trafficSection = "";
+  try {
+    const from7 = daysAgo(7).slice(0, 10);
+    const [{ data: gaDays }, { data: alarmsData }] = await Promise.all([
+      admin.from("ga4_daily").select("sessions, purchases").gte("date", from7),
+      admin.rpc("fn_traffic_alarms"),
+    ]);
+    const gd = (gaDays ?? []) as { sessions: number | null; purchases: number | null }[];
+    const sessions = gd.reduce((s, r) => s + (r.sessions ?? 0), 0);
+    const ga4Purchases = gd.reduce((s, r) => s + (r.purchases ?? 0), 0);
+    const alarms = (alarmsData ?? []) as { kind: string; severity: string; data: Record<string, string | number> }[];
+    const alarmText: Record<string, (d: Record<string, string | number>) => string> = {
+      dead_spend: (d) => `Campaign "${d.name}" spent ${money(Number(d.spend))} with 0 matched orders (10d)`,
+      low_roas: (d) => `Campaign "${d.name}" losing: ${money(Number(d.spend))} spend vs ${money(Number(d.revenue))} revenue`,
+      traffic_anomaly: (d) => `Traffic anomaly: ${fmt(Number(d.yesterday))} sessions yesterday vs usual ${fmt(Number(d.avg))}`,
+      oos_traffic: (d) => `"${d.name}" out of stock with ${fmt(Number(d.views))} views this month`,
+      conversion_collapse: (d) => `"${d.name}" conversion fell to ${d.cur}% (was ${d.prev}%)`,
+      checkout_leak: (d) => `Checkout leak: ${d.recent}% completion vs usual ${d.prior}%`,
+      rank_drop: (d) => `Google rank for "${d.query}" fell ${d.prev} → ${d.cur}`,
+      rank_win: (d) => `"${d.query}" reached Google page 1 (${d.prev} → ${d.cur})`,
+      city_delivery: (d) => `Delivery rate in ${d.city} dropped to ${d.cur}% (was ${d.prev}%)`,
+      pace_driver: (d) => `Revenue pace behind last month (${money(Number(d.r_cur))} vs ${money(Number(d.r_prev))})`,
+    };
+    const sev = (s: string) => (s === "red" ? "#dc2626" : s === "amber" ? "#d97706" : "#2563eb");
+    const rowT = (label: string, value: string) =>
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}</td></tr>`;
+    if (sessions > 0 || alarms.length) {
+      trafficSection = `
+      <h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">🌐 Website Traffic (7 days)</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${rowT("Sessions", fmt(sessions))}
+        ${rowT("GA4 purchases", fmt(ga4Purchases))}
+        ${rowT("Conversion rate", sessions ? `${((ga4Purchases / sessions) * 100).toFixed(2)}%` : "—")}
+      </table>
+      ${alarms.length ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">🚨 Smart Alarms</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${alarms.slice(0, 8).map((a) => `<tr><td style="padding:7px 12px;border-bottom:1px solid #e2e8f0;color:${sev(a.severity)};font-size:12.5px">${(alarmText[a.kind] ?? (() => a.kind))(a.data)}</td></tr>`).join("")}
+      </table>` : ""}`;
+    }
+  } catch {
+    // traffic digest is optional in this report
+  }
+
   const dateStr = now.toISOString().slice(0, 10);
   const row = (label: string, value: string, t = "") =>
     `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#475569">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${value}${t}</td></tr>`;
@@ -213,6 +257,7 @@ export async function GET(request: NextRequest) {
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         ${products.map((p) => row(p.product_name.slice(0, 45), `${fmt(p.quantity)} pcs`)).join("")}
       </table>
+      ${trafficSection}
       ${abandonedSection}
       ${teamRows ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">Team Activity (7 days)</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">${teamRows}</table>` : ""}

@@ -9,7 +9,7 @@ import { PageHeader, Spinner, KpiCard, ChartCard, StatusBadge, SortTh, useSort, 
 import { BarsChart } from "@/components/charts";
 import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
-import { ChannelsReport, HealthReport, MatrixReport, AudienceReport, SeoReport } from "@/components/traffic-growth";
+import { ChannelsReport, HealthReport, MatrixReport, AudienceReport, SeoReport, TrafficAlarms } from "@/components/traffic-growth";
 
 type TrafficTab = "overview" | "channels" | "health" | "matrix" | "audience" | "seo";
 
@@ -401,6 +401,8 @@ export default function TrafficPage() {
           </button>
         ))}
       </div>
+
+      <TrafficAlarms />
 
       {tab === "channels" && <ChannelsReport />}
       {tab === "health" && <HealthReport />}

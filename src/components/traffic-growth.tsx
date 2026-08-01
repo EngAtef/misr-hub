@@ -5,12 +5,305 @@
 // /api/cron/ga4-sync plus the store's own orders/stock tables.
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Download, X, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { KpiCard, ChartCard, Spinner, SortTh, useSort } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
-import { formatNumber, formatMoney, cn } from "@/lib/utils";
+import { formatNumber, formatMoney, cn, toCsv, downloadCsv } from "@/lib/utils";
+
+function fillVars(template: string, vars: Record<string, string | number>) {
+  return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ""));
+}
+
+// CSV export for any section — every table gets one.
+function ExportButton({ name, rows }: { name: string; rows: unknown[] }) {
+  if (!rows?.length) return null;
+  return (
+    <button
+      className="btn-secondary !py-1 !px-2.5 text-xs shrink-0"
+      onClick={() => downloadCsv(`${name}.csv`, toCsv(rows as Record<string, unknown>[]))}
+    >
+      <Download size={13} />
+      CSV
+    </button>
+  );
+}
+
+// ------------------------------------------------- generic drill-down drawer
+
+export interface DetailSpec {
+  title: string;
+  table: string;
+  keyColumn: string;
+  keyValue: string;
+  extraFilter?: Record<string, string>;
+  orderColumn: "period_month" | "date";
+  campaign?: string; // also load matched orders for this campaign
+}
+
+const NUM_SKIP = new Set(["period_month", "date", "imported_at", "dow", "hour"]);
+
+function DetailDrawer({ spec, onClose }: { spec: DetailSpec | null; onClose: () => void }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+  const [orders, setOrders] = useState<Record<string, unknown>[] | null>(null);
+
+  useEffect(() => {
+    if (!spec) return;
+    let cancelled = false;
+    setRows(null);
+    setOrders(null);
+    let q = supabase
+      .from(spec.table)
+      .select("*")
+      .eq(spec.keyColumn, spec.keyValue)
+      .order(spec.orderColumn, { ascending: true })
+      .limit(3000);
+    for (const [k, v] of Object.entries(spec.extraFilter ?? {})) q = q.eq(k, v);
+    q.then(({ data }) => {
+      if (cancelled) return;
+      const raw = (data as Record<string, unknown>[]) ?? [];
+      if (spec.orderColumn === "date") {
+        // daily rows → aggregate per month for a readable history
+        const byMonth = new Map<string, Record<string, number>>();
+        for (const r of raw) {
+          const m = String(r.date).slice(0, 7);
+          const acc = byMonth.get(m) ?? {};
+          for (const [k, v] of Object.entries(r)) {
+            if (typeof v === "number" && !NUM_SKIP.has(k)) acc[k] = (acc[k] ?? 0) + v;
+          }
+          byMonth.set(m, acc);
+        }
+        setRows(Array.from(byMonth.entries()).map(([m, v]) => ({ month: m, ...v })));
+      } else {
+        setRows(raw.map((r) => ({ month: String(r.period_month).slice(0, 7), ...r })));
+      }
+    });
+    if (spec.campaign) {
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 89 * 86400000).toISOString().slice(0, 10);
+      supabase
+        .rpc("fn_campaign_orders", { p_campaign: spec.campaign, p_from: from, p_to: to, p_limit: 100 })
+        .then(({ data }) => {
+          if (!cancelled) setOrders((data as Record<string, unknown>[]) ?? []);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, spec]);
+
+  if (!spec) return null;
+  const numericCols = rows?.length
+    ? Object.keys(rows[0]).filter((k) => typeof rows[0][k] === "number" && !NUM_SKIP.has(k))
+    : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+      <div className="absolute inset-0 bg-slate-900/30" />
+      <div
+        className="relative ms-auto h-full w-full max-w-xl overflow-y-auto bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase text-slate-400">{t("detailsHistory")}</div>
+            <h3 className="text-base font-bold text-slate-800 break-all">{spec.title}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExportButton name={`history-${spec.keyValue.slice(0, 30)}`} rows={rows ?? []} />
+            <button className="btn-secondary !p-2" onClick={onClose}>
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+
+        {!rows ? (
+          <Spinner />
+        ) : !rows.length ? (
+          <p className="text-sm text-slate-500">{t("noData")}</p>
+        ) : (
+          <div className="space-y-5">
+            {numericCols.length > 0 && (
+              <TrendChart
+                data={rows as unknown as Record<string, unknown>[]}
+                xKey="month"
+                series={numericCols.slice(0, 2).map((k, i) => ({ key: k, name: k, color: i ? "#f59e0b" : "#2563eb" }))}
+                height={190}
+              />
+            )}
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="table-base">
+                <thead>
+                  <tr>
+                    <th>{lang === "ar" ? "الشهر" : "Month"}</th>
+                    {numericCols.map((k) => (
+                      <th key={k} className="text-xs">{k.replace(/_/g, " ")}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="font-semibold" dir="ltr">{String(r.month)}</td>
+                      {numericCols.map((k) => (
+                        <td key={k}>{formatNumber(Number(r[k] ?? 0))}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {spec.campaign && (
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase text-slate-500">{t("matchedOrders")}</h4>
+                  <ExportButton name={`orders-${spec.campaign.slice(0, 30)}`} rows={orders ?? []} />
+                </div>
+                {!orders ? (
+                  <Spinner />
+                ) : (
+                  <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+                    <table className="table-base">
+                      <thead>
+                        <tr>
+                          <th>{t("orderNumber")}</th>
+                          <th>{t("status")}</th>
+                          <th>{t("amount")}</th>
+                          <th>{t("city")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders.map((o, i) => (
+                          <tr key={i}>
+                            <td className="font-bold text-brand-700" dir="ltr">#{String(o.order_number)}</td>
+                            <td className="text-xs">{String(o.order_status ?? "—")}</td>
+                            <td>{formatMoney(Number(o.total_order_amount ?? 0), lang)}</td>
+                            <td className="text-xs">{String(o.city ?? "—")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function useDetail() {
+  const [spec, setSpec] = useState<DetailSpec | null>(null);
+  return { spec, setSpec };
+}
+
+// ------------------------------------------------------------ alarms panel
+
+interface Alarm {
+  kind: string;
+  severity: "red" | "amber" | "info";
+  data: Record<string, string | number>;
+}
+
+export function TrafficAlarms() {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [alarms, setAlarms] = useState<Alarm[] | null>(null);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    supabase.rpc("fn_traffic_alarms").then(({ data }) => setAlarms((data as Alarm[]) ?? []));
+  }, [supabase]);
+
+  const text = (a: Alarm): string => {
+    const d = a.data;
+    const n = (v: unknown) => formatNumber(Number(v ?? 0));
+    switch (a.kind) {
+      case "dead_spend":
+        return fillVars(t("alarmDeadSpend"), { name: String(d.name), spend: n(d.spend) });
+      case "low_roas":
+        return fillVars(t("alarmLowRoas"), { name: String(d.name), spend: n(d.spend), revenue: n(d.revenue) });
+      case "traffic_anomaly":
+        return fillVars(t("alarmAnomaly"), { yesterday: n(d.yesterday), avg: n(d.avg) });
+      case "oos_traffic":
+        return fillVars(t("alarmOos"), { name: String(d.name), views: n(d.views) });
+      case "conversion_collapse":
+        return fillVars(t("alarmCollapse"), { name: String(d.name), cur: String(d.cur), prev: String(d.prev) });
+      case "checkout_leak":
+        return fillVars(t("alarmLeak"), { recent: String(d.recent), prior: String(d.prior) });
+      case "rank_drop":
+        return fillVars(t("alarmRankDrop"), { query: String(d.query), prev: String(d.prev), cur: String(d.cur) });
+      case "rank_win":
+        return fillVars(t("alarmRankWin"), { query: String(d.query), prev: String(d.prev), cur: String(d.cur) });
+      case "city_delivery":
+        return fillVars(t("alarmCityDel"), { city: String(d.city), cur: String(d.cur), prev: String(d.prev) });
+      case "pace_driver": {
+        const crCur = Number(d.o_cur) / Math.max(Number(d.s_cur), 1);
+        const crPrev = Number(d.o_prev) / Math.max(Number(d.s_prev), 1);
+        const aovCur = Number(d.r_cur) / Math.max(Number(d.o_cur), 1);
+        const aovPrev = Number(d.r_prev) / Math.max(Number(d.o_prev), 1);
+        const drops: [string, number][] = [
+          [t("alarmDriverSessions"), Number(d.s_prev) > 0 ? Number(d.s_cur) / Number(d.s_prev) : 1],
+          [t("alarmDriverCr"), crPrev > 0 ? crCur / crPrev : 1],
+          [t("alarmDriverAov"), aovPrev > 0 ? aovCur / aovPrev : 1],
+        ];
+        drops.sort((x, y) => x[1] - y[1]);
+        return fillVars(t("alarmPace"), { rc: n(d.r_cur), rp: n(d.r_prev), driver: drops[0][0] });
+      }
+      default:
+        return a.kind;
+    }
+  };
+
+  if (!alarms) return null;
+
+  const styles = {
+    red: "border-red-200 bg-red-50 text-red-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    info: "border-brand-200 bg-brand-50 text-brand-800",
+  };
+
+  const exportRows = alarms.map((a) => ({ kind: a.kind, severity: a.severity, detail: text(a) }));
+
+  return (
+    <div className="mb-6">
+      <div className="mb-2 flex items-center justify-between">
+        <button className="flex items-center gap-2 text-sm font-bold text-slate-600" onClick={() => setOpen((o) => !o)}>
+          {alarms.length ? (
+            <AlertTriangle size={15} className="text-amber-500" />
+          ) : (
+            <CheckCircle2 size={15} className="text-emerald-500" />
+          )}
+          {t("alarmsTitle")}
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", alarms.length ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>
+            {alarms.length}
+          </span>
+        </button>
+        <ExportButton name="traffic-alarms" rows={exportRows} />
+      </div>
+      {open &&
+        (alarms.length === 0 ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+            {t("alarmsOk")}
+          </div>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {alarms.map((a, i) => (
+              <div key={i} className={cn("rounded-xl border px-4 py-2.5 text-sm", styles[a.severity])}>
+                {text(a)}
+              </div>
+            ))}
+          </div>
+        ))}
+    </div>
+  );
+}
 
 // rough Arabic text normalizer so GA4 search terms match catalog names
 const normalizeAr = (s: string) =>
@@ -173,18 +466,23 @@ export function ChannelsReport() {
   const [days, setDays] = useState(30);
   const [channels, setChannels] = useState<ChannelRow[] | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [quality, setQuality] = useState<Record<string, unknown>[]>([]);
+  const { spec, setSpec } = useDetail();
 
   useEffect(() => {
     let cancelled = false;
     setChannels(null);
-    supabase
-      .rpc("fn_channel_summary", { p_from: isoDaysAgo(days - 1), p_to: isoDaysAgo(0) })
-      .then(({ data }) => {
-        if (cancelled) return;
-        const d = (data ?? {}) as { channels?: ChannelRow[]; campaigns?: CampaignRow[] };
-        setChannels(d.channels ?? []);
-        setCampaigns(d.campaigns ?? []);
-      });
+    const p_from = isoDaysAgo(days - 1);
+    const p_to = isoDaysAgo(0);
+    supabase.rpc("fn_channel_summary", { p_from, p_to }).then(({ data }) => {
+      if (cancelled) return;
+      const d = (data ?? {}) as { channels?: ChannelRow[]; campaigns?: CampaignRow[] };
+      setChannels(d.channels ?? []);
+      setCampaigns(d.campaigns ?? []);
+    });
+    supabase.rpc("fn_channel_quality", { p_from, p_to }).then(({ data }) => {
+      if (!cancelled) setQuality((data as Record<string, unknown>[]) ?? []);
+    });
     return () => {
       cancelled = true;
     };
@@ -264,6 +562,9 @@ export function ChannelsReport() {
         </div>
       )}
 
+      <div className="flex justify-end">
+        <ExportButton name="channels" rows={sortedChannels} />
+      </div>
       <div className="card overflow-x-auto">
         <table className="table-base">
           <thead>
@@ -282,7 +583,20 @@ export function ChannelsReport() {
             {sortedChannels.slice(0, 30).map((c) => {
               const cr = c.sessions > 0 ? (c.orders / c.sessions) * 100 : 0;
               return (
-                <tr key={`${c.source}|${c.medium}`}>
+                <tr
+                  key={`${c.source}|${c.medium}`}
+                  className="cursor-pointer hover:bg-slate-50"
+                  onClick={() =>
+                    setSpec({
+                      title: `${c.source || "(direct)"} / ${c.medium || "—"}`,
+                      table: "ga4_sources",
+                      keyColumn: "source",
+                      keyValue: c.source,
+                      extraFilter: { medium: c.medium },
+                      orderColumn: "date",
+                    })
+                  }
+                >
                   <td dir="ltr" className="font-medium text-xs">
                     {c.source || "(direct)"} <span className="text-slate-400">/ {c.medium || "—"}</span>
                   </td>
@@ -304,7 +618,10 @@ export function ChannelsReport() {
 
       {campaigns.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-bold text-slate-700">{t("campaigns")}</h3>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-700">{t("campaigns")}</h3>
+            <ExportButton name="campaigns-roi" rows={sortedCampaigns} />
+          </div>
           <div className="card overflow-x-auto">
             <table className="table-base">
               <thead>
@@ -325,7 +642,20 @@ export function ChannelsReport() {
                   const roas = c.spend ? c.order_revenue / c.spend : null;
                   const claim = c.orders > 0 && c.meta_purchases ? c.meta_purchases / c.orders : null;
                   return (
-                    <tr key={c.campaign}>
+                    <tr
+                      key={c.campaign}
+                      className="cursor-pointer hover:bg-slate-50"
+                      onClick={() =>
+                        setSpec({
+                          title: c.campaign,
+                          table: "ga4_sources",
+                          keyColumn: "campaign",
+                          keyValue: c.campaign,
+                          orderColumn: "date",
+                          campaign: c.campaign,
+                        })
+                      }
+                    >
                       <td className="!whitespace-normal max-w-xs font-medium text-xs">{c.campaign}</td>
                       <td>{c.spend != null ? formatMoney(c.spend, lang) : "—"}</td>
                       <td className="text-slate-500">{c.meta_purchases != null ? formatNumber(c.meta_purchases) : "—"}</td>
@@ -347,6 +677,53 @@ export function ChannelsReport() {
           </div>
         </div>
       )}
+
+      {quality.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-slate-700">{t("channelQuality")}</h3>
+              <p className="text-xs text-slate-500">{t("channelQualityHint")}</p>
+            </div>
+            <ExportButton name="channel-quality" rows={quality} />
+          </div>
+          <div className="card overflow-x-auto">
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>{t("channelLbl")}</th>
+                  <th>{t("customers")}</th>
+                  <th>{t("repeatCustomers")}</th>
+                  <th>%</th>
+                  <th>{t("orders")}</th>
+                  <th>{t("grossRevenue")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quality.map((r, i) => {
+                  const customers = Number(r.customers ?? 0);
+                  const repeat = Number(r.repeat_customers ?? 0);
+                  const pct = customers > 0 ? (repeat / customers) * 100 : 0;
+                  return (
+                    <tr key={i}>
+                      <td dir="ltr" className="font-medium text-xs">{String(r.source)}</td>
+                      <td className="font-semibold">{formatNumber(customers)}</td>
+                      <td>{formatNumber(repeat)}</td>
+                      <td className={cn("font-bold", pct >= 25 ? "text-emerald-600" : pct < 10 ? "text-red-600" : "text-amber-600")}>
+                        {pct.toFixed(0)}%
+                      </td>
+                      <td>{formatNumber(Number(r.orders ?? 0))}</td>
+                      <td>{formatMoney(Number(r.revenue ?? 0), lang)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <DetailDrawer spec={spec} onClose={() => setSpec(null)} />
     </div>
   );
 }
@@ -424,9 +801,12 @@ export function HealthReport() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-slate-500">{t("healthHint")}</p>
-        <RangePicker value={days} onChange={setDays} options={[30, 60, 90]} />
+        <div className="flex items-center gap-2">
+          <ExportButton name="tracking-daily" rows={rows} />
+          <RangePicker value={days} onChange={setDays} options={[30, 60, 90]} />
+        </div>
       </div>
 
       {stats && (
@@ -533,6 +913,8 @@ export function SeoReport({ months }: { months: string[] }) {
   const [month, setMonth] = useState(months[0] ?? "");
   const [queries, setQueries] = useState<GscTermRow[]>([]);
   const [pages, setPages] = useState<GscTermRow[]>([]);
+  const [nearWins, setNearWins] = useState<GscTermRow[]>([]);
+  const { spec, setSpec } = useDetail();
 
   useEffect(() => {
     let cancelled = false;
@@ -557,10 +939,12 @@ export function SeoReport({ months }: { months: string[] }) {
     Promise.all([
       supabase.from("gsc_queries").select("query, clicks, impressions, ctr, position").eq("period_month", month).order("clicks", { ascending: false }).limit(50),
       supabase.from("gsc_pages").select("page, clicks, impressions, ctr, position").eq("period_month", month).order("clicks", { ascending: false }).limit(25),
-    ]).then(([q, p]) => {
+      supabase.from("gsc_queries").select("query, clicks, impressions, ctr, position").eq("period_month", month).gte("position", 5).lte("position", 15).order("impressions", { ascending: false }).limit(30),
+    ]).then(([q, p, w]) => {
       if (cancelled) return;
       setQueries((q.data as GscTermRow[]) ?? []);
       setPages((p.data as GscTermRow[]) ?? []);
+      setNearWins((w.data as GscTermRow[]) ?? []);
     });
     return () => {
       cancelled = true;
@@ -580,10 +964,14 @@ export function SeoReport({ months }: { months: string[] }) {
         : 0,
   };
 
-  const gscTable = (rows: GscTermRow[], keyName: "query" | "page", title: string) =>
+  const gscTable = (rows: GscTermRow[], keyName: "query" | "page", title: string, hint?: string) =>
     rows.length > 0 && (
       <div className="card p-5">
-        <h3 className="mb-3 text-sm font-bold text-slate-700">{title}</h3>
+        <div className="mb-1 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700">{title}</h3>
+          <ExportButton name={`${title.replace(/\s+/g, "-").slice(0, 30)}-${month.slice(0, 7)}`} rows={rows} />
+        </div>
+        {hint && <p className="mb-2 text-xs text-slate-500">{hint}</p>}
         <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
           <table className="table-base">
             <thead>
@@ -599,7 +987,19 @@ export function SeoReport({ months }: { months: string[] }) {
               {rows.map((r) => {
                 const pos = r.position ?? 0;
                 return (
-                  <tr key={r[keyName]}>
+                  <tr
+                    key={r[keyName]}
+                    className="cursor-pointer hover:bg-slate-50"
+                    onClick={() =>
+                      setSpec({
+                        title: String(r[keyName]),
+                        table: keyName === "query" ? "gsc_queries" : "gsc_pages",
+                        keyColumn: keyName,
+                        keyValue: String(r[keyName]),
+                        orderColumn: "period_month",
+                      })
+                    }
+                  >
                     <td className={cn("!whitespace-normal max-w-md font-medium", keyName === "page" && "font-mono text-xs truncate")} dir={keyName === "page" ? "ltr" : undefined}>
                       {keyName === "page" ? (r.page ?? "").replace(/^https?:\/\/[^/]+/, "") || "/" : r.query}
                     </td>
@@ -655,8 +1055,10 @@ export function SeoReport({ months }: { months: string[] }) {
         </ChartCard>
       )}
 
+      {gscTable(nearWins, "query", t("nearWinsTitle"), t("nearWinsHint"))}
       {gscTable(queries, "query", t("googleQueries"))}
       {gscTable(pages, "page", t("gscPagesTitle"))}
+      <DetailDrawer spec={spec} onClose={() => setSpec(null)} />
     </div>
   );
 }
@@ -705,6 +1107,8 @@ export function AudienceReport({ months }: { months: string[] }) {
   const [landing, setLanding] = useState<LandingRow[]>([]);
   const [cityOrders, setCityOrders] = useState<CityOrders[]>([]);
   const [catalog, setCatalog] = useState<string[]>([]);
+  const [hours, setHours] = useState<{ dow: number; hour: number; sessions: number | null; purchases: number | null }[]>([]);
+  const { spec, setSpec } = useDetail();
 
   useEffect(() => {
     if (!month) return;
@@ -714,12 +1118,13 @@ export function AudienceReport({ months }: { months: string[] }) {
       const monthEnd = new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 0)
         .toISOString()
         .slice(0, 10);
-      const [te, ci, de, la, co] = await Promise.all([
+      const [te, ci, de, la, co, hr] = await Promise.all([
         supabase.from("ga4_search_terms").select("term, sessions, searches").eq("period_month", month).order("searches", { ascending: false }).limit(100),
         supabase.from("ga4_cities").select("city, sessions, purchases, revenue").eq("period_month", month).order("sessions", { ascending: false }).limit(40),
         supabase.from("ga4_devices").select("device, sessions, add_to_carts, purchases, revenue").eq("period_month", month),
         supabase.from("ga4_landing").select("landing_page, sessions, bounce_rate, purchases").eq("period_month", month).order("sessions", { ascending: false }).limit(25),
         supabase.rpc("fn_orders_by_city", { p_from: month, p_to: monthEnd, p_limit: 100 }),
+        supabase.from("ga4_hours").select("dow, hour, sessions, purchases").eq("period_month", month),
       ]);
       // catalog names once, for the "no match" flag on search terms
       const names: string[] = [];
@@ -735,6 +1140,7 @@ export function AudienceReport({ months }: { months: string[] }) {
       setDevices((de.data as DeviceRow[]) ?? []);
       setLanding((la.data as LandingRow[]) ?? []);
       setCityOrders((co.data as CityOrders[]) ?? []);
+      setHours((hr.data as { dow: number; hour: number; sessions: number | null; purchases: number | null }[]) ?? []);
       setCatalog(names);
       setLoading(false);
     })();
@@ -802,9 +1208,53 @@ export function AudienceReport({ months }: { months: string[] }) {
             </div>
           )}
 
+          {hours.length > 0 && (
+            <div className="card p-5">
+              <h3 className="mb-3 text-sm font-bold text-slate-700">{t("heatmapTitle")}</h3>
+              {(() => {
+                const max = Math.max(...hours.map((h) => Number(h.sessions ?? 0)), 1);
+                const dows = lang === "ar"
+                  ? ["أحد", "اثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت"]
+                  : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                const cell = new Map(hours.map((h) => [`${h.dow}|${h.hour}`, h]));
+                return (
+                  <div className="overflow-x-auto">
+                    <div className="grid gap-0.5" style={{ gridTemplateColumns: "auto repeat(24, minmax(14px, 1fr))", minWidth: 620 }}>
+                      <div />
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <div key={h} className="text-center text-[9px] text-slate-400">{h}</div>
+                      ))}
+                      {dows.map((label, d) => (
+                        <>
+                          <div key={`l${d}`} className="pe-1 text-end text-[10px] font-semibold text-slate-500 leading-4">{label}</div>
+                          {Array.from({ length: 24 }, (_, h) => {
+                            const v = cell.get(`${d}|${h}`);
+                            const s = Number(v?.sessions ?? 0);
+                            const p = Number(v?.purchases ?? 0);
+                            return (
+                              <div
+                                key={`${d}|${h}`}
+                                title={`${label} ${h}:00 — ${formatNumber(s)} ${t("sessionsLbl")}, ${formatNumber(p)} ${t("ga4PurchasesLbl")}`}
+                                className={cn("h-4 rounded-sm", p > 0 && s / max > 0.5 && "ring-1 ring-emerald-500")}
+                                style={{ backgroundColor: `rgba(37, 99, 235, ${Math.max(s / max, 0.04)})` }}
+                              />
+                            );
+                          })}
+                        </>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {terms.length > 0 && (
             <div className="card p-5">
-              <h3 className="mb-1 text-sm font-bold text-slate-700">{t("siteSearchTitle")}</h3>
+              <div className="mb-1 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-700">{t("siteSearchTitle")}</h3>
+                <ExportButton name={`site-search-${month.slice(0, 7)}`} rows={terms} />
+              </div>
               <p className="mb-3 text-xs text-slate-500">{t("siteSearchHint")}</p>
               <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
                 <table className="table-base">
@@ -818,7 +1268,13 @@ export function AudienceReport({ months }: { months: string[] }) {
                   </thead>
                   <tbody>
                     {terms.map((tr) => (
-                      <tr key={tr.term}>
+                      <tr
+                        key={tr.term}
+                        className="cursor-pointer hover:bg-slate-50"
+                        onClick={() =>
+                          setSpec({ title: tr.term, table: "ga4_search_terms", keyColumn: "term", keyValue: tr.term, orderColumn: "period_month" })
+                        }
+                      >
                         <td className="!whitespace-normal max-w-md font-medium">{tr.term}</td>
                         <td className="font-semibold">{formatNumber(tr.searches ?? 0)}</td>
                         <td>{formatNumber(tr.sessions ?? 0)}</td>
@@ -839,7 +1295,10 @@ export function AudienceReport({ months }: { months: string[] }) {
 
           {cities.length > 0 && (
             <div className="card p-5">
-              <h3 className="mb-1 text-sm font-bold text-slate-700">{t("cityGapTitle")}</h3>
+              <div className="mb-1 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-700">{t("cityGapTitle")}</h3>
+                <ExportButton name={`cities-${month.slice(0, 7)}`} rows={cities} />
+              </div>
               <p className="mb-3 text-xs text-slate-500">{t("cityGapHint")}</p>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="table-base">
@@ -858,7 +1317,13 @@ export function AudienceReport({ months }: { months: string[] }) {
                       const o = findCityOrders(c.city);
                       const cr = c.sessions ? ((o?.orders ?? c.purchases ?? 0) / c.sessions) * 100 : 0;
                       return (
-                        <tr key={c.city}>
+                        <tr
+                          key={c.city}
+                          className="cursor-pointer hover:bg-slate-50"
+                          onClick={() =>
+                            setSpec({ title: c.city, table: "ga4_cities", keyColumn: "city", keyValue: c.city, orderColumn: "period_month" })
+                          }
+                        >
                           <td dir="ltr" className="font-medium">{c.city}</td>
                           <td className="font-semibold">{formatNumber(c.sessions ?? 0)}</td>
                           <td>{formatNumber(c.purchases ?? 0)}</td>
@@ -878,7 +1343,10 @@ export function AudienceReport({ months }: { months: string[] }) {
 
           {landing.length > 0 && (
             <div className="card p-5">
-              <h3 className="mb-3 text-sm font-bold text-slate-700">{t("landingTitle")}</h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-700">{t("landingTitle")}</h3>
+                <ExportButton name={`landing-${month.slice(0, 7)}`} rows={landing} />
+              </div>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="table-base">
                   <thead>
@@ -895,7 +1363,13 @@ export function AudienceReport({ months }: { months: string[] }) {
                       const cr = l.sessions ? ((l.purchases ?? 0) / l.sessions) * 100 : 0;
                       const bounce = (l.bounce_rate ?? 0) * 100;
                       return (
-                        <tr key={l.landing_page}>
+                        <tr
+                          key={l.landing_page}
+                          className="cursor-pointer hover:bg-slate-50"
+                          onClick={() =>
+                            setSpec({ title: l.landing_page, table: "ga4_landing", keyColumn: "landing_page", keyValue: l.landing_page, orderColumn: "period_month" })
+                          }
+                        >
                           <td dir="ltr" className="font-mono text-xs max-w-md truncate">{l.landing_page}</td>
                           <td className="font-semibold">{formatNumber(l.sessions ?? 0)}</td>
                           <td className={cn(bounce > 40 ? "text-red-600 font-semibold" : "")}>{bounce.toFixed(0)}%</td>
@@ -913,6 +1387,7 @@ export function AudienceReport({ months }: { months: string[] }) {
           )}
         </>
       )}
+      <DetailDrawer spec={spec} onClose={() => setSpec(null)} />
     </div>
   );
 }
@@ -937,6 +1412,7 @@ export function MatrixReport({ months }: { months: string[] }) {
   const [month, setMonth] = useState(months[0] ?? "");
   const [rows, setRows] = useState<MatrixRow[] | null>(null);
   const [filter, setFilter] = useState<Quadrant | "all">("all");
+  const { spec, setSpec } = useDetail();
 
   useEffect(() => {
     if (!month) return;
@@ -1040,7 +1516,9 @@ export function MatrixReport({ months }: { months: string[] }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-slate-500">{t("matrixHint")}</p>
-        <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
+        <div className="flex items-center gap-2">
+          <ExportButton name={`product-matrix-${month.slice(0, 7)}`} rows={visible} />
+          <select className="input !w-auto" value={month} onChange={(e) => setMonth(e.target.value)}>
           {months.map((m) => (
             <option key={m} value={m}>
               {new Date(m).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", {
@@ -1051,6 +1529,7 @@ export function MatrixReport({ months }: { months: string[] }) {
             </option>
           ))}
         </select>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -1078,6 +1557,8 @@ export function MatrixReport({ months }: { months: string[] }) {
         ))}
       </div>
 
+      <DetailDrawer spec={spec} onClose={() => setSpec(null)} />
+
       {!rows ? (
         <Spinner />
       ) : (
@@ -1100,7 +1581,13 @@ export function MatrixReport({ months }: { months: string[] }) {
                 const q = QUADS.find((x) => x.key === r.quadrant);
                 const rate = r.views > 0 ? (r.ga4_purchased / r.views) * 100 : 0;
                 return (
-                  <tr key={r.name}>
+                  <tr
+                    key={r.name}
+                    className="cursor-pointer hover:bg-slate-50"
+                    onClick={() =>
+                      setSpec({ title: r.name, table: "ga4_items", keyColumn: "item_name", keyValue: r.name, orderColumn: "period_month" })
+                    }
+                  >
                     <td className="!whitespace-normal max-w-md font-medium">{r.name}</td>
                     <td className="font-semibold">{formatNumber(r.views)}</td>
                     <td>{formatNumber(r.added)}</td>
