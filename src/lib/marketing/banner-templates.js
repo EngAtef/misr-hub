@@ -32,7 +32,7 @@ function splitHook(hook, title) {
 }
 
 // Discount ribbon with a swallowtail bottom edge (two CSS border triangles).
-function ribbonHtml(badge, u, p) {
+function ribbonHtml(badge, u, p, inset) {
   if (!badge) return "";
   const parts = String(badge).trim().split(/\s+/);
   const small = parts.length > 1 ? parts[0] : "";
@@ -40,7 +40,7 @@ function ribbonHtml(badge, u, p) {
   const rw = Math.round(180 * u);
   const half = Math.round(rw / 2);
   return `
-  <div style="position:absolute;top:0;right:${Math.round(52 * u)}px;width:${rw}px;text-align:center;z-index:6;">
+  <div style="position:absolute;top:0;right:${inset ?? Math.round(52 * u)}px;width:${rw}px;text-align:center;z-index:6;">
     <div style="background:linear-gradient(180deg,${p.accent},${shade(p.accent, -22)});padding:${Math.round(20 * u)}px ${Math.round(6 * u)}px ${Math.round(16 * u)}px;box-shadow:0 ${Math.round(10 * u)}px ${Math.round(28 * u)}px rgba(0,0,0,.4);color:#fff;">
       ${small ? `<div style="font-size:${Math.round(30 * u)}px;font-weight:700;line-height:1.25;">${esc(small)}</div>` : ""}
       <div style="font-size:${Math.round(58 * u)}px;font-weight:900;line-height:1.15;">${esc(big)}</div>
@@ -65,29 +65,35 @@ function shade(hex, pct) {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
-function orderPill(u, p, y) {
+function orderPill(u, p, y, x) {
+  const h = Math.round(72 * u);
   return `
-  <div style="position:absolute;top:${y}px;left:${Math.round(48 * u)}px;z-index:6;background:linear-gradient(135deg,${shade(p.accent, 8)},${shade(p.accent, -18)});border:${Math.max(2, Math.round(3 * u))}px solid rgba(255,255,255,.92);border-radius:999px;padding:${Math.round(14 * u)}px ${Math.round(38 * u)}px;color:#fff;font-weight:800;font-size:${Math.round(34 * u)}px;box-shadow:0 ${Math.round(10 * u)}px ${Math.round(26 * u)}px rgba(0,0,0,.38);">
-    🛒 اطلب اونلاين
-  </div>`;
+  <div style="position:absolute;top:${y}px;left:${x};z-index:6;height:${h}px;line-height:${h}px;background:linear-gradient(135deg,${shade(p.accent, 8)},${shade(p.accent, -18)});border:${Math.max(2, Math.round(3 * u))}px solid rgba(255,255,255,.92);border-radius:999px;padding:0 ${Math.round(36 * u)}px;color:#fff;font-weight:800;font-size:${Math.round(30 * u)}px;box-shadow:0 ${Math.round(10 * u)}px ${Math.round(26 * u)}px rgba(0,0,0,.38);white-space:nowrap;">🛒 اطلب اونلاين</div>`;
 }
 
-function footerBar(u, p, W, H, termsColor) {
-  const fw = Math.round(W * 0.72);
+// Identity footer inside the safe area: brand block on the reading side,
+// store-app chips vertically centered via fixed-height line boxes, and the
+// terms line tucked between the bar and the bottom margin.
+function footerBar(u, p, W, H, termsColor, margin) {
+  const M = margin ?? Math.round(Math.min(W, H) * 0.06);
+  const fw = W - 2 * M;
+  const chipH = Math.round(52 * u);
+  const barBottom = Math.round(M * 0.9);
+  const chip = (label) =>
+    `<span style="display:inline-block;height:${chipH}px;line-height:${chipH - Math.round(4 * u)}px;border:${Math.max(1, Math.round(2 * u))}px solid rgba(255,255,255,.6);border-radius:${Math.round(12 * u)}px;color:#fff;font-size:${Math.round(19 * u)}px;font-weight:700;padding:0 ${Math.round(18 * u)}px;margin-left:${Math.round(10 * u)}px;text-align:center;vertical-align:middle;white-space:nowrap;">${label}</span>`;
   return `
-  <div style="position:absolute;bottom:${Math.round(H * 0.028)}px;left:${Math.round((W - fw) / 2)}px;width:${fw}px;z-index:6;background:rgba(7,9,22,.93);border:1px solid rgba(255,255,255,.28);border-radius:${Math.round(20 * u)}px;box-shadow:0 ${Math.round(12 * u)}px ${Math.round(30 * u)}px rgba(0,0,0,.45);padding:${Math.round(16 * u)}px ${Math.round(26 * u)}px;">
+  <div style="position:absolute;bottom:${barBottom + Math.round(30 * u)}px;left:${M}px;width:${fw}px;z-index:6;background:rgba(7,9,22,.92);border:1px solid rgba(255,255,255,.25);border-radius:${Math.round(22 * u)}px;box-shadow:0 ${Math.round(12 * u)}px ${Math.round(30 * u)}px rgba(0,0,0,.4);padding:${Math.round(20 * u)}px ${Math.round(30 * u)}px;box-sizing:border-box;">
     <table style="width:100%;border-collapse:collapse;"><tr>
       <td style="text-align:right;vertical-align:middle;">
-        <div style="color:#fff;font-weight:900;font-size:${Math.round(32 * u)}px;line-height:1.3;">متجر نهضة مصر</div>
-        <div style="color:${shade(p.accent, 25)};font-weight:700;font-size:${Math.round(23 * u)}px;line-height:1.3;">nahdetmisrbookstore.com</div>
+        <div style="color:#fff;font-weight:900;font-size:${Math.round(30 * u)}px;line-height:1.35;">متجر نهضة مصر</div>
+        <div style="color:${shade(p.accent, 30)};font-weight:700;font-size:${Math.round(21 * u)}px;line-height:1.35;" dir="ltr">nahdetmisrbookstore.com</div>
       </td>
-      <td style="text-align:left;vertical-align:middle;white-space:nowrap;">
-        <span style="display:inline-block;border:1px solid rgba(255,255,255,.55);border-radius:${Math.round(10 * u)}px;color:#fff;font-size:${Math.round(19 * u)}px;font-weight:700;padding:${Math.round(7 * u)}px ${Math.round(14 * u)}px;margin-left:${Math.round(8 * u)}px;">​ App Store</span>
-        <span style="display:inline-block;border:1px solid rgba(255,255,255,.55);border-radius:${Math.round(10 * u)}px;color:#fff;font-size:${Math.round(19 * u)}px;font-weight:700;padding:${Math.round(7 * u)}px ${Math.round(14 * u)}px;">▶ Google Play</span>
+      <td style="text-align:left;vertical-align:middle;white-space:nowrap;" dir="ltr">
+        ${chip("App Store")}${chip("Google Play ▶")}
       </td>
     </tr></table>
   </div>
-  <div style="position:absolute;bottom:${Math.round(10 * u)}px;left:${Math.round(48 * u)}px;color:${termsColor || "rgba(255,255,255,.72)"};font-size:${Math.round(19 * u)}px;z-index:6;">تطبق الشروط والأحكام</div>`;
+  <div style="position:absolute;bottom:${Math.round(barBottom * 0.28)}px;right:${M}px;color:${termsColor || "rgba(255,255,255,.65)"};font-size:${Math.round(17 * u)}px;z-index:6;">تطبق الشروط والأحكام</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +117,7 @@ function promoHtml(fmt, W, H, o) {
     <img src="${o.blurredBg}" style="width:100%;height:100%;" />
   </div>
   <div style="position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(180deg,rgba(8,10,26,.42) 0%,rgba(8,10,26,.18) 32%,rgba(4,5,16,.68) 88%);"></div>
-  ${orderPill(u, p, Math.round(H * 0.035))}
+  ${orderPill(u, p, Math.round(Math.min(W, H) * 0.06), `${Math.round(Math.min(W, H) * 0.06)}px`)}
   ${ribbonHtml(o.badge, u, p)}
   <div style="position:absolute;top:${hookTop}px;left:0;width:100%;text-align:center;z-index:5;padding:0 ${Math.round(W * 0.07)}px;box-sizing:border-box;">
     <div style="color:#fff;font-weight:700;font-size:${Math.round((link ? 44 : 52) * u)}px;line-height:1.55;text-shadow:0 4px 20px rgba(0,0,0,.6);">${esc(l1)}</div>
@@ -242,33 +248,43 @@ export function canvaTemplateUrl(supaBase, key) {
 function canvaTplHtml(tplKey, fmt, W, H, o) {
   const u = Math.min(W, H) / 1080;
   const t = CANVA_TEMPLATES[tplKey] || CANVA_TEMPLATES.kids;
-  // luxury is a LIGHT backdrop — dark text, light footer treatment
-  const light = tplKey === "luxury";
+  // All four generated backdrops came out dark — uniform light-on-dark treatment.
+  const light = false;
   const { l1, l2 } = splitHook(o.hook, o.title);
   const link = fmt === "link";
   const story = fmt === "story";
-  const hookTop = Math.round(H * (story ? 0.13 : link ? 0.12 : 0.14));
-  const coverTop = Math.round(H * (story ? 0.32 : link ? 0.28 : 0.33));
-  const coverZone = H * (story ? 0.5 : link ? 0.5 : 0.46) - 90 * u;
-  const coverW = Math.round(Math.min(W * (link ? 0.21 : 0.44), coverZone * 0.72));
   const p = o.palette;
+
+  // Safe-area grid: everything lives inside margin M; blocks share gap G.
+  const M = Math.round(Math.min(W, H) * 0.06);
+  const G = Math.round(Math.min(W, H) * 0.03);
+
+  // Vertical rhythm (fractions of H): pill row → hook → HERO cover → footer.
+  const pillH = Math.round(72 * u);
+  const hookTop = M + pillH + G;
+  const hookH = Math.round((link ? 132 : 176) * u);
+  const footerTop = H - Math.round(M * 0.9) - Math.round(30 * u) - Math.round(118 * u);
+  const coverTop = hookTop + hookH + G;
+  const coverZone = footerTop - G - coverTop;
+  // The cover is the hero: as wide as the zone allows at ~3:4.
+  const coverW = Math.round(Math.min(W * (link ? 0.24 : 0.52), coverZone * 0.74));
 
   return `
   <div style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;">
     <img src="${o.tplUrl}" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);${W / H > 1080 / 1920 ? "width:100%;height:auto;" : "height:100%;width:auto;"}min-width:100%;min-height:100%;" />
   </div>
-  ${light ? "" : `<div style="position:absolute;bottom:0;left:0;width:100%;height:${Math.round(H * 0.22)}px;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(4,6,16,.55) 100%);"></div>`}
-  ${orderPill(u, p, Math.round(H * 0.032))}
-  ${ribbonHtml(o.badge, u, p)}
-  <div style="position:absolute;top:${hookTop}px;left:0;width:100%;text-align:center;z-index:5;padding:0 ${Math.round(W * 0.08)}px;box-sizing:border-box;">
-    <div style="color:${light ? "#2b3990" : "#ffffff"};font-weight:700;font-size:${Math.round((link ? 42 : 50) * u)}px;line-height:1.55;${light ? "" : "text-shadow:0 4px 18px rgba(0,0,0,.55);"}">${esc(l1)}</div>
-    <div style="color:${light ? t.line2 : t.accent};font-weight:900;font-size:${Math.round((link ? 54 : 64) * u)}px;line-height:1.45;${light ? "" : "text-shadow:0 6px 22px rgba(0,0,0,.55);"}">${esc(l2 || o.title)}</div>
+  ${light ? "" : `<div style="position:absolute;bottom:0;left:0;width:100%;height:${Math.round(H * 0.26)}px;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(4,6,16,.6) 100%);"></div>`}
+  ${orderPill(u, p, M, `${M}px`)}
+  ${ribbonHtml(o.badge, u, p, M)}
+  <div style="position:absolute;top:${hookTop}px;left:0;width:100%;height:${hookH}px;text-align:center;z-index:5;padding:0 ${M}px;box-sizing:border-box;">
+    <div style="color:${light ? "#2b3990" : "#ffffff"};font-weight:700;font-size:${Math.round((link ? 40 : 46) * u)}px;line-height:1.5;${light ? "" : "text-shadow:0 4px 18px rgba(0,0,0,.55);"}">${esc(l1)}</div>
+    <div style="color:${light ? t.line2 : t.accent};font-weight:900;font-size:${Math.round((link ? 52 : 62) * u)}px;line-height:1.45;${light ? "" : "text-shadow:0 6px 22px rgba(0,0,0,.55);"}">${esc(l2 || o.title)}</div>
   </div>
   ${o.coverSrc ? `
   <div style="position:absolute;top:${coverTop}px;left:${Math.round((W - coverW) / 2)}px;width:${coverW}px;z-index:4;">
-    <img src="${o.coverSrc}" style="width:100%;border-radius:${Math.round(10 * u)}px;border:2px solid rgba(255,255,255,.35);box-shadow:0 ${Math.round(34 * u)}px ${Math.round(64 * u)}px rgba(0,0,0,${light ? ".35" : ".55"});" />
+    <img src="${o.coverSrc}" style="width:100%;border-radius:${Math.round(12 * u)}px;border:${Math.max(2, Math.round(3 * u))}px solid rgba(255,255,255,.4);box-shadow:0 ${Math.round(40 * u)}px ${Math.round(80 * u)}px rgba(0,0,0,${light ? ".38" : ".58"});" />
   </div>` : ""}
-  ${footerBar(u, p, W, H, light ? "rgba(43,57,144,.8)" : undefined)}`;
+  ${footerBar(u, p, W, H, light ? "rgba(43,57,144,.8)" : undefined, M)}`;
 }
 
 export const HTML_BANNER_LAYOUTS = ["promo", "modern", "elegant", "tpl-kids", "tpl-spiritual", "tpl-modernblue", "tpl-luxury"];
