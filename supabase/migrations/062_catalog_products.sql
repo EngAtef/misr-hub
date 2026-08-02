@@ -16,7 +16,8 @@
 -- Run after 061_tx_key_fast_joins.sql
 -- ============================================================
 
-create index if not exists idx_order_items_sku on public.order_items (sku);
+-- (no index needed here: order_items already has idx_items_sku on (sku).
+-- 066 drops the duplicate this migration originally created.)
 
 drop function if exists public.fn_catalog_products(timestamptz, timestamptz, text, text, text, text, integer, integer);
 create or replace function public.fn_catalog_products(
