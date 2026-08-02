@@ -30,6 +30,9 @@ interface EngineRow {
   vendor: string | null;
   cost: number | null;
   avg_price: number | null;
+  // full history, so a book that ran out months ago can still be judged
+  lifetime_units: number;
+  last_order_date: string | null;
 }
 
 interface MoveList {
@@ -207,6 +210,8 @@ export default function StockPage() {
         shortfall: (r) => r.shortfall,
         surplus: (r) => r.surplus,
         cover: (r) => r.cover_days,
+        lifetime: (r) => r.lifetime_units,
+        lastsale: (r) => r.last_order_date,
         value: (r) => unitValue(r) * (tab === "overstock" ? (r.surplus ?? 0) : effMove(r)),
       }),
     [filtered, apply, tab, effMove, unitValue]
@@ -300,7 +305,15 @@ export default function StockPage() {
           ? { Sku: r.sku, "product name": r.product_name, restock: effMove(r) + r.shortfall }
           : tab === "overstock"
             ? { Sku: r.sku, "product name": r.product_name, "E-com now": r.ecom_stock, "Expected demand": r.forecast, Surplus: r.surplus }
-            : { Sku: r.sku, "product name": r.product_name, Vendor: r.vendor ?? "", "Units sold": r.units, Status: r.units > 0 ? "Had sales - reorder from publisher" : "No stock anywhere" }
+            : {
+                Sku: r.sku,
+                "product name": r.product_name,
+                Vendor: r.vendor ?? "",
+                "Units sold": r.units,
+                "Lifetime units": r.lifetime_units ?? 0,
+                "Last sale": r.last_order_date ? r.last_order_date.slice(0, 10) : "",
+                Status: r.units > 0 ? "Selling now - reorder from publisher" : "Sold before, out everywhere - reorder",
+              }
       );
     if (!list.length) return;
     downloadCsv(`stock-${tab}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(list as Record<string, unknown>[]));
@@ -350,8 +363,10 @@ export default function StockPage() {
         Sku: r.sku,
         "product name": r.product_name,
         Vendor: r.vendor ?? "",
-        "Units sold": r.units,
-        Status: r.units > 0 ? "Had sales - reorder from publisher" : "No stock anywhere",
+        "Units sold (window)": r.units,
+        "Lifetime units": r.lifetime_units ?? 0,
+        "Last sale": r.last_order_date ? r.last_order_date.slice(0, 10) : "",
+        Status: r.units > 0 ? "Selling now - reorder from publisher" : "Sold before, out everywhere - reorder",
       }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oosRows.length ? oosRows : [{ Sku: "none" }]), "Out of stock");
 
@@ -602,6 +617,8 @@ export default function StockPage() {
                       <th>{t("ecomStock")}</th>
                       <th>{t("sapStock")}</th>
                       <th>{t("forecastQty")}</th>
+                      <Th labelKey="ltUnits" k="lifetime" />
+                      <Th labelKey="lastSale" k="lastsale" />
                     </>
                   )}
                   <th>{t("status")}</th>
@@ -657,6 +674,10 @@ export default function StockPage() {
                           <td>{r.ecom_stock != null ? formatNumber(r.ecom_stock) : "—"}</td>
                           <td>{r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}</td>
                           <td>{formatNumber(r.forecast)}</td>
+                          <td className="font-semibold text-slate-700">{formatNumber(r.lifetime_units ?? 0)}</td>
+                          <td className="whitespace-nowrap text-xs text-slate-500">
+                            {r.last_order_date ? formatDate(r.last_order_date) : <span className="text-slate-400">{t("neverSoldLbl")}</span>}
+                          </td>
                         </>
                       )}
                       <td>
