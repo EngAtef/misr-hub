@@ -50,13 +50,17 @@ export function catalogScore(books: CatalogBook[]): number {
 export interface CatalogSyncResult {
   syncedStock: number;
   stockFailed: boolean;
+  savedProducts: number;
+  productsFailed: boolean;
   compare: CatalogCompare | null;
   score: number;
 }
 
 // Everything a products-file upload must do besides parsing:
-// 1) push available e-com stock (stock - reserved) into the stock engine
-// 2) compare with the previous snapshot and save the new one
+// 1) store the FULL parsed catalog row per SKU (price, cover, author,
+//    publisher, barcode, ... ) so the uploaded detail is actually usable
+// 2) push available e-com stock (stock - reserved) into the stock engine
+// 3) compare with the previous snapshot and save the new one
 export async function syncCatalogUpload(
   supabase: SupabaseClient,
   books: CatalogBook[],
@@ -65,7 +69,49 @@ export async function syncCatalogUpload(
 ): Promise<CatalogSyncResult> {
   const score = catalogScore(books);
 
-  // 1) e-commerce stock sync
+  // 1) persist the full catalog. Chunked small: rows carry descriptions.
+  let savedProducts = 0;
+  let productsFailed = false;
+  for (let i = 0; i < books.length; i += 400) {
+    const chunk = books.slice(i, i + 400).map((b) => ({
+      sku: b.sku,
+      name: b.name,
+      english_name: b.english_name,
+      price: b.price,
+      stock: b.stock,
+      stock_qty: b.stock_qty === null || b.stock_qty === undefined ? null : String(b.stock_qty),
+      section: b.section,
+      category: b.category,
+      language: b.language,
+      age: b.age,
+      series: b.series,
+      publisher: b.publisher,
+      author: b.author,
+      other_authors: b.other_authors ?? null,
+      translated_from: b.translated_from ?? null,
+      book_type: b.book_type ?? null,
+      cover_type: b.cover_type ?? null,
+      paper_type: b.paper_type ?? null,
+      pages: b.pages ?? null,
+      dimensions: b.dimensions ?? null,
+      semester: b.semester ?? null,
+      link: b.link,
+      release_date: b.release_date,
+      description: b.description,
+      image: b.image,
+      barcode: b.barcode,
+      vendor: b.vendor ?? null,
+      attributes: b.attributes ?? {},
+    }));
+    const { error } = await supabase.rpc("fn_upsert_products", { p_rows: chunk });
+    if (error) {
+      productsFailed = true;
+      break;
+    }
+    savedProducts += chunk.length;
+  }
+
+  // 2) e-commerce stock sync
   const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
   let syncedStock = 0;
   let stockFailed = false;
@@ -87,7 +133,7 @@ export async function syncCatalogUpload(
     onProgress?.(syncedStock, withStock.length);
   }
 
-  // 2) snapshot compare + save
+  // 3) snapshot compare + save
   const { data } = await supabase.from("app_settings").select("value").eq("key", "catalog_snapshot").maybeSingle();
   const prev = (data?.value ?? null) as CatalogSnapshot | null;
   const current: Record<string, number> = {};
@@ -130,5 +176,5 @@ export async function syncCatalogUpload(
     .from("app_settings")
     .upsert({ key: "catalog_snapshot", value: snapshot, updated_at: new Date().toISOString() }, { onConflict: "key" });
 
-  return { syncedStock, stockFailed, compare, score };
+  return { syncedStock, stockFailed, savedProducts, productsFailed, compare, score };
 }

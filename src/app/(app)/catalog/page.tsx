@@ -48,6 +48,7 @@ function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileN
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [stockMsg, setStockMsg] = useState<string | null>(null);
+  const [productsMsg, setProductsMsg] = useState<string | null>(null);
   const [compare, setCompare] = useState<CatalogCompare | null>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
 
@@ -55,9 +56,13 @@ function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileN
     let cancelled = false;
     (async () => {
       const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
+      setProductsMsg(t("productsSaving"));
       if (withStock.length) setStockMsg(t("stockSyncing"));
       const res = await syncCatalogUpload(supabase, books, fileName);
       if (cancelled) return;
+      setProductsMsg(
+        res.productsFailed ? t("productsSaveFailed") : `✅ ${t("productsSaved")} ${res.savedProducts.toLocaleString("en-EG")} ${t("itemsWord")}`
+      );
       if (withStock.length) {
         setStockMsg(res.stockFailed ? t("stockSyncFailed") : `✅ ${t("stockSynced")} ${res.syncedStock.toLocaleString("en-EG")} ${t("itemsWord")}`);
       }
@@ -70,10 +75,20 @@ function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileN
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [books]);
 
-  if (!stockMsg && !compare && !snapMsg) return null;
+  if (!stockMsg && !productsMsg && !compare && !snapMsg) return null;
 
   return (
     <div className="mb-6 space-y-3">
+      {productsMsg && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-2.5 text-sm",
+            productsMsg.startsWith("✅") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"
+          )}
+        >
+          {productsMsg}
+        </div>
+      )}
       {stockMsg && (
         <div className={cn("rounded-lg border px-4 py-2.5 text-sm", stockMsg.startsWith("✅") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>
           {stockMsg}

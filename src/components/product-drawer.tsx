@@ -7,6 +7,37 @@ import { useLang } from "@/lib/i18n";
 import { Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
+// Everything the uploaded catalog file carried for this SKU.
+interface ProductDetail {
+  sku: string;
+  name: string | null;
+  english_name: string | null;
+  price: number | null;
+  section: string | null;
+  category: string | null;
+  language: string | null;
+  age: string | null;
+  series: string | null;
+  publisher: string | null;
+  author: string | null;
+  other_authors: string | null;
+  translated_from: string | null;
+  book_type: string | null;
+  cover_type: string | null;
+  paper_type: string | null;
+  pages: string | null;
+  dimensions: string | null;
+  semester: string | null;
+  link: string | null;
+  release_date: string | null;
+  description: string | null;
+  image: string | null;
+  barcode: string | null;
+  vendor: string | null;
+  attributes: Record<string, string> | null;
+  updated_at: string | null;
+}
+
 interface PurchaseRow {
   order_number: string;
   order_date: string | null;
@@ -52,6 +83,7 @@ export function ProductDrawer({
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<PurchaseRow[]>([]);
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -60,15 +92,20 @@ export function ProductDrawer({
     (async () => {
       setLoading(true);
       setRows([]);
-      const { data } = await supabase.rpc("fn_sku_purchasers", {
-        p_sku: sku,
-        p_keyword: null,
-        p_from: null,
-        p_to: null,
-        p_limit: 10000,
-      });
+      setDetail(null);
+      const [{ data }, { data: prod }] = await Promise.all([
+        supabase.rpc("fn_sku_purchasers", {
+          p_sku: sku,
+          p_keyword: null,
+          p_from: null,
+          p_to: null,
+          p_limit: 10000,
+        }),
+        supabase.from("products").select("*").eq("sku", sku).maybeSingle(),
+      ]);
       if (cancelled) return;
       setRows(((data as PurchaseRow[]) ?? []).filter((r) => r.sku === sku || !r.sku));
+      setDetail((prod as ProductDetail) ?? null);
       setLoading(false);
     })();
     return () => {
@@ -132,6 +169,58 @@ export function ProductDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Everything the uploaded catalog file holds for this book */}
+          {detail && (
+            <div className="card flex gap-4 p-4">
+              {detail.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={detail.image}
+                  alt=""
+                  className="h-36 w-24 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                {detail.price !== null && (
+                  <div className="mb-2 text-lg font-bold text-brand-700">{formatMoney(Number(detail.price), lang)}</div>
+                )}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  <Field label={t("fldAuthor")} value={detail.author ?? detail.other_authors} />
+                  <Field label={t("fldPublisher")} value={detail.publisher ?? detail.vendor} />
+                  <Field label={t("fldLanguage")} value={detail.language} />
+                  <Field label={t("fldAge")} value={detail.age} />
+                  <Field label={t("fldSeries")} value={detail.series} />
+                  <Field label={t("fldSection")} value={detail.section ?? detail.category} />
+                  <Field label={t("fldReleaseDate")} value={detail.release_date} />
+                  <Field label={t("fldBarcode")} value={detail.barcode} ltr />
+                  <Field label={t("fldPages")} value={detail.pages} />
+                  <Field label={t("fldDimensions")} value={detail.dimensions} />
+                  <Field label={t("fldBookType")} value={detail.book_type} />
+                  <Field label={t("fldCoverType")} value={detail.cover_type} />
+                </div>
+                {detail.attributes && Object.keys(detail.attributes).length > 0 && (
+                  <details className="mt-3 text-xs">
+                    <summary className="cursor-pointer font-semibold text-slate-500 hover:text-brand-700">{t("allUploadedFields")}</summary>
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+                      {Object.entries(detail.attributes).map(([k, v]) => (
+                        <div key={k} className="flex gap-1.5">
+                          <span className="shrink-0 text-slate-400">{k}:</span>
+                          <span className="min-w-0 break-words text-slate-700">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+          )}
+          {!loading && !detail && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{t("noCatalogDetail")}</div>
+          )}
+
           <p className="text-xs text-slate-500">{t("orderHistoryHint")}</p>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -188,6 +277,18 @@ export function ProductDrawer({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Field({ label, value, ltr }: { label: string; value: string | null | undefined; ltr?: boolean }) {
+  if (!value) return null;
+  return (
+    <div className="flex gap-1.5">
+      <span className="shrink-0 text-slate-400">{label}:</span>
+      <span className="min-w-0 break-words font-medium text-slate-700" dir={ltr ? "ltr" : undefined}>
+        {value}
+      </span>
     </div>
   );
 }

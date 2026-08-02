@@ -22,7 +22,29 @@ export interface CatalogBook {
   stock_qty?: number | null;
   // vendor/brand for multi-supplier analysis (e.g. Al Adwaa)
   vendor?: string | null;
+  // extra book detail carried by the export's attribute columns
+  other_authors?: string | null;
+  translated_from?: string | null;
+  book_type?: string | null;
+  cover_type?: string | null;
+  paper_type?: string | null;
+  pages?: string | null;
+  dimensions?: string | null;
+  semester?: string | null;
+  // every attribute_name/value pair as-is, so a field the platform adds
+  // later is stored even before it gets a column of its own
+  attributes?: Record<string, string>;
 }
+
+export type ExtraField =
+  | "other_authors"
+  | "translated_from"
+  | "book_type"
+  | "cover_type"
+  | "paper_type"
+  | "pages"
+  | "dimensions"
+  | "semester";
 
 export const CATALOG_FIELDS = [
   "name",
@@ -45,12 +67,21 @@ export const CATALOG_FIELDS = [
 
 export type CatalogField = (typeof CATALOG_FIELDS)[number];
 
-// Attribute names used in the FullProductExport attribute_name_N columns
-const ATTR_MAP: Record<string, CatalogField> = {
+// Attribute names used in the FullProductExport attribute_name_N columns.
+// Keys are matched after lowercasing AND after stripping apostrophes and
+// collapsing whitespace — the live export writes "Author's Name", which a
+// literal "author name" key silently missed for ~3k books.
+const ATTR_MAP: Record<string, CatalogField | ExtraField> = {
   // English names used by the platform's FullProductExport
   "author name": "author",
+  "authors name": "author",
   author: "author",
+  "other authors": "other_authors",
+  "translated from book": "translated_from",
+  "translated from": "translated_from",
   publisher: "publisher",
+  "publishing house": "publisher",
+  "first publisher": "publisher",
   "book language": "language",
   language: "language",
   "age group": "age",
@@ -59,9 +90,20 @@ const ATTR_MAP: Record<string, CatalogField> = {
   series: "series",
   "release date": "release_date",
   "ean/upc/isbn": "barcode",
+  "book type": "book_type",
+  "cover type": "cover_type",
+  "paper type": "paper_type",
+  "no.book pages": "pages",
+  "no. book pages": "pages",
+  "book pages": "pages",
+  pages: "pages",
+  "book dimensions (cm)": "dimensions",
+  "book dimensions": "dimensions",
+  semester: "semester",
   // Arabic variants
   "المؤلف": "author",
   "الكاتب": "author",
+  "اسم المؤلف": "author",
   "الناشر": "publisher",
   "دار النشر": "publisher",
   "اللغة": "language",
@@ -70,7 +112,17 @@ const ATTR_MAP: Record<string, CatalogField> = {
   "السلسلة": "series",
   "تاريخ الإصدار": "release_date",
   "تاريخ الاصدار": "release_date",
+  "نوع الكتاب": "book_type",
+  "نوع الغلاف": "cover_type",
+  "عدد الصفحات": "pages",
+  "المقاس": "dimensions",
+  "الفصل الدراسي": "semester",
 };
+
+// "Author's Name" -> "authors name"
+function attrKey(name: string): string {
+  return name.toLowerCase().replace(/[’'`]/g, "").replace(/\s+/g, " ").trim();
+}
 
 const HEADER_MAP: Record<CatalogField, string[]> = {
   name: ["اسم الكتاب", "الاسم", "name", "arabic name", "البند"],
@@ -174,15 +226,20 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       vendor: clean(row["brand"]) ?? clean(row["vendor"]) ?? clean(row["publisher"]),
     };
 
-    // book metadata lives in the attribute_name/value_N pairs
+    // book metadata lives in the attribute_name/value_N pairs. Every pair
+    // is kept in `attributes` even when it has no column, so an attribute
+    // the platform adds later is still stored rather than dropped.
+    const attributes: Record<string, string> = {};
     for (let n = 1; n <= 18; n++) {
       const attrName = clean(row[`attribute_name_${n}`]);
       if (!attrName) continue;
-      const field = ATTR_MAP[attrName.toLowerCase()] ?? ATTR_MAP[attrName];
-      if (!field || book[field]) continue;
       const value = clean(row[`attribute_value_ar_${n}`]) ?? clean(row[`attribute_value_${n}`]);
-      if (value) book[field] = value;
+      if (!value) continue;
+      attributes[attrName] = value;
+      const field = ATTR_MAP[attrKey(attrName)] ?? ATTR_MAP[attrName];
+      if (field && !book[field]) book[field] = value;
     }
+    if (Object.keys(attributes).length) book.attributes = attributes;
 
     out.push(book);
   }

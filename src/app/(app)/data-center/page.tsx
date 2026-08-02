@@ -368,12 +368,13 @@ export default function DataCenterPage() {
         }
         await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
       } else if (pending.type === "products" && pending.products) {
-        // same pipeline as the Catalog page: e-com stock sync + quality
-        // snapshot (score, per-book missing fields) saved for /catalog
+        // same pipeline as the Catalog page: full catalog rows -> products,
+        // e-com stock sync, and the quality snapshot saved for /catalog
         const res = await syncCatalogUpload(supabase, pending.products, pending.fileName, (done, total) => {
           setProcessed(done);
           setProgress(total ? Math.round((done / total) * 100) : 100);
         });
+        if (res.productsFailed) throw new Error(t("productsSaveFailed"));
         if (res.stockFailed) throw new Error(t("stockSyncFailed"));
         setProcessed(pending.products.length);
         setProgress(100);

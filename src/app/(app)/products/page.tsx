@@ -20,6 +20,14 @@ interface CatalogRow {
   vendor: string | null;
   ecom_stock: number | null;
   sap_stock: number | null;
+  price: number | null;
+  image: string | null;
+  author: string | null;
+  publisher: string | null;
+  language: string | null;
+  age: string | null;
+  series: string | null;
+  barcode: string | null;
   units: number;
   orders: number;
   revenue: number;
@@ -194,6 +202,14 @@ export default function ProductsPage() {
       product_name: r.product_name,
       category: r.category,
       vendor: r.vendor,
+      author: r.author,
+      publisher: r.publisher,
+      language: r.language,
+      age: r.age,
+      series: r.series,
+      barcode: r.barcode,
+      price: r.price,
+      image: r.image,
       ecom_stock: r.ecom_stock,
       sap_stock: r.sap_stock,
       units_period: r.units,
@@ -315,9 +331,12 @@ export default function ProductsPage() {
               <thead>
                 <tr>
                   <th className="w-10">{t("selectForList")}</th>
+                  <th className="w-12"></th>
                   <SortTh label={t("products")} k="name" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggleSort} />
+                  <th>{t("fldAuthor")}</th>
                   <th>{t("categoryCol")}</th>
+                  <SortTh label={t("fldPrice")} k="price" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("stock")} k="stock" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("units")} k="units" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggleSort} />
@@ -343,13 +362,32 @@ export default function ProductsPage() {
                           onChange={() => toggle(r.sku)}
                         />
                       </td>
+                      <td>
+                        {r.image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={r.image}
+                            alt=""
+                            loading="lazy"
+                            className="h-11 w-8 rounded object-cover ring-1 ring-slate-200"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                            }}
+                          />
+                        ) : (
+                          <div className="h-11 w-8 rounded bg-slate-100" />
+                        )}
+                      </td>
                       <td className="!whitespace-normal max-w-md">
                         <button className="text-start font-medium hover:text-brand-700 hover:underline" onClick={() => setOpenSku(r)}>
                           {r.product_name}
                         </button>
+                        {r.series && <div className="text-[11px] text-slate-400">{r.series}</div>}
                       </td>
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>
+                      <td className="!whitespace-normal max-w-[10rem] text-xs text-slate-600">{r.author ?? r.publisher ?? "—"}</td>
                       <td className="text-xs text-slate-500">{r.category ?? "—"}</td>
+                      <td className="whitespace-nowrap text-sm">{r.price === null ? "—" : formatMoney(Number(r.price), lang)}</td>
                       <td>
                         <span
                           className={cn(
