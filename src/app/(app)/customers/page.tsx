@@ -534,6 +534,19 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
   const [loadingB, setLoadingB] = useState(true);
   const [birthMonth, setBirthMonth] = useState(new Date().getMonth() + 1);
   const [birthOrdered, setBirthOrdered] = useState<"all" | "ordered" | "never">("all");
+
+  // Deep link from the Overview alert feed: /customers?month=8#birthdays.
+  // The section loads async, so scroll once it's actually on the page
+  // rather than relying on the browser's initial hash jump.
+  useEffect(() => {
+    const m = Number(new URLSearchParams(window.location.search).get("month"));
+    if (m >= 1 && m <= 12) setBirthMonth(m);
+    if (window.location.hash === "#birthdays") {
+      const scroll = () => document.getElementById("birthdays")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const timer = setTimeout(scroll, 350);
+      return () => clearTimeout(timer);
+    }
+  }, []);
   const [exportingWinback, setExportingWinback] = useState(false);
   const { sort, toggle, apply } = useSort<BirthdayRow>();
 
@@ -613,7 +626,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
         </div>
       )}
 
-      <div className="card p-5">
+      <div className="card p-5" id="birthdays">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="rounded-lg bg-pink-50 p-2 text-pink-600">

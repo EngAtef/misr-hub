@@ -88,6 +88,12 @@ export default function TrafficPage() {
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
   const [reloadKey, setReloadKey] = useState(0);
   const [tab, setTab] = useState<TrafficTab>("overview");
+
+  // ?tab= deep link so alerts land on the tab that explains them
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("tab") as TrafficTab | null;
+    if (v && ["overview", "alarms", "channels", "health", "matrix", "audience", "seo"].includes(v)) setTab(v);
+  }, []);
   const { alarms, error: alarmsError } = useTrafficAlarms();
   const redAlarms = alarms?.filter((a) => a.severity === "red").length ?? 0;
 

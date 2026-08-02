@@ -41,9 +41,22 @@ export default function AdsPage() {
   const [editSku, setEditSku] = useState("");
   const { sort, toggle, apply } = useSort<AdPerf>();
 
+  // ?campaign= deep link from the Overview alert feed — the dead-spend and
+  // low-ROAS alarms name a campaign, so land on just that campaign's rows
+  const [campaignFilter, setCampaignFilter] = useState<string | null>(null);
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get("campaign");
+    if (c) setCampaignFilter(c);
+  }, []);
+
+  const visibleRows = useMemo(
+    () => (campaignFilter ? rows.filter((r) => (r.campaign_name ?? "") === campaignFilter) : rows),
+    [rows, campaignFilter]
+  );
+
   const sortedRows = useMemo(
     () =>
-      apply(rows, {
+      apply(visibleRows, {
         adName: (r) => r.ad_name,
         keyword: (r) => r.mapped_sku ?? r.match_keyword,
         spend: (r) => r.spend,
@@ -54,7 +67,7 @@ export default function AdsPage() {
         actualRoas: (r) => r.actual_roas,
         actualCr: (r) => r.actual_cr,
       }),
-    [rows, apply]
+    [visibleRows, apply]
   );
 
   const load = useCallback(async () => {
@@ -183,6 +196,21 @@ export default function AdsPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          {campaignFilter && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-800">
+              <span className="font-semibold">{campaignFilter}</span>
+              <span className="text-xs opacity-70">
+                ({formatNumber(visibleRows.length)} / {formatNumber(rows.length)})
+              </span>
+              <button
+                className="ms-auto rounded-full p-0.5 opacity-60 transition hover:opacity-100"
+                aria-label={t("dismiss")}
+                onClick={() => setCampaignFilter(null)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-800">
             {t("adsOverlapNote")}
           </div>

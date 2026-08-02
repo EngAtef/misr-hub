@@ -8,6 +8,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
+import { StockForecast } from "@/components/stock-forecast";
 import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 interface EngineRow {
@@ -60,7 +61,7 @@ const ML_META: Record<string, { key: DictKey; style: string }> = {
   cancelled: { key: "mlCancelled", style: "bg-slate-100 text-slate-600" },
 };
 
-type Tab = "replenish" | "overstock" | "oos" | "lists";
+type Tab = "replenish" | "overstock" | "oos" | "forecast" | "lists";
 
 const SETTINGS_KEY = "nm-stock-engine-settings";
 
@@ -86,6 +87,17 @@ export default function StockPage() {
   const [search, setSearch] = useState("");
   const [vendorFilter, setVendorFilter] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+
+  // ?filter=/?q= deep links so alerts can land on the right tab already
+  // narrowed (e.g. the stockouts alert opens /stock?filter=oos, and the
+  // "traffic on an out-of-stock book" alarm adds &q=<book name>)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const f = sp.get("filter");
+    if (f === "oos" || f === "overstock" || f === "replenish" || f === "forecast" || f === "lists") setTab(f);
+    const q = sp.get("q");
+    if (q) setSearch(q);
+  }, []);
   const { sort, toggle, apply } = useSort<EngineRow>();
   const [moveEdits, setMoveEdits] = useState<Record<string, string>>({});
   const [hasStockData, setHasStockData] = useState(false);
@@ -373,10 +385,11 @@ export default function StockPage() {
     XLSX.writeFile(wb, `Stock_replenishment_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
-  const TABS: { key: Tab; labelKey: DictKey; count: number }[] = [
+  const TABS: { key: Tab; labelKey: DictKey; count?: number }[] = [
     { key: "replenish", labelKey: "stockTabReplenish", count: kpis.moveSkus },
     { key: "overstock", labelKey: "stockTabOverstock", count: kpis.overstock },
     { key: "oos", labelKey: "stockTabOos", count: kpis.oos },
+    { key: "forecast", labelKey: "forecast" },
     { key: "lists", labelKey: "stockTabLists", count: moveLists.filter((l) => l.status === "pending").length },
   ];
 
@@ -435,7 +448,7 @@ export default function StockPage() {
         <KpiCard label={t("overstockValue")} value={formatMoney(kpis.overstockValue, lang)} accent="slate" />
       </div>
 
-      {tab !== "lists" && (
+      {tab !== "lists" && tab !== "forecast" && (
         <div className="card p-4 mb-4 flex flex-wrap items-end gap-3">
           <Ctl label={t("windowDays")}>
             <select className="input !w-auto" value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value))}>
@@ -503,12 +516,15 @@ export default function StockPage() {
               tab === x.key ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
             )}
           >
-            {t(x.labelKey)} <span className="text-xs opacity-60">({x.count})</span>
+            {t(x.labelKey)}
+            {x.count !== undefined && <span className="text-xs opacity-60"> ({x.count})</span>}
           </button>
         ))}
       </div>
 
-      {tab === "lists" ? (
+      {tab === "forecast" ? (
+        <StockForecast />
+      ) : tab === "lists" ? (
         moveLists.length === 0 ? (
           <EmptyState message={t("noMoveLists")} />
         ) : (

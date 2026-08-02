@@ -1,7 +1,17 @@
 import type { Config } from "tailwindcss";
+import path from "node:path";
+
+// Tailwind resolves relative content globs against process.cwd(), not against
+// this file. `next dev <dir>` is launched with the project as an argument
+// rather than by cd-ing into it, so "./src/**" matched zero files and every
+// utility got purged — the app rendered as unstyled HTML in dev while
+// production builds were fine. Anchoring the glob to this file's own
+// directory makes it work however the process is started.
+// fast-glob needs forward slashes, including on Windows.
+const srcGlob = path.join(__dirname, "src").replace(/\\/g, "/") + "/**/*.{ts,tsx}";
 
 const config: Config = {
-  content: ["./src/**/*.{ts,tsx}"],
+  content: [srcGlob],
   theme: {
     extend: {
       colors: {

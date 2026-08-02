@@ -7,6 +7,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, StatusBadge, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart } from "@/components/charts";
+import { DeliveryQuality } from "@/components/delivery-quality";
 import { formatMoney, formatNumber, formatDateTime, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
 
 interface Row {
@@ -25,13 +26,19 @@ interface Row {
   cancellation_note: string | null;
 }
 
-type Tab = "free" | "sameday" | "cancel";
+type Tab = "quality" | "free" | "sameday" | "cancel";
 
 export default function DeliveryPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
-  const [tab, setTab] = useState<Tab>("free");
+  const [tab, setTab] = useState<Tab>("quality");
+
+  // ?tab= deep link from the Overview alert feed
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("tab");
+    if (v === "quality" || v === "free" || v === "sameday" || v === "cancel") setTab(v);
+  }, []);
   const [rows, setRows] = useState<Row[]>([]);
   const [compareRows, setCompareRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +67,13 @@ export default function DeliveryPage() {
     [supabase]
   );
 
+  // The three original tabs aggregate client-side over every order row in
+  // the range (up to 60k). The quality tab does its work in one RPC, so
+  // don't pay that download until a tab actually needs it.
+  const needsRows = tab !== "quality";
+
   useEffect(() => {
+    if (!needsRows) return;
     let cancelled = false;
     setLoading(true);
     fetchRows(range.from, range.to).then((all) => {
@@ -71,10 +84,10 @@ export default function DeliveryPage() {
     return () => {
       cancelled = true;
     };
-  }, [fetchRows, range.from, range.to]);
+  }, [fetchRows, range.from, range.to, needsRows]);
 
   useEffect(() => {
-    if (!compare) {
+    if (!compare || !needsRows) {
       setCompareRows(null);
       return;
     }
@@ -85,9 +98,10 @@ export default function DeliveryPage() {
     return () => {
       cancelled = true;
     };
-  }, [fetchRows, compare]);
+  }, [fetchRows, compare, needsRows]);
 
   const TABS: { key: Tab; labelKey: DictKey }[] = [
+    { key: "quality", labelKey: "deliveryQualityTab" },
     { key: "free", labelKey: "freeDeliveryTab" },
     { key: "sameday", labelKey: "sameDayTab" },
     { key: "cancel", labelKey: "cancellationsTab" },
@@ -128,7 +142,9 @@ export default function DeliveryPage() {
         ))}
       </div>
 
-      {loading ? (
+      {tab === "quality" ? (
+        <DeliveryQuality from={range.from} to={range.to} />
+      ) : loading ? (
         <Spinner />
       ) : rows.length === 0 ? (
         <EmptyState message={t("noData")} />

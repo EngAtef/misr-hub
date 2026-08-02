@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { useDateRange, DateRangeFilter } from "@/components/date-range";
+import { useDateRange, DateRangeFilter, presetToRange } from "@/components/date-range";
 import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge, Pagination } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
@@ -238,19 +238,35 @@ export default function OrdersPage() {
     setPage(0);
   }, [range.from, range.to]);
 
-  // ?q= deep link from the sidebar quick search
+  // Deep links: ?q= from the sidebar quick search, plus ?city=/?status=/
+  // ?payment=/?range= so alerts and the delivery-quality report can land
+  // here with the filters already applied instead of on a bare list.
+  // Repeatable params are supported: ?city=Cairo&city=Giza
   useEffect(() => {
     const onNav = () => {
-      const q = new URLSearchParams(window.location.search).get("q");
+      const sp = new URLSearchParams(window.location.search);
+      const q = sp.get("q");
       if (q !== null && q !== "") {
         setSearchInput(q);
         setSearch(q.trim());
-        setPage(0);
       }
+      const city = sp.getAll("city").filter(Boolean);
+      if (city.length) setCity(city);
+      const status = sp.getAll("status").filter(Boolean);
+      if (status.length) setStatus(status);
+      const payment = sp.getAll("payment").filter(Boolean);
+      if (payment.length) setPayment(payment);
+      const r = sp.get("range");
+      if (r === "7d" || r === "30d" || r === "90d" || r === "month" || r === "all") {
+        setPreset(r);
+        setRange(presetToRange(r));
+      }
+      if (q || city.length || status.length || payment.length) setPage(0);
     };
     onNav();
     window.addEventListener("popstate", onNav);
     return () => window.removeEventListener("popstate", onNav);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalPages =

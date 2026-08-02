@@ -30,6 +30,7 @@ import {
   Flag,
   Truck,
   BookOpen,
+  LayoutGrid,
   UserCircle,
   Store,
   Coins,
@@ -53,48 +54,76 @@ import { NotificationBell } from "@/components/notification-bell";
 import { ActivityTracker } from "@/lib/activity-tracker";
 import type { Profile } from "@/lib/types";
 
+type NavGroup = "daily" | "sales" | "catalog" | "marketing" | "finance" | "tools" | "admin";
+
 interface NavItem {
   href: string;
   labelKey: DictKey;
   icon: React.ElementType;
   roles: string[];
+  group: NavGroup;
   ownerOnly?: boolean;
 }
 
+const GROUP_LABELS: Record<NavGroup, DictKey> = {
+  daily: "navGroupDaily",
+  sales: "navGroupSales",
+  catalog: "navGroupCatalog",
+  marketing: "navGroupMarketing",
+  finance: "navGroupFinance",
+  tools: "navGroupTools",
+  admin: "navGroupAdmin",
+};
+
+// Render order of the groups. Items keep their order within a group.
+const GROUP_ORDER: NavGroup[] = ["daily", "sales", "catalog", "marketing", "finance", "tools", "admin"];
+
 const NAV: NavItem[] = [
-  { href: "/", labelKey: "overview", icon: LayoutDashboard, roles: ["admin", "manager", "viewer"] },
-  { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"] },
-  { href: "/products", labelKey: "productsPage", icon: Package, roles: ["admin", "manager", "viewer"] },
-  { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"] },
-  { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"] },
-  { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"] },
-  { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"] },
-  { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"] },
-  { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"] },
-  { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"] },
-  { href: "/marketing", labelKey: "marketing", icon: Wand2, roles: ["admin", "manager", "viewer"] },
-  { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"] },
-  { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"] },
-  { href: "/purchase-orders", labelKey: "purchaseOrders", icon: ClipboardList, roles: ["admin", "manager"] },
-  { href: "/forecast", labelKey: "forecast", icon: TrendingUp, roles: ["admin", "manager"] },
-  { href: "/returns", labelKey: "returns", icon: Undo2, roles: ["admin", "manager", "viewer"] },
-  { href: "/profit", labelKey: "profit", icon: Coins, roles: ["admin", "manager"] },
-  { href: "/pnl", labelKey: "pnl", icon: Landmark, roles: ["admin", "manager"] },
-  { href: "/catalog", labelKey: "catalog", icon: BookOpen, roles: ["admin", "manager", "viewer"] },
-  { href: "/vendors", labelKey: "vendors", icon: Store, roles: ["admin", "manager", "viewer"] },
-  { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"] },
-  { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"] },
-  { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"] },
-  { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"] },
-  { href: "/studio", labelKey: "studio", icon: BookOpen, roles: ["admin", "manager"] },
-  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"] },
-  { href: "/bot", labelKey: "afterHoursBot", icon: Bot, roles: ["admin", "manager", "viewer"] },
-  { href: "/inbox", labelKey: "inbox", icon: MessageSquare, roles: ["admin", "manager", "viewer"] },
-  { href: "/profile", labelKey: "profile", icon: UserCircle, roles: ["admin", "manager", "viewer"] },
-  { href: "/users", labelKey: "users", icon: Users, roles: ["admin"] },
-  { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"] },
-  { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"] },
-  { href: "/control", labelKey: "controlCenter", icon: ShieldCheck, roles: ["admin"], ownerOnly: true },
+  // Daily — what you open every morning
+  { href: "/", labelKey: "overview", icon: LayoutDashboard, roles: ["admin", "manager", "viewer"], group: "daily" },
+  { href: "/dashboard", labelKey: "dashboard", icon: LayoutGrid, roles: ["admin", "manager", "viewer"], group: "daily" },
+  { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"], group: "daily" },
+  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"], group: "daily" },
+
+  // Sales & customers — the demand side
+  { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/returns", labelKey: "returns", icon: Undo2, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"], group: "sales" },
+
+  // Catalog & stock — the supply side
+  { href: "/products", labelKey: "productsPage", icon: Package, roles: ["admin", "manager", "viewer"], group: "catalog" },
+  { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"], group: "catalog" },
+  { href: "/catalog", labelKey: "catalog", icon: BookOpen, roles: ["admin", "manager", "viewer"], group: "catalog" },
+  { href: "/vendors", labelKey: "vendors", icon: Store, roles: ["admin", "manager", "viewer"], group: "catalog" },
+
+  // Marketing — spend and reach
+  { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"], group: "marketing" },
+  { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"], group: "marketing" },
+  { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"], group: "marketing" },
+  { href: "/marketing", labelKey: "marketing", icon: Wand2, roles: ["admin", "manager", "viewer"], group: "marketing" },
+
+  // Finance — the money
+  { href: "/pnl", labelKey: "pnl", icon: Landmark, roles: ["admin", "manager"], group: "finance" },
+  { href: "/profit", labelKey: "profit", icon: Coins, roles: ["admin", "manager"], group: "finance" },
+  { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"], group: "finance" },
+
+  // Tools
+  { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"], group: "tools" },
+  { href: "/studio", labelKey: "studio", icon: BookOpen, roles: ["admin", "manager"], group: "tools" },
+  { href: "/bot", labelKey: "afterHoursBot", icon: Bot, roles: ["admin", "manager", "viewer"], group: "tools" },
+  { href: "/inbox", labelKey: "inbox", icon: MessageSquare, roles: ["admin", "manager", "viewer"], group: "tools" },
+  { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"], group: "tools" },
+
+  // Administration
+  { href: "/profile", labelKey: "profile", icon: UserCircle, roles: ["admin", "manager", "viewer"], group: "admin" },
+  { href: "/users", labelKey: "users", icon: Users, roles: ["admin"], group: "admin" },
+  { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"], group: "admin" },
+  { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"], group: "admin" },
+  { href: "/control", labelKey: "controlCenter", icon: ShieldCheck, roles: ["admin"], group: "admin", ownerOnly: true },
 ];
 
 // href -> page_permissions.page_key
@@ -215,25 +244,38 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         </form>
         <NotificationBell profile={profile} />
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-        {items.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          const Icon = item.icon;
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {GROUP_ORDER.map((group) => {
+          const groupItems = items.filter((i) => i.group === group);
+          // a group whose every item is hidden by permissions disappears
+          // along with its header
+          if (groupItems.length === 0) return null;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition",
-                active
-                  ? "bg-brand-700 text-white"
-                  : "text-brand-200 hover:bg-brand-800 hover:text-white"
-              )}
-            >
-              <Icon className="h-4.5 w-4.5 shrink-0" size={18} />
-              {t(item.labelKey)}
-            </Link>
+            <div key={group} className="mb-4 last:mb-0">
+              <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-brand-400">
+                {t(GROUP_LABELS[group])}
+              </div>
+              <div className="space-y-1">
+                {groupItems.map((item) => {
+                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                        active ? "bg-brand-700 text-white" : "text-brand-200 hover:bg-brand-800 hover:text-white"
+                      )}
+                    >
+                      <Icon className="h-4.5 w-4.5 shrink-0" size={18} />
+                      {t(item.labelKey)}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </nav>
