@@ -737,7 +737,17 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                                 {l.promotion ? ` · ${l.promotion}` : ""}
                               </div>
                             </td>
-                            <td dir="ltr" className="text-xs text-slate-500">{l.sku ?? "—"}</td>
+                            <td dir="ltr" className="text-xs text-slate-500">
+                              {/* opens this book on Products & SKUs, where its
+                                  catalog detail and full order history live */}
+                              {l.sku ? (
+                                <a href={`/products?q=${encodeURIComponent(l.sku)}`} className="text-brand-700 hover:underline" title={t("openInProducts")}>
+                                  {l.sku}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
                             <td className="text-center font-bold">{formatNumber(l.quantity ?? 1)}</td>
                             <td className="text-xs">{formatMoney(l.unit_price, lang)}</td>
                             <td>{formatMoney(l.price, lang)}</td>

@@ -88,6 +88,24 @@ export default function ProductsPage() {
     setPage(0);
   }, [search, scope, range.from, range.to, sort?.key, sort?.dir]);
 
+  // ?q= deep link — the SKU links inside an order's line items land here.
+  // Scope is forced to the whole catalog so a 0-stock or never-sold book
+  // is never filtered out from under the link.
+  useEffect(() => {
+    const onNav = () => {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q !== null && q !== "") {
+        setSearchInput(q);
+        setSearch(q.trim());
+        setScope("all");
+        setPage(0);
+      }
+    };
+    onNav();
+    window.addEventListener("popstate", onNav);
+    return () => window.removeEventListener("popstate", onNav);
+  }, []);
+
   // main table — server-side search/scope/sort/pagination over the whole catalog
   useEffect(() => {
     let cancelled = false;

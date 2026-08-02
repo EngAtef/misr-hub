@@ -51,6 +51,7 @@ interface PurchaseRow {
   product_name: string | null;
   sku: string | null;
   units: number | null;
+  unit_price: number | null;
   book_amount: number | null;
   order_total: number | null;
   payment_method: string | null;
@@ -250,7 +251,8 @@ export function ProductDrawer({
                     <th>{t("customer")}</th>
                     <th>{t("phone")}</th>
                     <th>{t("city")}</th>
-                    <th>{t("units")}</th>
+                    <th>{t("qty")}</th>
+                    <th>{t("unitPriceCol")}</th>
                     <th>{t("amount")}</th>
                   </tr>
                 </thead>
@@ -258,7 +260,17 @@ export function ProductDrawer({
                   {rows.map((r) => (
                     <tr key={r.order_number}>
                       <td className="whitespace-nowrap text-xs text-slate-500">{formatDate(r.order_date)}</td>
-                      <td dir="ltr" className="font-mono text-xs">{r.order_number}</td>
+                      <td dir="ltr" className="font-mono text-xs">
+                        {/* jumps to Orders filtered on this order, where the
+                            full line-by-line modal lives */}
+                        <a
+                          href={`/orders?q=${encodeURIComponent(r.order_number)}`}
+                          className="text-brand-700 hover:underline"
+                          title={t("openInOrders")}
+                        >
+                          {r.order_number}
+                        </a>
+                      </td>
                       <td>
                         <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", statusTone(r.order_status))}>
                           {r.order_status ?? "—"}
@@ -268,6 +280,9 @@ export function ProductDrawer({
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.customer_phone ?? "—"}</td>
                       <td className="text-xs">{r.city ?? "—"}</td>
                       <td className="font-semibold">{formatNumber(Number(r.units ?? 0))}</td>
+                      <td className="text-xs text-slate-500">
+                        {r.unit_price === null || r.unit_price === undefined ? "—" : formatMoney(Number(r.unit_price), lang)}
+                      </td>
                       <td>{formatMoney(Number(r.book_amount ?? 0), lang)}</td>
                     </tr>
                   ))}

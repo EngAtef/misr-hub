@@ -497,6 +497,8 @@ const dict = {
   firstSale: { ar: "أول بيع", en: "First sale" },
   neverSoldLbl: { ar: "لم يبع", en: "Never sold" },
   orderHistory: { ar: "سجل الطلبات", en: "Order History" },
+  openInOrders: { ar: "افتح الطلب في صفحة الطلبات", en: "Open this order in Orders" },
+  openInProducts: { ar: "افتح الكتاب في صفحة المنتجات", en: "Open this book in Products & SKUs" },
   fldPages: { ar: "عدد الصفحات", en: "Pages" },
   fldDimensions: { ar: "المقاس (سم)", en: "Dimensions (cm)" },
   fldBookType: { ar: "نوع الكتاب", en: "Book type" },
