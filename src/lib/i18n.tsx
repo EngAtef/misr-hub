@@ -477,6 +477,8 @@ const dict = {
   exportBuyers: { ar: "تصدير المشترين", en: "Export Buyers" },
   bookBuyers: { ar: "مشترو الكتاب", en: "Book Buyers" },
   selectForList: { ar: "تحديد للقائمة", en: "Select for list" },
+  hideMenu: { ar: "إخفاء القائمة", en: "Hide menu" },
+  showMenu: { ar: "إظهار القائمة", en: "Show menu" },
   exportSelected: { ar: "تصدير قائمة المحددة", en: "Export Selected List" },
   selectedBooks: { ar: "كتب محددة", en: "books selected" },
   searchProducts: { ar: "ابحث بالاسم أو الكود...", en: "Search by name or SKU..." },

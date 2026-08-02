@@ -40,6 +40,10 @@ import {
   MessageSquare,
   ShieldCheck,
   ShoppingBasket,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -103,9 +107,22 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [quickQ, setQuickQ] = useState("");
   const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
   const [userOverrides, setUserOverrides] = useState<Record<string, boolean> | null>(null);
+
+  // desktop sidebar collapse — remembered per browser
+  useEffect(() => {
+    if (localStorage.getItem("nmSidebarCollapsed") === "1") setCollapsed(true);
+  }, []);
+
+  function toggleSidebar() {
+    setCollapsed((prev) => {
+      localStorage.setItem("nmSidebarCollapsed", prev ? "0" : "1");
+      return !prev;
+    });
+  }
 
   useEffect(() => {
     if (profile.role === "admin") return;
@@ -158,7 +175,15 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="px-5 py-5 border-b border-brand-800">
+      <div className="relative px-5 py-5 border-b border-brand-800">
+        <button
+          onClick={toggleSidebar}
+          title={t("hideMenu")}
+          aria-label={t("hideMenu")}
+          className="absolute top-4 end-3 hidden rounded-lg p-1 text-brand-300 transition hover:bg-brand-800 hover:text-white lg:block"
+        >
+          {lang === "ar" ? <PanelRightClose size={18} /> : <PanelLeftClose size={18} />}
+        </button>
         <Logo onDark />
         <div className="mt-1.5 text-[11px] text-brand-300">{t("appTagline")}</div>
         <form
@@ -241,7 +266,26 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
     <div className="min-h-screen">
       <ActivityTracker userId={profile.id} email={profile.email} />
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 bg-brand-950 lg:block">{sidebar}</aside>
+      <aside
+        className={cn(
+          "fixed inset-y-0 start-0 z-30 hidden w-64 bg-brand-950",
+          collapsed ? "lg:hidden" : "lg:block"
+        )}
+      >
+        {sidebar}
+      </aside>
+
+      {/* Desktop reveal button (shown while the sidebar is hidden) */}
+      {collapsed && (
+        <button
+          onClick={toggleSidebar}
+          title={t("showMenu")}
+          aria-label={t("showMenu")}
+          className="fixed top-3 start-2 z-30 hidden rounded-lg bg-brand-950 p-2 text-white shadow-lg transition hover:bg-brand-800 lg:block"
+        >
+          {lang === "ar" ? <PanelRightOpen size={18} /> : <PanelLeftOpen size={18} />}
+        </button>
+      )}
 
       {/* Mobile sidebar */}
       {mobileOpen && (
@@ -267,7 +311,9 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <span className="font-bold text-white">{t("appName")}</span>
       </div>
 
-      <main className="lg:ms-64 p-4 lg:p-8">{children}</main>
+      <main className={cn("p-4 lg:p-8 transition-[margin] duration-200", collapsed ? "lg:ms-12" : "lg:ms-64")}>
+        {children}
+      </main>
     </div>
   );
 }

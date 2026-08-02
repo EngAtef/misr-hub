@@ -330,7 +330,9 @@ export default function ProductsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="w-10">{t("selectForList")}</th>
+                  <th className="w-8" title={t("selectForList")} aria-label={t("selectForList")}>
+                    S
+                  </th>
                   <th className="w-12"></th>
                   <SortTh label={t("products")} k="name" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("sku")} k="sku" sort={sort} onToggle={toggleSort} />
