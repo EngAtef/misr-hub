@@ -355,6 +355,8 @@ export default function DataCenterPage() {
           setProcessed(ok);
           setProgress(Math.round((ok / pending.customers.length) * 100));
         }
+        // new/changed accounts may be duplicates of existing people
+        await supabase.rpc("fn_rebuild_customer_identities");
         await recordUpload(pending.fileName, pending.customers.length, ok, 0);
       } else if (pending.type === "customer_stats" && pending.customerStats) {
         let ok = 0;
@@ -366,6 +368,8 @@ export default function DataCenterPage() {
           setProcessed(ok);
           setProgress(Math.round((ok / pending.customerStats.length) * 100));
         }
+        // lifetime figures changed -> refresh the merged per-person totals
+        await supabase.rpc("fn_rebuild_customer_identities");
         await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
       } else if (pending.type === "products" && pending.products) {
         // same pipeline as the Catalog page: full catalog rows -> products,

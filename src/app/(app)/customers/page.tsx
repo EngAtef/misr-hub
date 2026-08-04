@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX, Trophy, MapPin, PackageSearch, RotateCcw, History } from "lucide-react";
+import { Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, Download, Cake, UserX, Trophy, MapPin, PackageSearch, RotateCcw, History, Users2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, SortTh, useSort } from "@/components/ui";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
+import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { CustomerDrawer } from "@/components/customer-drawer";
-import { SearchBox } from "@/components/search-box";
+import { CustomerBrowser } from "@/components/customer-browser";
 
 interface WinbackRow {
   customer_id: string;
@@ -55,12 +55,17 @@ interface SegmentCustomer {
 }
 
 interface ValueSummary {
-  stats_customers: number;
+  accounts: number;
+  people: number;
+  merged_people: number;
+  duplicate_accounts: number;
   buyers: number;
   delivered_buyers: number;
   never_ordered: number;
   repeat_buyers: number;
   one_timers: number;
+  repeat_buyers_unmerged: number;
+  repeat_hidden_by_dupes: number;
   lifetime_orders_total: number;
   lifetime_delivered_total: number;
   lifetime_canceled_total: number;
@@ -68,7 +73,9 @@ interface ValueSummary {
   delivered_amount_total: number;
   canceled_amount_total: number;
   avg_ltv: number;
+  avg_orders_per_person: number;
   stats_updated_at: string | null;
+  rebuilt_at: string | null;
 }
 
 interface TopCustomer {
@@ -142,9 +149,9 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [customers, setCustomers] = useState<SegmentCustomer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
-  const [registered, setRegistered] = useState<number | null>(null);
   const [ltSummary, setLtSummary] = useState<ValueSummary | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const { sort, toggle, apply } = useSort<SegmentCustomer>();
 
   const sortedCustomers = useMemo(
@@ -166,15 +173,11 @@ export default function CustomersPage() {
       setSummary((data as SegmentSummary[]) ?? []);
       setLoading(false);
     });
-    supabase
-      .from("customers")
-      .select("customer_id", { count: "exact", head: true })
-      .then(({ count }) => setRegistered(count ?? null));
-    supabase.rpc("fn_customer_value_summary").then(({ data }) => {
+    supabase.rpc("fn_identity_summary").then(({ data }) => {
       const s = data as ValueSummary | null;
-      setLtSummary(s && Number(s.stats_customers) > 0 ? s : null);
+      setLtSummary(s && Number(s.people) > 0 ? s : null);
     });
-  }, [supabase]);
+  }, [supabase, reloadKey]);
 
   async function openSegment(segment: string) {
     setSelected(segment);
@@ -204,32 +207,7 @@ export default function CustomersPage() {
         <EmptyState message={t("noData")} />
       ) : (
         <>
-          {registered !== null && registered > 0 && (() => {
-            // Lifetime stats (bulk CustomerOrdersExport) are exact; fall
-            // back to RFM-derived counts from uploaded order months.
-            const buyers = ltSummary ? Number(ltSummary.buyers) : summary.reduce((s, x) => s + Number(x.customers), 0);
-            const never = ltSummary ? Number(ltSummary.never_ordered) : Math.max(registered - buyers, 0);
-            return (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-6">
-                <div className="card p-4 border-s-4 border-s-brand-500">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("registeredCustomers")}</div>
-                  <div className="mt-1 text-2xl font-bold">{formatNumber(registered)}</div>
-                </div>
-                <div className="card p-4 border-s-4 border-s-emerald-500">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("buyersCount")}</div>
-                  <div className="mt-1 text-2xl font-bold">{formatNumber(buyers)}</div>
-                </div>
-                <div className="card p-4 border-s-4 border-s-amber-500">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("registrationToBuyer")}</div>
-                  <div className="mt-1 text-2xl font-bold">{((buyers / registered) * 100).toFixed(1)}%</div>
-                </div>
-                <div className="card p-4 border-s-4 border-s-red-500">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("neverPurchased")}</div>
-                  <div className="mt-1 text-2xl font-bold">{formatNumber(never)}</div>
-                </div>
-              </div>
-            );
-          })()}
+          {ltSummary && <IdentityKpis s={ltSummary} />}
           {ltSummary && <LifetimeKpis s={ltSummary} />}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
             {ordered.map((s) => {
@@ -333,196 +311,17 @@ export default function CustomersPage() {
             </div>
           )}
 
-          <MarketingAudiences neverPurchased={registered !== null} onOpenCustomer={setDrawerId} />
+          <MarketingAudiences neverPurchased={!!ltSummary} onOpenCustomer={setDrawerId} />
 
-          <AllCustomersBrowser hasStats={!!ltSummary} onOpenCustomer={setDrawerId} />
+          <CustomerBrowser onOpenCustomer={setDrawerId} onChanged={() => setReloadKey((k) => k + 1)} />
 
-          <CustomerDrawer customerId={drawerId} onClose={() => setDrawerId(null)} />
+          <CustomerDrawer
+            customerId={drawerId}
+            onClose={() => setDrawerId(null)}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
         </>
       )}
-    </div>
-  );
-}
-
-function AllCustomersBrowser({ hasStats, onOpenCustomer }: { hasStats: boolean; onOpenCustomer: (id: string) => void }) {
-  const { t, lang } = useLang();
-  const supabase = useMemo(() => createClient(), []);
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
-  const [filter, setFilter] = useState<"all" | "buyers" | "never">("all");
-  const [page, setPage] = useState(0);
-  const [rows, setRows] = useState<
-    {
-      customer_id: string; name: string | null; phone: string | null; email: string | null; city: string | null;
-      birthdate: string | null; joined_at: string | null; total_orders: number | null;
-      lifetime_orders: number | null; lifetime_delivered: number | null; lifetime_delivered_amount: number | null;
-      last_order_at: string | null; last_order_state: string | null;
-    }[]
-  >([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const PAGE = 25;
-  const { sort, toggle } = useSort<never>();
-
-  function onSort(key: string) {
-    toggle(key);
-    setPage(0);
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      let q = supabase
-        .from("customers")
-        .select(
-          "customer_id, name, phone, email, city, birthdate, joined_at, total_orders, lifetime_orders, lifetime_delivered, lifetime_delivered_amount, last_order_at, last_order_state",
-          { count: "exact" }
-        );
-      if (search) {
-        const s = sanitizeSearch(search);
-        if (s) q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
-      }
-      if (filter === "buyers") q = q.gt("lifetime_orders", 0);
-      if (filter === "never") q = q.eq("lifetime_orders", 0);
-      const { data, count } = await q
-        .order(sort?.key ?? "joined_at", { ascending: sort?.dir === "asc", nullsFirst: false })
-        .range(page * PAGE, page * PAGE + PAGE - 1);
-      if (cancelled) return;
-      setRows((data as typeof rows) ?? []);
-      setTotal(count ?? 0);
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, search, page, supabase, sort, filter]);
-
-  if (!open) {
-    return (
-      <div className="mt-8">
-        <button className="btn-primary" onClick={() => setOpen(true)}>
-          {t("viewAllCustomers")}
-        </button>
-      </div>
-    );
-  }
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE));
-
-  return (
-    <div className="mt-8">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold">
-          {t("allCustomers")} ({formatNumber(total)})
-        </h2>
-        <span className="text-[11px] text-slate-400">{t("lastActionNote")}</span>
-      </div>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <SearchBox
-          className="w-full max-w-md"
-          placeholder={t("searchCustomersPh")}
-          value={searchInput}
-          onChange={setSearchInput}
-          onCommit={(v) => {
-            setPage(0);
-            setSearch(v);
-          }}
-          active={!!search}
-        />
-        {hasStats && (
-          <div className="flex gap-1.5">
-            {(["all", "buyers", "never"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => {
-                  setFilter(f);
-                  setPage(0);
-                }}
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                  filter === f ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500 hover:border-slate-300"
-                )}
-              >
-                {t(f === "all" ? "filterAll" : f === "buyers" ? "filterBuyers" : "filterNever")}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="card overflow-x-auto">
-        {loading ? (
-          <Spinner />
-        ) : (
-          <table className="table-base">
-            <thead>
-              <tr>
-                <SortTh label={t("customer")} k="name" sort={sort} onToggle={onSort} />
-                <SortTh label={t("phone")} k="phone" sort={sort} onToggle={onSort} />
-                <SortTh label={t("email")} k="email" sort={sort} onToggle={onSort} />
-                <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
-                <SortTh label={t("birthDate")} k="birthdate" sort={sort} onToggle={onSort} />
-                <SortTh label={t("registeredAt")} k="joined_at" sort={sort} onToggle={onSort} />
-                {hasStats ? (
-                  <>
-                    <SortTh label={t("ltOrders")} k="lifetime_orders" sort={sort} onToggle={onSort} />
-                    <SortTh label={t("deliveredCol")} k="lifetime_delivered" sort={sort} onToggle={onSort} />
-                    <SortTh label={t("totalSpent")} k="lifetime_delivered_amount" sort={sort} onToggle={onSort} />
-                    <SortTh label={t("lastOrder")} k="last_order_at" sort={sort} onToggle={onSort} />
-                  </>
-                ) : (
-                  <SortTh label={t("orders")} k="total_orders" sort={sort} onToggle={onSort} />
-                )}
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.customer_id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpenCustomer(c.customer_id)}>
-                  <td className="font-medium">{c.name ?? c.customer_id}</td>
-                  <td dir="ltr" className="text-slate-600">{c.phone ?? "—"}</td>
-                  <td dir="ltr" className="text-xs text-slate-500">{c.email ?? "—"}</td>
-                  <td>{c.city ?? "—"}</td>
-                  <td dir="ltr" className="text-xs">{formatDate(c.birthdate)}</td>
-                  <td dir="ltr" className="text-xs text-slate-500">{formatDate(c.joined_at)}</td>
-                  {hasStats ? (
-                    <>
-                      <td className="font-semibold">{c.lifetime_orders ?? 0}</td>
-                      <td className="text-emerald-700">{c.lifetime_delivered ?? 0}</td>
-                      <td>{formatMoney(c.lifetime_delivered_amount ?? 0, lang)}</td>
-                      <td className="text-xs text-slate-500">
-                        {formatDate(c.last_order_at)}
-                        {c.last_order_state && <span className="ms-1 text-slate-400">· {c.last_order_state}</span>}
-                      </td>
-                    </>
-                  ) : (
-                    <td className="font-semibold">{c.total_orders ?? 0}</td>
-                  )}
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <ContactActions phone={c.phone} email={c.email} name={c.name} waReason="general" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-        <span>
-          {t("page")} {page + 1} {t("of")} {formatNumber(totalPages)}
-        </span>
-        <div className="flex gap-2">
-          <button className="btn-secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
-            {t("previous")}
-          </button>
-          <button className="btn-secondary" disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>
-            {t("next")}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -706,6 +505,59 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Headline counts AFTER de-duplication: the platform opens a fresh
+// customer record on every guest checkout, so the raw account count is
+// always higher than the number of real people.
+function IdentityKpis({ s }: { s: ValueSummary }) {
+  const { t } = useLang();
+  const people = Number(s.people);
+  const buyers = Number(s.buyers);
+  const dupes = Number(s.duplicate_accounts);
+  const hidden = Number(s.repeat_hidden_by_dupes);
+  return (
+    <div className="mb-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="card p-4 border-s-4 border-s-brand-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("realCustomers")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(people)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">
+            {formatNumber(Number(s.accounts))} {t("accountsOnPlatform")}
+          </div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-violet-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("mergedDuplicates")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(dupes)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">
+            {formatNumber(Number(s.merged_people))} {t("peopleAffected")}
+          </div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-emerald-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("buyersCount")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(buyers)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">
+            {t("registrationToBuyer")}: {people > 0 ? ((buyers / people) * 100).toFixed(1) : "0"}%
+          </div>
+        </div>
+        <div className="card p-4 border-s-4 border-s-red-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("neverPurchased")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(Number(s.never_ordered))}</div>
+        </div>
+      </div>
+      {hidden > 0 && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+          <Users2 size={16} className="mt-0.5 shrink-0" />
+          <span>
+            {t("hiddenRepeatBanner")
+              .replace("{hidden}", formatNumber(hidden))
+              .replace("{before}", formatNumber(Number(s.repeat_buyers_unmerged)))
+              .replace("{after}", formatNumber(Number(s.repeat_buyers)))}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
