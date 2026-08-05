@@ -10,7 +10,7 @@ import { formatDateTime, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
 import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
 import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
-import { parseAdsFile, type ParsedAdRow } from "@/lib/import/parse-ads";
+import { parseAdsFile, type ParsedAdReport } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
 import { parseCustomerStatsFile, type CustomerStatsRow } from "@/lib/import/parse-customer-stats";
 import { parseProductSalesFile, type ProductSaleRow } from "@/lib/import/parse-product-sales";
@@ -140,7 +140,7 @@ interface Pending {
   stock?: StockRow[];
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
-  ads?: ParsedAdRow[];
+  ads?: ParsedAdReport;
   abandoned?: AbandonedParsed;
   count: number;
   extra?: string;
@@ -282,9 +282,19 @@ export default function DataCenterPage() {
         });
       } else {
         const buffer = await file.arrayBuffer();
-        const rows = parseAdsFile(buffer, file.name);
-        if (!rows.length) throw new Error(t("invalidFile"));
-        setPending({ type: "ads", fileName: file.name, ads: rows, count: rows.length });
+        const report = parseAdsFile(buffer, file.name);
+        if (!report.rows.length) throw new Error(t("invalidFile"));
+        // the account label and reporting period decide which stored period is
+        // replaced — if the file doesn't state them, the Ads page is the place
+        // to fix them by hand before importing
+        if (!report.periodStart || !report.periodEnd) throw new Error(t("adsNeedPeriod"));
+        setPending({
+          type: "ads",
+          fileName: file.name,
+          ads: report,
+          count: report.rows.length,
+          extra: `${report.account} · ${report.periodStart} → ${report.periodEnd}`,
+        });
       }
       setPhase("ready");
     } catch (e) {
@@ -497,15 +507,18 @@ export default function DataCenterPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "import",
-            rows: pending.ads,
-            batchLabel: pending.fileName.replace(/\.(csv|xlsx?)$/i, ""),
+            account: pending.ads.account,
+            periodStart: pending.ads.periodStart,
+            periodEnd: pending.ads.periodEnd,
+            fileName: pending.fileName,
+            rows: pending.ads.rows,
           }),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error ?? "failed");
-        setProcessed(pending.ads.length);
+        setProcessed(pending.ads.rows.length);
         setProgress(100);
-        await recordUpload(pending.fileName, pending.ads.length, pending.ads.length, 0);
+        await recordUpload(pending.fileName, pending.ads.rows.length, pending.ads.rows.length, 0);
       }
       setPhase("done");
       loadHistory();

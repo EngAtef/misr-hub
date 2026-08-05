@@ -519,10 +519,11 @@ const dict = {
     en: "Source: the products catalog uploaded from the Data Center (all SKUs) + order history. Coloured columns are for the selected period; the Lifetime columns cover the full history.",
   },
   // Ads
-  ads: { ar: "الإعلانات", en: "Ads" },
+  ads: { ar: "مركز الإعلانات", en: "Ads Center" },
   adsSubtitle: { ar: "أداء إعلانات السوشيال بالإيراد الفعلي من المبيعات مقابل ما تقوله المنصة", en: "Social ad performance by ACTUAL sales revenue vs what the platform reports" },
   importAds: { ar: "استيراد تقرير إعلانات", en: "Import Ads Report" },
-  adsImportHint: { ar: "اسحب ملف تقرير إعلانات فيسبوك/إنستجرام (.csv) هنا", en: "Drop your Facebook/Instagram ads report (.csv) here" },
+  adsImportHint: { ar: "اسحب ملف تقرير ميتا (Excel) هنا — أو استخدم مركز الإعلانات لرفع أكتر من ملف مرة واحدة", en: "Drop a Meta Ads Manager export (Excel) here — or use the Ads Center to upload several at once" },
+  adsNeedPeriod: { ar: "الملف ده مفيهوش فترة التقرير — ارفعه من صفحة مركز الإعلانات عشان تحدد الفترة يدويًا", en: "This file has no reporting period — upload it from the Ads Center so you can set the period by hand" },
   batchLabel: { ar: "اسم الدفعة", en: "Batch label" },
   spend: { ar: "الإنفاق", en: "Spend" },
   reportedPurchases: { ar: "مشتريات المنصة", en: "Reported Purch." },
