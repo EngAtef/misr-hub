@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { Download, Store, Info } from "lucide-react";
+import { Download, Store, Info, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
@@ -25,6 +25,20 @@ interface VendorKpis {
   avg_price: number;
 }
 
+interface MonthRow { month: string; units: number; revenue: number; orders: number }
+interface BookRow { product_name: string; sku: string; units: number; revenue: number }
+interface CityRow { city: string; units: number; revenue: number }
+
+// fn_vendor_grp_overview returns everything the page renders in one
+// call (migration 072) — four parallel RPCs used to blow past the 8s
+// statement timeout on anything wider than a week.
+interface VendorOverview {
+  kpis: VendorKpis;
+  monthly: MonthRow[];
+  books: BookRow[];
+  cities: CityRow[];
+}
+
 interface ExportLine {
   order_number: string; order_date: string | null; order_status: string | null; payment_method: string | null;
   customer_name: string | null; customer_phone: string | null; city: string | null; area: string | null;
@@ -41,10 +55,11 @@ export default function VendorsPage() {
   const [exporting, setExporting] = useState(false);
   const [kpis, setKpis] = useState<VendorKpis | null>(null);
   const [prevKpis, setPrevKpis] = useState<VendorKpis | null>(null);
-  const [monthly, setMonthly] = useState<{ month: string; units: number; revenue: number; orders: number }[]>([]);
-  const [books, setBooks] = useState<{ product_name: string; sku: string; units: number; revenue: number }[]>([]);
-  const [cities, setCities] = useState<{ city: string; units: number; revenue: number }[]>([]);
+  const [monthly, setMonthly] = useState<MonthRow[]>([]);
+  const [books, setBooks] = useState<BookRow[]>([]);
+  const [cities, setCities] = useState<CityRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // full order-lines export for the current vendor + date range,
   // formatted so the file can be sent to the vendor as-is
@@ -78,18 +93,29 @@ export default function VendorsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     const p = rangeParams(range);
-    const args = { p_group: grp, p_from: p.p_from, p_to: p.p_to };
-    const [k, m, b, c] = await Promise.all([
-      supabase.rpc("fn_vendor_grp_kpis", args),
-      supabase.rpc("fn_vendor_grp_by_month", args),
-      supabase.rpc("fn_vendor_grp_top_books", { ...args, p_limit: 40 }),
-      supabase.rpc("fn_vendor_grp_by_city", { ...args, p_limit: 20 }),
-    ]);
-    setKpis(k.data as VendorKpis);
-    setMonthly(((m.data as { month: string; units: number; revenue: number; orders: number }[]) ?? []));
-    setBooks(((b.data as { product_name: string; sku: string; units: number; revenue: number }[]) ?? []));
-    setCities(((c.data as { city: string; units: number; revenue: number }[]) ?? []));
+    const { data, error: err } = await supabase.rpc("fn_vendor_grp_overview", {
+      p_group: grp,
+      p_from: p.p_from,
+      p_to: p.p_to,
+      p_limit: 40,
+      p_city_limit: 20,
+    });
+    if (err) {
+      // an empty page here used to be indistinguishable from "no sales"
+      setError(err.message);
+      setKpis(null);
+      setMonthly([]);
+      setBooks([]);
+      setCities([]);
+    } else {
+      const o = data as VendorOverview | null;
+      setKpis(o?.kpis ?? null);
+      setMonthly(o?.monthly ?? []);
+      setBooks(o?.books ?? []);
+      setCities(o?.cities ?? []);
+    }
     setLoading(false);
   }, [supabase, grp, range]);
 
@@ -118,7 +144,7 @@ export default function VendorsPage() {
   const pk = compare ? prevKpis : null;
   const money = (n: number) => formatMoney(n, lang);
 
-  const { sort: sortBooks, toggle: toggleBooks, apply: applyBooks } = useSort<{ product_name: string; sku: string; units: number; revenue: number }>();
+  const { sort: sortBooks, toggle: toggleBooks, apply: applyBooks } = useSort<BookRow>();
   const sortedBooks = useMemo(
     () =>
       applyBooks(books, {
@@ -174,6 +200,15 @@ export default function VendorsPage() {
 
       {loading ? (
         <Spinner />
+      ) : error ? (
+        <div className="card p-12 text-center">
+          <AlertTriangle size={22} className="mx-auto mb-2 text-amber-500" />
+          <div className="font-semibold text-slate-700">{t("loadFailed")}</div>
+          <div className="mt-1 text-xs text-slate-500" dir="ltr">{error}</div>
+          <button className="btn-secondary mt-4" onClick={load}>
+            {t("retry")}
+          </button>
+        </div>
       ) : !kpis || kpis.units === 0 ? (
         <div className="card p-12 text-center text-slate-500">{t("noResults")}</div>
       ) : (

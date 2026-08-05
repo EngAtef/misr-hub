@@ -128,6 +128,8 @@ const dict = {
   itemsCount: { ar: "عدد المنتجات", en: "Items" },
   source: { ar: "المصدر", en: "Source" },
   noResults: { ar: "لا توجد نتائج", en: "No results" },
+  loadFailed: { ar: "تعذّر تحميل البيانات", en: "Couldn't load the data" },
+  retry: { ar: "إعادة المحاولة", en: "Retry" },
   loading: { ar: "جاري التحميل...", en: "Loading..." },
   page: { ar: "صفحة", en: "Page" },
   of: { ar: "من", en: "of" },
