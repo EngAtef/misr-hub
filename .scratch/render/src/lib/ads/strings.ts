@@ -1,4 +1,4 @@
-import type { Lang } from "@/lib/i18n";
+import type { Lang } from "../../lib/i18n";
 
 // Ads Center copy lives here rather than in the global dictionary: it's ~120
 // strings that only this section uses, and keeping them together makes the

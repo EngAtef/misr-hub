@@ -1,0 +1,736 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import Link from "next/link";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown } from "lucide-react";
+import { createClient } from "../../../lib/supabase/client";
+import { useLang } from "../../../lib/i18n";
+import { PageHeader, Spinner, SortTh, useSort } from "../../../components/ui";
+import { formatDateTime, formatNumber, cn } from "../../../lib/utils";
+import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "../../../lib/import/parse-orders";
+import { parseStockFile, type StockRow } from "../../../lib/import/parse-stock";
+import { parseGa4Any, type Ga4AnyParsed } from "../../../lib/import/parse-ga4";
+import { parseAdsFile, type ParsedAdReport } from "../../../lib/import/parse-ads";
+import { parseCustomersFile, type CustomerRow } from "../../../lib/import/parse-customers";
+import { parseCustomerStatsFile, type CustomerStatsRow } from "../../../lib/import/parse-customer-stats";
+import { parseProductSalesFile, type ProductSaleRow } from "../../../lib/import/parse-product-sales";
+import { parseCatalogFile, parseCatalogHtml, type CatalogBook } from "../../../lib/import/parse-catalog";
+import { syncCatalogUpload } from "../../../lib/import/catalog-sync";
+import { parseCostsFile, type CostRow } from "../../../lib/import/parse-costs";
+import { parsePromosFile, type PromoRow } from "../../../lib/import/parse-promos";
+import { parseAbandonedAny, type AbandonedParsed } from "../../../lib/import/parse-abandoned";
+
+const CHUNK_SIZE = 250;
+
+interface UploadRecord {
+  id: string;
+  file_name: string;
+  uploaded_by_email: string | null;
+  total_rows: number;
+  processed_rows: number;
+  failed_rows: number;
+  status: string;
+  created_at: string;
+}
+
+type UploadType =
+  | "orders"
+  | "customers"
+  | "customer_stats"
+  | "products"
+  | "product_sales"
+  | "promos"
+  | "stock"
+  | "costs"
+  | "ga4_pages"
+  | "ga4_tx"
+  | "ga4_items"
+  | "ads"
+  | "abandoned_carts"
+  | "abandoned_items"
+  | "abandoned_daily";
+
+const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
+  ga4_pages: "pages",
+  ga4_tx: "transactions",
+  ga4_items: "items",
+};
+
+// Downloadable templates showing the exact columns each upload expects.
+// GA4 templates keep the "# Start/End date" comment lines the parser needs.
+const TEMPLATES: Record<string, string> = {
+  orders:
+    "Order number,Customer ID,Order Date,Order status,Delivery status,Payment method,Full Customer name,Customer phone number,Product name,Product Sku,Items Prices,City,Area,Total Order Amount,COD amount,Actual Delivery Fees,Original Delivery Fees,Cancellation Reason,Source\r\n" +
+    "12345,1001,05-07-26 13:03 PM,Delivered,Delivered,Cash On Delivery,Ahmed Ali,01000000000,Book A | Book B,SKU001 | SKU002,120 | 80,Cairo,Nasr City,200,200,0,25,,web\r\n" +
+    "# Tip: this is the platform OrderExport format. Best is to export it directly from Super Commerce — products/prices/skus are pipe (|) separated.",
+  customers:
+    "id,name,email,birthdate,contact,total_orders,language,active,Joined on,City,Area,addresses\r\n" +
+    "1001,Ahmed Ali,ahmed@example.com,1990-05-12,01000000000,3,ar,1,2026-01-15 10:00:00,Cairo,Nasr City,\"12 Street, Cairo\"",
+  customer_stats:
+    "ID,Name,Phone,Orders Count,Delivered Orders Count,Canceled Orders Count,Orders Amount,Delivered Orders Amount,Canceled Orders Amount,Last Order Date,Last Order State,Last Delivered Order Date,City,Area,Addresses\r\n" +
+    "1017375,Ahmed Ali,01000000000,5,4,1,2500,2100,400,2026-07-01,Delivered,2026-07-01,Cairo,Nasr City,\"Building 1, Street 2, Cairo\"\r\n" +
+    "# This is the platform CustomerOrdersExport — full lifetime history per customer.",
+  product_sales:
+    "Order ID,Status,Order Date,Month / Year,Payment Method,Product Sku,Product Name,Category,Sub Category,Group,Brand,Unit Price,Unit Price After Discount,Quantity,Price,Price After Discount,Total Amount,Branch Name,Promotion,Custom Discount\r\n" +
+    "21984,Confirmed,2026-07-14 09:01:35,Jul-26,Cash On Delivery,SKU001,Book A,Kids,Educational books,Non-Fiction,Publisher X,145.00,101.50,1,145,101.5,101.5,,,\r\n" +
+    "# This is the platform ProductSalesExport — one line per product in every order.",
+  promos:
+    "id,name,description,amount,minimum_order_amount,type,uses,start_date,expiration_date,max_uses_per_user,max_usage_limit,free_delivery,active\r\n" +
+    "5,DIS5,5% extra discount,5,300.00,2,188,2025-05-06 00:00:00,2025-06-11 00:00:00,,,0,1\r\n" +
+    "# This is the platform Promos export. type: 1 = fixed EGP / 2 = percent / 3 = free delivery / 4 = gift.",
+  stock:
+    "Sku,product name,ecom,sap,category\r\n" +
+    "SKU001,Book A,50,120,Kids\r\n" +
+    "SKU002,Book B,0,30,Cultural\r\n" +
+    "# Or upload the raw SAP export directly (columns: Material, Material Description, Unrestricted...).",
+  costs:
+    "SKU,cost\r\n" +
+    "SKU001,45\r\n" +
+    "SKU002,60",
+  ga4_pages:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Page path and screen class,Views,Active users,Views per active user,Average engagement time per active user,Event count,Add to carts,Key events,Total revenue,Bounce rate,Engagement rate\r\n" +
+    "/ar/products,19547,5079,3.85,71.5,50273,2705,0,0,0.12,0.87",
+  ga4_tx:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Transaction ID,Ecommerce purchases,Purchase revenue\r\n" +
+    "NM000012345,1,200.00",
+  ga4_items:
+    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
+    "Item name,Items viewed,Items added to cart,Items purchased,Item revenue\r\n" +
+    "Book A,759,285,79,9480.00",
+  ads:
+    "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Reporting starts,Reporting ends\r\n" +
+    "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,2026-06-01,2026-06-22",
+  abandoned_carts:
+    "Full Name,User Email,User Phone,Products Count,Products skus,Cart Value,Created At,Updated At,Notified At,User Ip,User Agent,Web Url,Days Abandoned\r\n" +
+    'Ahmed Ali,ahmed@example.com,01000000000,2,"SKU001, SKU002",350,"July 22, 2026, 12 PM","July 22, 2026, 12 PM",,196.0.0.1,web,https://nahdetmisrbookstore.com/ar/cart,0\r\n' +
+    "# This is the platform customers_abandoned_cart_export — one row per abandoned cart.",
+  abandoned_items:
+    "First Name,Last Name,Product Name,Product sku,Amount,User Email,User Phone,Created At,Updated At\r\n" +
+    'Ahmed,Ali,Book A,SKU001,1,ahmed@example.com,01000000000,"July 22, 2026, 12 PM","July 22, 2026, 12 PM"\r\n' +
+    "# This is the platform customer_cart_export — one row per item inside abandoned carts.",
+  abandoned_daily:
+    "Day,Cart Value\r\n" +
+    '"July 01, 2026",695362.4\r\n' +
+    "# revenue_lost_to_abandoned_carts_over_time export. The average_revenue file (Day,Cart Average Value) uploads on the same card.",
+};
+
+function downloadTemplate(type: string, fileName: string) {
+  const csv = "﻿" + (TEMPLATES[type] ?? "");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `template-${fileName}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+type Phase = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
+
+interface Pending {
+  type: UploadType;
+  fileName: string;
+  orders?: ParsedOrder[];
+  customers?: CustomerRow[];
+  customerStats?: CustomerStatsRow[];
+  products?: CatalogBook[];
+  productSales?: ProductSaleRow[];
+  promos?: PromoRow[];
+  stock?: StockRow[];
+  costs?: CostRow[];
+  ga4?: Ga4AnyParsed;
+  ads?: ParsedAdReport;
+  abandoned?: AbandonedParsed;
+  count: number;
+  extra?: string;
+}
+
+export default function DataCenterPage() {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [activeType, setActiveType] = useState<UploadType>("orders");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [processed, setProcessed] = useState(0);
+  const [failed, setFailed] = useState(0);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [history, setHistory] = useState<UploadRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
+  const { sort, toggle, apply } = useSort<UploadRecord>();
+
+  const sortedHistory = useMemo(
+    () =>
+      apply(history, {
+        fileName: (r) => r.file_name,
+        uploadedBy: (r) => r.uploaded_by_email,
+        rows: (r) => r.processed_rows,
+        status: (r) => r.status,
+        date: (r) => r.created_at,
+      }),
+    [history, apply]
+  );
+
+  const loadHistory = useCallback(async () => {
+    const { data } = await supabase.from("uploads").select("*").order("created_at", { ascending: false }).limit(25);
+    setHistory((data as UploadRecord[]) ?? []);
+    setHistoryLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const TYPES: { key: UploadType; icon: React.ElementType; title: string; hint: string; accept: string }[] = [
+    { key: "orders", icon: ShoppingCart, title: t("uploadOrders"), hint: t("uploadOrdersHint2"), accept: ".xlsx,.xls,.csv" },
+    { key: "customers", icon: Users, title: t("uploadCustomers"), hint: t("uploadCustomersHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "customer_stats", icon: History, title: t("uploadCustomerStats"), hint: t("uploadCustomerStatsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "products", icon: Package, title: t("uploadProducts"), hint: t("uploadProductsHint"), accept: ".xlsx,.xls,.csv,.html" },
+    { key: "product_sales", icon: Tags, title: t("uploadProductSales"), hint: t("uploadProductSalesHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "promos", icon: TicketPercent, title: t("uploadPromos"), hint: t("uploadPromosHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
+    { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
+    { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
+    { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
+    { key: "abandoned_carts", icon: ShoppingBasket, title: t("uploadAbandonedCarts"), hint: t("uploadAbandonedCartsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "abandoned_items", icon: PackageSearch, title: t("uploadAbandonedItems"), hint: t("uploadAbandonedItemsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "abandoned_daily", icon: TrendingDown, title: t("uploadAbandonedDaily"), hint: t("uploadAbandonedDailyHint"), accept: ".xlsx,.xls,.csv" },
+  ];
+
+  async function handleFile(file: File) {
+    setPhase("parsing");
+    setErrorMsg("");
+    try {
+      if (activeType === "orders") {
+        const buffer = await file.arrayBuffer();
+        if (!hasOrderNumberColumn(buffer)) throw new Error(t("invalidFile"));
+        const result = parseOrdersWorkbook(buffer);
+        setPending({ type: "orders", fileName: file.name, orders: result.orders, count: result.orders.length });
+      } else if (activeType === "customers") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCustomersFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "customers", fileName: file.name, customers: rows, count: rows.length });
+      } else if (activeType === "customer_stats") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCustomerStatsFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "customer_stats", fileName: file.name, customerStats: rows, count: rows.length });
+      } else if (activeType === "products") {
+        const books = file.name.toLowerCase().endsWith(".html")
+          ? parseCatalogHtml(await file.text())
+          : parseCatalogFile(await file.arrayBuffer());
+        if (!books.length) throw new Error(t("invalidFile"));
+        setPending({ type: "products", fileName: file.name, products: books, count: books.length });
+      } else if (activeType === "product_sales") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseProductSalesFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "product_sales", fileName: file.name, productSales: rows, count: rows.length });
+      } else if (activeType === "promos") {
+        const buffer = await file.arrayBuffer();
+        const rows = parsePromosFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "promos", fileName: file.name, promos: rows, count: rows.length });
+      } else if (activeType === "stock") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseStockFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
+      } else if (activeType === "costs") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseCostsFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "costs", fileName: file.name, costs: rows, count: rows.length });
+      } else if (activeType.startsWith("ga4")) {
+        const text = await file.text();
+        const parsed = parseGa4Any(text);
+        if (!parsed) throw new Error(t("invalidFile"));
+        // strict per-card validation: right report type. Multi-month (all-time)
+        // files are allowed: transactions merge by id; pages/items are stored
+        // under their start month as an "all period" bucket.
+        if (parsed.kind !== GA4_EXPECTED[activeType]) throw new Error(t("wrongFileForCard"));
+        const count =
+          parsed.kind === "pages" ? parsed.rows.length : parsed.kind === "transactions" ? parsed.transactions.length : parsed.items.length;
+        if (!count) throw new Error(t("invalidFile"));
+        setPending({
+          type: activeType,
+          fileName: file.name,
+          ga4: parsed,
+          count,
+          extra: `${parsed.month.slice(0, 7)} · ${parsed.kind}`,
+        });
+      } else if (activeType.startsWith("abandoned")) {
+        const buffer = await file.arrayBuffer();
+        const parsed = parseAbandonedAny(buffer);
+        if (!parsed) throw new Error(t("invalidFile"));
+        // strict per-card validation so the wrong export can't land silently
+        const expected = activeType === "abandoned_carts" ? "carts" : activeType === "abandoned_items" ? "items" : "daily";
+        if (parsed.kind !== expected) throw new Error(t("wrongFileForCard"));
+        const count = parsed.kind === "carts" ? parsed.carts.length : parsed.kind === "items" ? parsed.items.length : parsed.daily.length;
+        setPending({
+          type: activeType,
+          fileName: file.name,
+          abandoned: parsed,
+          count,
+          extra: parsed.kind === "daily" ? (parsed.metric === "avg" ? t("abDailyAvgDetected") : t("abDailyLostDetected")) : undefined,
+        });
+      } else {
+        const buffer = await file.arrayBuffer();
+        const report = parseAdsFile(buffer, file.name);
+        if (!report.rows.length) throw new Error(t("invalidFile"));
+        // the account label and reporting period decide which stored period is
+        // replaced — if the file doesn't state them, the Ads page is the place
+        // to fix them by hand before importing
+        if (!report.periodStart || !report.periodEnd) throw new Error(t("adsNeedPeriod"));
+        setPending({
+          type: "ads",
+          fileName: file.name,
+          ads: report,
+          count: report.rows.length,
+          extra: `${report.account} · ${report.periodStart} → ${report.periodEnd}`,
+        });
+      }
+      setPhase("ready");
+    } catch (e) {
+      setPhase("error");
+      setErrorMsg(e instanceof Error ? e.message : t("invalidFile"));
+    }
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function recordUpload(fileName: string, total: number, ok: number, bad: number) {
+    await supabase.from("uploads").insert({
+      file_name: fileName,
+      uploaded_by_email: (await supabase.auth.getUser()).data.user?.email ?? null,
+      total_rows: total,
+      processed_rows: ok,
+      failed_rows: bad,
+      status: bad > 0 && ok === 0 ? "failed" : "completed",
+      finished_at: new Date().toISOString(),
+    });
+  }
+
+  async function startImport() {
+    if (!pending) return;
+    setPhase("importing");
+    setProgress(0);
+    setProcessed(0);
+    setFailed(0);
+
+    try {
+      if (pending.type === "orders" && pending.orders) {
+        let uploadId: string | null = null;
+        let ok = 0;
+        let bad = 0;
+        const startRes = await fetch("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "start", fileName: pending.fileName, totalRows: pending.orders.length }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok) throw new Error(startData.error ?? "start failed");
+        uploadId = startData.uploadId;
+
+        for (let i = 0; i < pending.orders.length; i += CHUNK_SIZE) {
+          const chunk = pending.orders.slice(i, i + CHUNK_SIZE);
+          const res = await fetch("/api/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "chunk", uploadId, orders: chunk }),
+          });
+          if (res.ok) ok += chunk.length;
+          else bad += chunk.length;
+          setProcessed(ok);
+          setFailed(bad);
+          setProgress(Math.round(((i + chunk.length) / pending.orders.length) * 100));
+        }
+        await fetch("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "finish", uploadId, fileName: pending.fileName, processedRows: ok, failedRows: bad }),
+        });
+      } else if (pending.type === "customers" && pending.customers) {
+        let ok = 0;
+        for (let i = 0; i < pending.customers.length; i += 2000) {
+          const chunk = pending.customers.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_customers", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.customers.length) * 100));
+        }
+        // new/changed accounts may be duplicates of existing people
+        await supabase.rpc("fn_rebuild_customer_identities");
+        await recordUpload(pending.fileName, pending.customers.length, ok, 0);
+      } else if (pending.type === "customer_stats" && pending.customerStats) {
+        let ok = 0;
+        for (let i = 0; i < pending.customerStats.length; i += 2000) {
+          const chunk = pending.customerStats.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_customer_stats", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.customerStats.length) * 100));
+        }
+        // lifetime figures changed -> refresh the merged per-person totals
+        await supabase.rpc("fn_rebuild_customer_identities");
+        await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
+      } else if (pending.type === "products" && pending.products) {
+        // same pipeline as the Catalog page: full catalog rows -> products,
+        // e-com stock sync, and the quality snapshot saved for /catalog
+        const res = await syncCatalogUpload(supabase, pending.products, pending.fileName, (done, total) => {
+          setProcessed(done);
+          setProgress(total ? Math.round((done / total) * 100) : 100);
+        });
+        if (res.productsFailed) throw new Error(t("productsSaveFailed"));
+        if (res.stockFailed) throw new Error(t("stockSyncFailed"));
+        setProcessed(pending.products.length);
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.products.length, pending.products.length, 0);
+      } else if (pending.type === "product_sales" && pending.productSales) {
+        let ok = 0;
+        for (let i = 0; i < pending.productSales.length; i += 2000) {
+          const chunk = pending.productSales.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_product_sales", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.productSales.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.productSales.length, ok, 0);
+      } else if (pending.type === "promos" && pending.promos) {
+        let ok = 0;
+        for (let i = 0; i < pending.promos.length; i += 2000) {
+          const chunk = pending.promos.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_promo_codes", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.promos.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.promos.length, ok, 0);
+      } else if (pending.type === "stock" && pending.stock) {
+        const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
+        if (error) throw new Error(error.message);
+        setProcessed(Number(data ?? pending.stock.length));
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
+      } else if (pending.type === "costs" && pending.costs) {
+        let ok = 0;
+        for (let i = 0; i < pending.costs.length; i += 2000) {
+          const chunk = pending.costs.slice(i, i + 2000);
+          const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.costs.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.costs.length, ok, 0);
+      } else if (pending.type.startsWith("ga4") && pending.ga4) {
+        const g = pending.ga4;
+        let ok = 0;
+        if (g.kind === "pages") {
+          // replace this month's rows (safe re-upload)
+          await supabase.from("ga4_pages").delete().eq("period_month", g.month);
+          for (let i = 0; i < g.rows.length; i += 500) {
+            const chunk = g.rows.slice(i, i + 500);
+            const { error } = await supabase.from("ga4_pages").insert(chunk);
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.rows.length) * 100));
+          }
+        } else if (g.kind === "transactions") {
+          for (let i = 0; i < g.transactions.length; i += 1000) {
+            const chunk = g.transactions.slice(i, i + 1000);
+            const { error } = await supabase.from("ga4_transactions").upsert(chunk, { onConflict: "transaction_id" });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.transactions.length) * 100));
+          }
+        } else {
+          await supabase.from("ga4_items").delete().eq("period_month", g.month);
+          for (let i = 0; i < g.items.length; i += 1000) {
+            const chunk = g.items.slice(i, i + 1000);
+            const { error } = await supabase.from("ga4_items").insert(chunk);
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / g.items.length) * 100));
+          }
+        }
+        await recordUpload(pending.fileName, pending.count, ok, 0);
+      } else if (pending.type.startsWith("abandoned") && pending.abandoned) {
+        const ab = pending.abandoned;
+        let ok = 0;
+        if (ab.kind === "carts") {
+          for (let i = 0; i < ab.carts.length; i += 1000) {
+            const chunk = ab.carts.slice(i, i + 1000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_carts", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.carts.length) * 100));
+          }
+          // cross-match customers + auto-detect recovered carts
+          await supabase.rpc("fn_abandoned_link");
+        } else if (ab.kind === "items") {
+          for (let i = 0; i < ab.items.length; i += 2000) {
+            const chunk = ab.items.slice(i, i + 2000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_items", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.items.length) * 100));
+          }
+        } else {
+          for (let i = 0; i < ab.daily.length; i += 1000) {
+            const chunk = ab.daily.slice(i, i + 1000);
+            const { error } = await supabase.rpc("fn_upsert_abandoned_daily", { p_rows: chunk });
+            if (error) throw new Error(error.message);
+            ok += chunk.length;
+            setProcessed(ok);
+            setProgress(Math.round((ok / ab.daily.length) * 100));
+          }
+        }
+        await recordUpload(pending.fileName, pending.count, ok, 0);
+      } else if (pending.type === "ads" && pending.ads) {
+        const res = await fetch("/api/ads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "import",
+            account: pending.ads.account,
+            periodStart: pending.ads.periodStart,
+            periodEnd: pending.ads.periodEnd,
+            fileName: pending.fileName,
+            rows: pending.ads.rows,
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error ?? "failed");
+        setProcessed(pending.ads.rows.length);
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.ads.rows.length, pending.ads.rows.length, 0);
+      }
+      setPhase("done");
+      loadHistory();
+    } catch (e) {
+      setPhase("error");
+      setErrorMsg(e instanceof Error ? e.message : t("importFailed"));
+    }
+  }
+
+  function reset() {
+    setPhase("idle");
+    setPending(null);
+    setProgress(0);
+  }
+
+  const active = TYPES.find((x) => x.key === activeType)!;
+
+  return (
+    <div>
+      <PageHeader title={t("dataCenter")} subtitle={t("chooseUploadType")} />
+
+      <div className="grid gap-3 mb-5 sm:grid-cols-2 xl:grid-cols-4">
+        {TYPES.map((x) => {
+          const Icon = x.icon;
+          return (
+            <button
+              key={x.key}
+              onClick={() => {
+                setActiveType(x.key);
+                reset();
+              }}
+              className={cn(
+                "card p-4 text-start transition hover:shadow-md",
+                activeType === x.key && "ring-2 ring-brand-500"
+              )}
+            >
+              <Icon size={20} className={activeType === x.key ? "text-brand-600" : "text-slate-400"} />
+              <div className="mt-2 font-bold text-sm">{x.title}</div>
+              <div className="mt-0.5 text-xs text-slate-500 leading-relaxed">{x.hint}</div>
+            </button>
+          );
+        })}
+        <Link href="/catalog" className="card p-4 text-start transition hover:shadow-md border-dashed">
+          <BookOpen size={20} className="text-slate-400" />
+          <div className="mt-2 font-bold text-sm">{t("catalog")}</div>
+          <div className="mt-0.5 text-xs text-slate-500 leading-relaxed">{t("goToCatalog")}</div>
+        </Link>
+      </div>
+
+      <div className="mb-5 flex items-start gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-sm text-brand-800">
+        <Users size={16} className="shrink-0 mt-0.5" />
+        {t("customersNote")}
+      </div>
+
+      <div className="card p-6 mb-6">
+        {phase === "idle" || phase === "error" ? (
+          <>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleFile(file);
+              }}
+              className={cn(
+                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition",
+                dragOver ? "border-brand-500 bg-brand-50" : "border-slate-300 hover:border-brand-400 hover:bg-slate-50"
+              )}
+            >
+              <UploadCloud className="h-11 w-11 text-brand-500" />
+              <div className="font-semibold text-slate-700">{active.title}</div>
+              <div className="text-sm text-slate-500">{active.hint}</div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept={active.accept}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFile(file);
+                }}
+              />
+            </div>
+            {phase === "error" && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                <XCircle size={18} />
+                {errorMsg}
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {TEMPLATES[activeType] && (
+                <button className="btn-secondary !py-1.5 text-xs" onClick={() => downloadTemplate(activeType, active.key)}>
+                  <FileDown size={14} />
+                  {t("downloadTemplate")}
+                </button>
+              )}
+              <span className="text-xs text-slate-400">{t("templateNote")}</span>
+            </div>
+            {activeType === "orders" && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                <Info size={14} />
+                {t("duplicateNote")}
+              </div>
+            )}
+          </>
+        ) : phase === "parsing" ? (
+          <div className="py-10 text-center">
+            <Spinner />
+            <div className="text-sm text-slate-600">{t("parsing")}</div>
+          </div>
+        ) : phase === "ready" && pending ? (
+          <div className="text-center py-8 space-y-4">
+            <FileSpreadsheet className="mx-auto h-12 w-12 text-emerald-500" />
+            <div>
+              <div className="font-bold text-lg" dir="ltr">{pending.fileName}</div>
+              <div className="text-slate-600">
+                {formatNumber(pending.count)} {t("rowsReady")}
+                {pending.extra && (
+                  <span className="ms-2 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" dir="ltr">
+                    {t("monthDetected")}: {pending.extra}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-center gap-3">
+              <button className="btn-primary" onClick={startImport}>
+                {t("startImport")}
+              </button>
+              <button className="btn-secondary" onClick={reset}>
+                {t("cancel")}
+              </button>
+            </div>
+          </div>
+        ) : phase === "importing" ? (
+          <div className="py-8 space-y-4">
+            <div className="text-center font-semibold">{t("importing")}</div>
+            <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-brand-600 transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="text-center text-sm text-slate-600">
+              {formatNumber(processed)} {t("rowsImported")}
+              {failed > 0 && <span className="text-red-600"> — {formatNumber(failed)} {t("rowsFailedLabel")}</span>}
+            </div>
+          </div>
+        ) : (
+          <div className="py-10 text-center space-y-4">
+            <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-500" />
+            <div className="text-lg font-bold text-emerald-700">{t("importComplete")}</div>
+            <div className="text-sm text-slate-600">
+              {formatNumber(processed)} {t("rowsImported")}
+              {failed > 0 && <span className="text-red-600"> — {formatNumber(failed)} {t("rowsFailedLabel")}</span>}
+            </div>
+            <button className="btn-primary" onClick={reset}>
+              {t("uploadOrders")}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <h2 className="mb-3 text-lg font-bold">{t("uploadHistory")}</h2>
+      <div className="card overflow-x-auto">
+        {historyLoading ? (
+          <Spinner />
+        ) : history.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">{t("noResults")}</div>
+        ) : (
+          <table className="table-base">
+            <thead>
+              <tr>
+                <SortTh label={t("fileName")} k="fileName" sort={sort} onToggle={toggle} />
+                <SortTh label={t("uploadedBy")} k="uploadedBy" sort={sort} onToggle={toggle} />
+                <SortTh label={t("rows")} k="rows" sort={sort} onToggle={toggle} />
+                <SortTh label={t("status")} k="status" sort={sort} onToggle={toggle} />
+                <SortTh label={t("date")} k="date" sort={sort} onToggle={toggle} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedHistory.map((h) => (
+                <tr key={h.id}>
+                  <td dir="ltr" className="font-medium">{h.file_name}</td>
+                  <td className="text-slate-600">{h.uploaded_by_email ?? "—"}</td>
+                  <td>
+                    {formatNumber(h.processed_rows)} / {formatNumber(h.total_rows)}
+                    {h.failed_rows > 0 && <span className="text-red-600 text-xs"> ({h.failed_rows} failed)</span>}
+                  </td>
+                  <td>
+                    <span
+                      className={cn(
+                        "inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                        h.status === "completed"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : h.status === "failed"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-800"
+                      )}
+                    >
+                      {h.status}
+                    </span>
+                  </td>
+                  <td className="text-xs text-slate-500">{formatDateTime(h.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

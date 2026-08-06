@@ -14,17 +14,17 @@ import {
   TrendingDown,
   Lightbulb,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort, ChartCard } from "@/components/ui";
-import { MultiSelect } from "@/components/multi-select";
-import { BarsChart, DonutChart } from "@/components/charts";
-import { AdsImportDialog } from "@/components/ads-import-dialog";
-import { AdsMapping } from "@/components/ads-mapping";
-import { ProductDrawer } from "@/components/product-drawer";
-import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
-import { AD } from "@/lib/ads/strings";
-import { DEFAULT_AD_SETTINGS, totals, groupBy, type AdRow, type AdPeriod, type AdSettings } from "@/lib/ads/types";
+import { createClient } from "../../../lib/supabase/client";
+import { useLang } from "../../../lib/i18n";
+import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort, ChartCard } from "../../../components/ui";
+import { MultiSelect } from "../../../components/multi-select";
+import { BarsChart, DonutChart } from "../../../components/charts";
+import { AdsImportDialog } from "../../../components/ads-import-dialog";
+import { AdsMapping } from "../../../components/ads-mapping";
+import { ProductDrawer } from "../../../components/product-drawer";
+import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "../../../lib/utils";
+import { AD } from "../../../lib/ads/strings";
+import { DEFAULT_AD_SETTINGS, totals, groupBy, type AdRow, type AdPeriod, type AdSettings } from "../../../lib/ads/types";
 import {
   diagnose,
   computeBenchmarks,
@@ -33,8 +33,8 @@ import {
   VERDICT_META,
   BOTTLENECK_LABEL,
   type Verdict,
-} from "@/lib/ads/diagnose";
-import { buildAdsWorkbook, downloadWorkbook, adRowsForExport } from "@/lib/ads/export";
+} from "../../../lib/ads/diagnose";
+import { buildAdsWorkbook, downloadWorkbook, adRowsForExport } from "../../../lib/ads/export";
 
 type Tab = "overview" | "ads" | "campaigns" | "adsets" | "books" | "gap" | "funnel" | "compare" | "mapping" | "imports";
 
