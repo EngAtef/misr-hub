@@ -129,6 +129,54 @@ export interface AdAccount {
   business_name?: string;
 }
 
+/**
+ * Reads ONE ad account directly. Enumerating `me/adaccounts` needs
+ * business_management (it walks the business's asset graph), but fetching an
+ * account you've been granted needs only ads_read — so this is the escape
+ * hatch when the broader permission isn't on the token.
+ */
+export async function getAdAccount(token: string, id: string): Promise<AdAccount> {
+  const act = id.trim().startsWith("act_") ? id.trim() : `act_${id.trim().replace(/\D/g, "")}`;
+  const a = await graph<{
+    id: string;
+    account_id: string;
+    name?: string;
+    currency?: string;
+    timezone_name?: string;
+    account_status?: number;
+    business?: { name?: string };
+  }>(act, token, { fields: "id,account_id,name,currency,timezone_name,account_status,business{name}" });
+  return {
+    id: a.id,
+    account_id: a.account_id,
+    name: a.name || a.id,
+    currency: a.currency || "",
+    timezone_name: a.timezone_name || "",
+    account_status: a.account_status ?? 0,
+    business_name: a.business?.name,
+  };
+}
+
+/** Resolves a list of ids, keeping per-id failures instead of failing the lot. */
+export async function resolveAdAccounts(
+  token: string,
+  ids: string[]
+): Promise<{ accounts: AdAccount[]; failures: { id: string; error: string }[] }> {
+  const accounts: AdAccount[] = [];
+  const failures: { id: string; error: string }[] = [];
+  for (const id of ids.slice(0, 30)) {
+    try {
+      accounts.push(await getAdAccount(token, id));
+    } catch (e) {
+      failures.push({
+        id,
+        error: e instanceof MetaError ? `${e.message}${e.hint ? ` — ${e.hint}` : ""}` : String(e),
+      });
+    }
+  }
+  return { accounts, failures };
+}
+
 export async function listAdAccounts(token: string): Promise<AdAccount[]> {
   const rows = await graphAll<{
     id: string;

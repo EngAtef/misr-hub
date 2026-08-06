@@ -37,6 +37,8 @@ interface TestResult {
   };
   accounts: AdAccount[];
   accountsError?: string;
+  resolvedById?: boolean;
+  accountFailures?: { id: string; error: string }[];
   probe: { account: string; rows: number; actionTypes: string[]; sampleSpend: number } | null;
   probeError?: string;
   savedAccounts: MappedAccount[];
@@ -66,6 +68,29 @@ const T = {
   noAccounts: {
     ar: "التوكن شغال لكن مش شايف أي حساب إعلاني — لازم تضيف الحسابات للـ System User في Business Settings.",
     en: "The token works but sees no ad accounts — assign the accounts to the System User in Business Settings.",
+  },
+  byIdTitle: { ar: "أضف الحسابات بالـ ID", en: "Add accounts by ID" },
+  byIdWhy: {
+    ar: "سرد كل حسابات البزنس محتاج صلاحية business_management، لكن قراءة حساب معيّن محتاجة ads_read بس. فالصق الـ IDs هنا وهنجيبهم مباشرة — مش محتاج تزوّد صلاحيات التوكن.",
+    en: "Listing every account in the business needs business_management, but reading a specific account needs only ads_read. Paste the IDs here and they'll be fetched directly — no need to widen the token's permissions.",
+  },
+  byIdWhere: {
+    ar: "الـ IDs موجودة في Business Settings ← Ad accounts، أو في Ads Manager بعد act_",
+    en: "Find the IDs in Business Settings → Ad accounts, or in Ads Manager after 'act_'",
+  },
+  byIdPlaceholder: {
+    ar: "act_8042818365818373, 2112923705771276 … (فاصلة أو سطر جديد)",
+    en: "act_8042818365818373, 2112923705771276 … (comma or newline separated)",
+  },
+  byIdCheck: { ar: "افحص الحسابات", en: "Check these accounts" },
+  byIdResolved: {
+    ar: "الحسابات دي اتجابت بالـ ID مباشرة (بدون business_management) ✓",
+    en: "These were fetched directly by ID (no business_management needed) ✓",
+  },
+  byIdFailed: { ar: "IDs مش قدرنا نقراها", en: "Couldn't read these IDs" },
+  orWiden: {
+    ar: "أو: اعمل Generate token تاني وعلّم business_management كمان، وهيسردهم كلهم لوحده.",
+    en: "Or: generate the token again with business_management ticked too, and it will list them all by itself.",
   },
   label: { ar: "الاسم في مركز الإعلانات", en: "Ads Center label" },
   labelHint: {
@@ -104,6 +129,7 @@ export function MetaAdsConnection() {
   const [mapping, setMapping] = useState<Record<string, MappedAccount>>({});
   const [savedFlash, setSavedFlash] = useState(false);
   const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [idsInput, setIdsInput] = useState("");
 
   useEffect(() => {
     supabase.rpc("fn_meta_ads_config").then(({ data }) => {
@@ -114,14 +140,14 @@ export function MetaAdsConnection() {
     });
   }, [supabase]);
 
-  async function runTest() {
+  async function runTest(accountIds?: string[]) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/meta-ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "test" }),
+        body: JSON.stringify({ action: "test", ...(accountIds?.length ? { accountIds } : {}) }),
       });
       const j = await res.json();
       if (!res.ok) {
@@ -170,7 +196,7 @@ export function MetaAdsConnection() {
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">{tx(T.intro)}</p>
         </div>
-        <button className="btn-primary" onClick={runTest} disabled={busy}>
+        <button className="btn-primary" onClick={() => runTest()} disabled={busy}>
           <RefreshCw size={16} className={cn(busy && "animate-spin")} />
           {busy ? tx(T.testing) : tx(T.test)}
         </button>
@@ -287,6 +313,51 @@ export function MetaAdsConnection() {
             {!result.accountsError && result.accounts.length === 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                 {tx(T.noAccounts)}
+              </div>
+            )}
+
+            {result.resolvedById && result.accounts.length > 0 && (
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">
+                {tx(T.byIdResolved)}
+              </div>
+            )}
+
+            {/* the listing endpoint needs a broader permission than reading an
+                account does — so offer the narrower path rather than pushing
+                the user to widen the token */}
+            {result.accounts.length === 0 && (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-bold text-slate-800">{tx(T.byIdTitle)}</div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">{tx(T.byIdWhy)}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{tx(T.byIdWhere)}</p>
+                <textarea
+                  className="input mt-2 h-20 w-full text-xs"
+                  dir="ltr"
+                  placeholder={tx(T.byIdPlaceholder)}
+                  value={idsInput}
+                  onChange={(e) => setIdsInput(e.target.value)}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button
+                    className="btn-primary !py-1.5 text-xs"
+                    disabled={busy || !idsInput.trim()}
+                    onClick={() => runTest(idsInput.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))}
+                  >
+                    <RefreshCw size={14} className={cn(busy && "animate-spin")} />
+                    {tx(T.byIdCheck)}
+                  </button>
+                  <span className="text-[11px] text-slate-500">{tx(T.orWiden)}</span>
+                </div>
+                {(result.accountFailures?.length ?? 0) > 0 && (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-800">
+                    <div className="font-bold">{tx(T.byIdFailed)}</div>
+                    {result.accountFailures!.map((f) => (
+                      <div key={f.id} dir="ltr" className="mt-0.5">
+                        {f.id}: {f.error}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

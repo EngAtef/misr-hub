@@ -3,6 +3,7 @@ import { getApiUser } from "@/lib/supabase/api-auth";
 import {
   debugToken,
   listAdAccounts,
+  resolveAdAccounts,
   probeInsights,
   MetaError,
   REQUIRED_SCOPES,
@@ -81,12 +82,37 @@ export async function POST(request: NextRequest) {
       const info = await debugToken(token);
       const missing = REQUIRED_SCOPES.filter((s) => !info.scopes.includes(s));
 
+      const { data: savedCfg } = await user.supabase.rpc("fn_meta_ads_config");
+      const alreadyMapped =
+        (((savedCfg ?? {}) as { accounts?: { accounts?: MappedAccount[] } }).accounts?.accounts ?? []) as MappedAccount[];
+
       let accounts: AdAccount[] = [];
       let accountsError: string | undefined;
+      let accountFailures: { id: string; error: string }[] = [];
+      let resolvedById = false;
+
       try {
         accounts = await listAdAccounts(token);
       } catch (e) {
         accountsError = e instanceof MetaError ? `${e.message}${e.hint ? ` — ${e.hint}` : ""}` : String(e);
+      }
+
+      // Enumerating the business's accounts needs business_management, but
+      // reading an account you've been granted needs only ads_read. So when
+      // the listing is refused, resolve explicit ids instead — the pasted
+      // ones, else whatever is already mapped.
+      if (!accounts.length) {
+        const ids = (Array.isArray(body.accountIds) ? body.accountIds : [])
+          .map((x: unknown) => String(x).trim())
+          .filter(Boolean);
+        const fallbackIds = ids.length ? ids : alreadyMapped.map((a) => a.id);
+        if (fallbackIds.length) {
+          const r = await resolveAdAccounts(token, fallbackIds);
+          accounts = r.accounts;
+          accountFailures = r.failures;
+          resolvedById = accounts.length > 0;
+          if (resolvedById) accountsError = undefined;
+        }
       }
 
       // read-access proof on the biggest account, over a window we know has
@@ -105,12 +131,10 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const { data: saved } = await user.supabase.rpc("fn_meta_ads_config");
-      const savedAccounts =
-        (((saved ?? {}) as { accounts?: { accounts?: MappedAccount[] } }).accounts?.accounts ?? []) as MappedAccount[];
-
       return NextResponse.json({
         ok: info.isValid && !missing.length && accounts.length > 0,
+        resolvedById,
+        accountFailures,
         graphVersion: GRAPH_VERSION,
         token: {
           valid: info.isValid,
@@ -126,7 +150,7 @@ export async function POST(request: NextRequest) {
         accountsError,
         probe,
         probeError,
-        savedAccounts,
+        savedAccounts: alreadyMapped,
       });
     } catch (e) {
       return fail(e);
