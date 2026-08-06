@@ -29,6 +29,7 @@ export const AD = {
   tabBooks: { ar: "الكتب", en: "Books" },
   tabFunnel: { ar: "القمع والتشخيص", en: "Funnel & diagnosis" },
   tabGap: { ar: "ميتا ضد الحقيقة", en: "Meta vs Reality" },
+  tabLinks: { ar: "روابط Bitly", en: "Links (Bitly)" },
   tabCompare: { ar: "مقارنة الفترات", en: "Compare periods" },
   tabMapping: { ar: "ربط الإعلانات بالكتب", en: "Ad → book mapping" },
   tabImports: { ar: "الملفات المستوردة", en: "Imports" },
@@ -250,6 +251,53 @@ export const AD = {
   targetRoas: { ar: "العائد المستهدف", en: "Target ROAS" },
   minSpendSetting: { ar: "أقل إنفاق للحكم على إعلان", en: "Min spend before judging an ad" },
   frequencyCap: { ar: "حد التكرار قبل الإرهاق", en: "Frequency cap before fatigue" },
+
+  // bitly
+  bitlyTitle: { ar: "روابط Bitly", en: "Bitly links" },
+  bitlyIntro: {
+    ar: "Bitly بيعدّ كل تحويلة بيعملها فعليًا — شاهد محايد مستقل عن ميتا وجوجل. المقارنة هنا: نقرات ميتا (اللي دفعت عليها) ← تحويلات Bitly الحقيقية ← جلسات GA4 ← طلبات فعلية.",
+    en: "Bitly counts every redirect it actually serves — a witness independent of both Meta and Google. The chain here: Meta's charged clicks → Bitly's real redirects → GA4 sessions → shipped orders.",
+  },
+  bitlyNotConnected: { ar: "Bitly مش متوصل لسه", en: "Bitly isn't connected yet" },
+  bitlyNotConnectedHint: {
+    ar: "روح Settings ← Integrations ← Bitly، الصق الـ Generic Access Token بتاعك واحفظ. مش هتحتاج تدّيني التوكن — بيتخزن في إعدادات التطبيق للأدمن بس.",
+    en: "Open Settings → Integrations → Bitly, paste your own Generic Access Token and save. You never have to share the token with anyone — it's stored admin-only in app settings.",
+  },
+  bitlyOpenSettings: { ar: "فتح الإعدادات", en: "Open Settings" },
+  bitlyTest: { ar: "اختبار الاتصال", en: "Test connection" },
+  bitlySync: { ar: "مزامنة", en: "Sync now" },
+  bitlySyncing: { ar: "جاري المزامنة...", en: "Syncing..." },
+  bitlyDays: { ar: "عدد الأيام", en: "Days" },
+  bitlyLastSync: { ar: "آخر مزامنة", en: "Last sync" },
+  bitlyClicks: { ar: "تحويلات Bitly", en: "Bitly redirects" },
+  bitlyLinks: { ar: "الروابط", en: "Links" },
+  bitlyTagged: { ar: "روابط عليها UTM", en: "Links with UTM" },
+  bitlyTaggedHint: {
+    ar: "الروابط اللي مفيهاش utm_campaign مش هينفع نربطها بحملة — ضيف الـ UTM في وجهة الرابط.",
+    en: "Links without utm_campaign can't be matched to a campaign — add UTMs to the destination URL.",
+  },
+  bitlyTopLinks: { ar: "أكثر الروابط ضغطًا", en: "Most-clicked links" },
+  bitlyReferrers: { ar: "مصادر النقر", en: "Referrers" },
+  bitlyCountries: { ar: "الدول", en: "Countries" },
+  bitlyChain: { ar: "سلسلة التسريب", en: "The leak chain" },
+  bitlyChainHint: {
+    ar: "لو Bitly أقل بكتير من نقرات ميتا يبقى فيه نقرات اتحسبت وما وصلتش أصلًا. ولو GA4 أقل بكتير من Bitly يبقى الناس بتوصل وبتخرج قبل ما التتبّع يشتغل (بطء تحميل أو لينك غلط).",
+    en: "Bitly far below Meta's clicks means clicks were charged that never travelled. GA4 far below Bitly means people arrive but leave before tracking fires — slow load or a broken destination.",
+  },
+  bitlyVerdictHealthy: { ar: "سليم", en: "Healthy" },
+  bitlyVerdictClicksLost: { ar: "نقرات ضايعة", en: "Clicks lost" },
+  bitlyVerdictLandingLost: { ar: "تسريب عند الوصول", en: "Landing loss" },
+  bitlyVerdictNoLink: { ar: "مفيش رابط مربوط", en: "No link matched" },
+  bitlyVerdictNoClicks: { ar: "مفيش نقرات", en: "No clicks" },
+  bitlyNoData: {
+    ar: "متوصل ✓ — اضغط «مزامنة» عشان نسحب الروابط والنقرات من حسابك.",
+    en: "Connected ✓ — press Sync to pull your links and their clicks.",
+  },
+  bitlyTruncated: {
+    ar: "المزامنة وقفت بدري (حد الوقت أو حد الطلبات عند Bitly) — اضغط مزامنة تاني عشان تكمّل.",
+    en: "The sync stopped early (time budget or Bitly's rate limit) — press Sync again to finish.",
+  },
+  bitlyDest: { ar: "الوجهة", en: "Destination" },
 
   // errors
   loadError: {

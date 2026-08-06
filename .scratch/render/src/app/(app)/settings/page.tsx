@@ -247,6 +247,22 @@ export default function SettingsPage() {
           ]}
         />
         <IntegrationCard
+          settingKey="bitly"
+          title="Bitly (short links)"
+          description="Bitly counts every redirect it actually serves, independently of Meta and Google. That makes it the neutral witness in the Ads Center: Meta's charged clicks vs Bitly's real redirects vs GA4 sessions vs shipped orders. Needs a Generic Access Token (read scope is enough). Leave the Group GUID blank — it fills itself in on Test."
+          fields={[
+            { key: "access_token", label: "Generic Access Token", secret: true },
+            { key: "group_guid", label: "Group GUID (optional — auto-filled)", placeholder: "Bl_xxxxxxxx" },
+          ]}
+          steps={[
+            { text: "Sign in to Bitly, then open Settings → API", url: "https://app.bitly.com/settings/api/" },
+            { text: "Under 'Access token', enter your Bitly password and click Generate token" },
+            { text: "Copy the token (you only see it once) and paste it below, then Save" },
+            { text: "Go to Ads Center → Links and press Test, then Sync — the Group GUID fills itself in" },
+            { text: "For the match to campaigns to work, every short link's destination must carry utm_campaign={{campaign.name}} and utm_content={{ad.name}}" },
+          ]}
+        />
+        <IntegrationCard
           settingKey="payment"
           title="Payment Gateway (Paymob · Fawry · Valu)"
           description="Reconcile settled payments vs orders, see real transaction fees eating margin, and flag failed/pending online payments. Needs your gateway's secret/API key (read scope)."

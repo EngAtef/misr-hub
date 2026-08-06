@@ -21,6 +21,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { BarsChart, DonutChart } from "@/components/charts";
 import { AdsImportDialog } from "@/components/ads-import-dialog";
 import { AdsMapping } from "@/components/ads-mapping";
+import { AdsLinks } from "@/components/ads-links";
 import { ProductDrawer } from "@/components/product-drawer";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AD } from "@/lib/ads/strings";
@@ -36,7 +37,7 @@ import {
 } from "@/lib/ads/diagnose";
 import { buildAdsWorkbook, downloadWorkbook, adRowsForExport } from "@/lib/ads/export";
 
-type Tab = "overview" | "ads" | "campaigns" | "adsets" | "books" | "gap" | "funnel" | "compare" | "mapping" | "imports";
+type Tab = "overview" | "ads" | "campaigns" | "adsets" | "books" | "gap" | "links" | "funnel" | "compare" | "mapping" | "imports";
 
 const TABS: { key: Tab; label: keyof typeof AD }[] = [
   { key: "overview", label: "tabOverview" },
@@ -45,6 +46,7 @@ const TABS: { key: Tab; label: keyof typeof AD }[] = [
   { key: "adsets", label: "tabAdsets" },
   { key: "books", label: "tabBooks" },
   { key: "gap", label: "tabGap" },
+  { key: "links", label: "tabLinks" },
   { key: "funnel", label: "tabFunnel" },
   { key: "compare", label: "tabCompare" },
   { key: "mapping", label: "tabMapping" },
@@ -500,7 +502,8 @@ export default function AdsPage() {
   if (loading) return <Spinner />;
 
   const hasData = periods.length > 0;
-  const showFilters = tab !== "mapping" && tab !== "imports" && tab !== "compare";
+  // the ad-level filters don't apply to tabs that aggregate outside ad rows
+  const showFilters = !["mapping", "imports", "compare", "links"].includes(tab);
 
   return (
     <div>
@@ -1397,6 +1400,8 @@ export default function AdsPage() {
               )}
             </div>
           )}
+
+          {tab === "links" && <AdsLinks from={win?.from ?? null} to={win?.to ?? null} />}
 
           {tab === "mapping" && <AdsMapping from={win?.from ?? null} to={win?.to ?? null} onChanged={load} />}
 
