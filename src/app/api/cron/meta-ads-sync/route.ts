@@ -36,8 +36,14 @@ export async function GET(request: NextRequest) {
     db.from("app_settings").select("value").eq("key", "meta_ads").maybeSingle(),
   ]);
 
-  const token = ((metaRow?.value ?? {}) as { access_token?: string }).access_token ?? "";
-  const accounts = (((mapRow?.value ?? {}) as { accounts?: MappedAccount[] }).accounts ?? []).filter((a) => a.enabled);
+  const ads = (mapRow?.value ?? {}) as { access_token?: string; accounts?: MappedAccount[]; enabled?: boolean };
+  // an operator who switched the integration off expects the nightly job to
+  // stop too, not just the buttons
+  if (ads.enabled === false) {
+    return NextResponse.json({ ok: false, skipped: "integration disabled" });
+  }
+  const token = ads.access_token || ((metaRow?.value ?? {}) as { access_token?: string }).access_token || "";
+  const accounts = (ads.accounts ?? []).filter((a) => a.enabled);
 
   if (!token || !accounts.length) {
     return NextResponse.json({ ok: false, skipped: !token ? "no token" : "no accounts selected" });

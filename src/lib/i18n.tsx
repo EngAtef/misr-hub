@@ -760,6 +760,13 @@ const dict = {
   notConnected: { ar: "غير مُعد", en: "Not configured" },
   fieldSaved: { ar: "محفوظ ✓", en: "saved ✓" },
   fieldEmpty: { ar: "فارغ", en: "empty" },
+  integDisabled: { ar: "موقوف", en: "Disabled" },
+  integEnable: { ar: "تفعيل", en: "Enable" },
+  integDisable: { ar: "إيقاف", en: "Disable" },
+  integDisabledHint: {
+    ar: "التكامل ده موقوف — البيانات محفوظة زي ما هي، بس التطبيق مش هيستخدمه لحد ما تفعّله تاني.",
+    en: "Turned off — the credentials are kept, the app just won't use this integration until you switch it back on.",
+  },
   // Customers DB
   uploadCustomers: { ar: "ملف العملاء", en: "Customers File" },
   uploadCustomersHint: { ar: "ملف CustomersExport من المنصة — يُحدّث الموجود ويضيف الجديد بدون تكرار", en: "CustomersExport file — updates existing and adds new, no duplicates" },

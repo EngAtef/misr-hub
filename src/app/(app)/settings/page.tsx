@@ -187,6 +187,19 @@ export default function SettingsPage() {
             { text: "Comment auto-reply (optional): add pages_manage_engagement to the Page token, set a Verify Token above + comments_enabled=on, then in your Meta App → Webhooks → Page: callback URL https://misr-hub.vercel.app/api/marketing/comments with that verify token, subscribed to 'feed'. Buy-intent comments (بكام؟ / عايز / متوفر؟) get an instant reply with the book's buy link." },
           ]}
         />
+        <IntegrationCard
+          settingKey="meta_ads"
+          title="Meta Ads — pull ad performance"
+          description="Reads campaign, ad-set and ad performance from the Marketing API into the Ads Center, so you stop exporting spreadsheets by hand. Separate from the Meta card above — that one publishes to your Page and Instagram. This one only ever reads. Paste the System-User token with ads_read, press Save, then Test connection on the right."
+          fields={[{ key: "access_token", label: "System-User Access Token (ads_read)", secret: true }]}
+          steps={[
+            { text: "Business Settings → Users → System users → your system user", url: "https://business.facebook.com/settings/system-users" },
+            { text: "Assigned assets → Apps → add the Business-type app with 'Develop app'" },
+            { text: "Assigned assets → Ad accounts → add every account you want pulled, with 'View performance'" },
+            { text: "Generate token → pick that app → tick ads_read → copy it once and paste below → Save" },
+            { text: "Press 'Test connection' on the right — it lists every ad account the token can read" },
+          ]}
+        />
         <MetaAdsConnection />
         <IntegrationCard
           settingKey="chatwoot"
@@ -348,6 +361,8 @@ function IntegrationCard({
   fields: { key: string; label: string; placeholder?: string; secret?: boolean }[];
   steps?: { text: string; url?: string }[];
 }) {
+  // `enabled` is stored inside the same settings blob. Absent means on, so
+  // every integration that predates the switch keeps working untouched.
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -356,6 +371,8 @@ function IntegrationCard({
   // leave it blank and lose the credential they meant to set.
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [configured, setConfigured] = useState(false);
+  const [enabled, setEnabled] = useState(true);
+  const [toggling, setToggling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
@@ -367,12 +384,18 @@ function IntegrationCard({
       .eq("key", settingKey)
       .maybeSingle()
       .then(({ data }) => {
-        const v = (data?.value ?? {}) as Record<string, string>;
-        setConfigured(Object.values(v).some((x) => x));
-        setSavedKeys(new Set(Object.entries(v).filter(([, x]) => x).map(([k]) => k)));
+        // the blob is JSON, so `enabled` may arrive as a real boolean or as a
+        // string depending on who wrote it — treat only an explicit false as off
+        const v = (data?.value ?? {}) as Record<string, unknown>;
+        setEnabled(String(v.enabled ?? true) !== "false");
+        // `enabled` is bookkeeping, not a credential — it must not make an
+        // otherwise-empty card look configured
+        const creds = Object.entries(v).filter(([k]) => k !== "enabled");
+        setConfigured(creds.some(([, x]) => x));
+        setSavedKeys(new Set(creds.filter(([, x]) => x).map(([k]) => k)));
         const nonSecret: Record<string, string> = {};
         for (const f of fields) {
-          if (!f.secret && v[f.key]) nonSecret[f.key] = v[f.key];
+          if (!f.secret && v[f.key]) nonSecret[f.key] = String(v[f.key]);
         }
         setValues(nonSecret);
       });
@@ -389,8 +412,9 @@ function IntegrationCard({
       if (values[f.key] !== undefined && values[f.key] !== "") merged[f.key] = values[f.key];
     }
     await supabase.from("app_settings").upsert({ key: settingKey, value: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
-    setConfigured(Object.values(merged).some((x) => x));
-    setSavedKeys(new Set(Object.entries(merged).filter(([, x]) => x).map(([k]) => k)));
+    const creds = Object.entries(merged).filter(([k]) => k !== "enabled");
+    setConfigured(creds.some(([, x]) => x));
+    setSavedKeys(new Set(creds.filter(([, x]) => x).map(([k]) => k)));
     setSaving(false);
     setSaved(true);
     setValues((prev) => {
@@ -400,16 +424,61 @@ function IntegrationCard({
     });
   }
 
+  /** Turning an integration off keeps every credential — it just stops being
+   *  used, so it can be switched back on without setting it up again. */
+  async function toggleEnabled(next: boolean) {
+    setToggling(true);
+    const { data } = await supabase.from("app_settings").select("value").eq("key", settingKey).maybeSingle();
+    const existing = (data?.value ?? {}) as Record<string, unknown>;
+    await supabase
+      .from("app_settings")
+      .upsert(
+        { key: settingKey, value: { ...existing, enabled: next }, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+    setEnabled(next);
+    setToggling(false);
+  }
+
   return (
-    <div className="card p-5 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className={`card p-5 space-y-3 ${!enabled && configured ? "opacity-60" : ""}`}>
+      <div className="flex items-center justify-between gap-2">
         <h3 className="font-bold text-sm">{title}</h3>
-        <span
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${configured ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
-        >
-          {configured ? t("connected") : t("notConnected")}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              !configured
+                ? "bg-slate-100 text-slate-500"
+                : enabled
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            {!configured ? t("notConnected") : enabled ? t("connected") : t("integDisabled")}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label={enabled ? t("integDisable") : t("integEnable")}
+            title={enabled ? t("integDisable") : t("integEnable")}
+            disabled={toggling}
+            onClick={() => toggleEnabled(!enabled)}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                enabled ? "start-[18px]" : "start-0.5"
+              }`}
+            />
+          </button>
+        </div>
       </div>
+      {!enabled && configured && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+          {t("integDisabledHint")}
+        </div>
+      )}
       <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
       {fields.map((f) => {
         const stored = savedKeys.has(f.key);

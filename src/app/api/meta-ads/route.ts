@@ -40,8 +40,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
 
   // the token lives in the existing 'meta' settings key (Marketing Studio)
-  const { data: marketing } = await user.supabase.rpc("fn_marketing_config");
-  const token = ((marketing ?? {}) as { meta?: { access_token?: string } }).meta?.access_token ?? "";
+  // fn_meta_ads_token prefers the dedicated Meta Ads box, falls back to the
+  // legacy shared 'meta' field, and returns null when the integration is
+  // switched off — so the toggle actually stops the pull, not just hides it
+  const { data: tokenRow } = await user.supabase.rpc("fn_meta_ads_token");
+  const token = (tokenRow as string | null) ?? "";
 
   if (body.action === "save_accounts") {
     const accounts = (Array.isArray(body.accounts) ? body.accounts : []) as MappedAccount[];
