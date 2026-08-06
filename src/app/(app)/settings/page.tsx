@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { useMyRole } from "@/lib/use-role";
+import { MetaAdsConnection } from "@/components/meta-ads-connection";
 
 export default function SettingsPage() {
   const { t } = useLang();
@@ -175,14 +176,18 @@ export default function SettingsPage() {
           ]}
           steps={[
             { text: "Open Meta Business Settings", url: "https://business.facebook.com/settings" },
-            { text: "Users → System Users → Add → assign your Ad Account AND your Page" },
-            { text: "Generate New Token → permissions: ads_read, read_insights, ads_management (for boosting) → paste as System-User token" },
+            { text: "Users → System Users → Add → name it 'NM Smart App', role Employee" },
+            { text: "Assigned Assets → Ad Accounts → add EVERY ad account you want pulled (kids / culture / Disney) → toggle 'View performance' at minimum" },
+            { text: "Assigned Assets → Pages → add your Page (only needed for publishing/boosting)" },
+            { text: "Generate New Token → pick your App → tick ads_read (required to pull ads), plus ads_management only if you want to pause/boost from the app → copy it once and paste below" },
+            { text: "Then press 'Test connection' in the Meta Ads connection panel below — it verifies the token and lists every ad account it can see" },
             { text: "For publishing: generate a token that also has pages_manage_posts, pages_read_engagement, instagram_basic, instagram_content_publish, then exchange it for the PAGE token: Graph Explorer → GET /me/accounts → copy your page's access_token + id", url: "https://developers.facebook.com/tools/explorer" },
             { text: "Instagram User ID: GET /{page-id}?fields=instagram_business_account → copy the id (your IG must be a Business account linked to the Page)" },
             { text: "Ad Account ID: the number after 'act_' in Ads Manager. Docs:", url: "https://developers.facebook.com/docs/marketing-api/get-started" },
             { text: "Comment auto-reply (optional): add pages_manage_engagement to the Page token, set a Verify Token above + comments_enabled=on, then in your Meta App → Webhooks → Page: callback URL https://misr-hub.vercel.app/api/marketing/comments with that verify token, subscribed to 'feed'. Buy-intent comments (بكام؟ / عايز / متوفر؟) get an instant reply with the book's buy link." },
           ]}
         />
+        <MetaAdsConnection />
         <IntegrationCard
           settingKey="chatwoot"
           title="Chatwoot"
