@@ -351,6 +351,10 @@ function IntegrationCard({
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [values, setValues] = useState<Record<string, string>>({});
+  // which keys actually hold a value — a secret field must report its OWN
+  // state, not the card's. Showing "saved" on an empty field makes people
+  // leave it blank and lose the credential they meant to set.
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [configured, setConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -365,6 +369,7 @@ function IntegrationCard({
       .then(({ data }) => {
         const v = (data?.value ?? {}) as Record<string, string>;
         setConfigured(Object.values(v).some((x) => x));
+        setSavedKeys(new Set(Object.entries(v).filter(([, x]) => x).map(([k]) => k)));
         const nonSecret: Record<string, string> = {};
         for (const f of fields) {
           if (!f.secret && v[f.key]) nonSecret[f.key] = v[f.key];
@@ -385,6 +390,7 @@ function IntegrationCard({
     }
     await supabase.from("app_settings").upsert({ key: settingKey, value: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
     setConfigured(Object.values(merged).some((x) => x));
+    setSavedKeys(new Set(Object.entries(merged).filter(([, x]) => x).map(([k]) => k)));
     setSaving(false);
     setSaved(true);
     setValues((prev) => {
@@ -405,17 +411,30 @@ function IntegrationCard({
         </span>
       </div>
       <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
-      {fields.map((f) => (
-        <input
-          key={f.key}
-          className="input !py-1.5 text-sm"
-          dir="ltr"
-          type={f.secret ? "password" : "text"}
-          placeholder={f.secret && configured ? `${f.label} (saved — leave blank to keep)` : f.placeholder ?? f.label}
-          value={values[f.key] ?? ""}
-          onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
-        />
-      ))}
+      {fields.map((f) => {
+        const stored = savedKeys.has(f.key);
+        return (
+          <div key={f.key} className="relative">
+            <input
+              className="input !py-1.5 text-sm !pe-20"
+              dir="ltr"
+              type={f.secret ? "password" : "text"}
+              placeholder={f.secret && stored ? `${f.label} (saved — leave blank to keep)` : f.placeholder ?? f.label}
+              value={values[f.key] ?? ""}
+              onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
+            />
+            {/* per-field truth, so an empty credential can't hide behind the
+                card's overall "Connected" badge */}
+            <span
+              className={`pointer-events-none absolute top-1/2 -translate-y-1/2 end-2 text-[10px] font-bold ${
+                stored ? "text-emerald-600" : "text-slate-300"
+              }`}
+            >
+              {stored ? t("fieldSaved") : t("fieldEmpty")}
+            </span>
+          </div>
+        );
+      })}
       <div className="flex items-center gap-2">
         <button className="btn-secondary !py-1.5 text-xs" onClick={save} disabled={saving}>
           {t("saveSettings")}

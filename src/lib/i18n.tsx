@@ -758,6 +758,8 @@ const dict = {
   integrationsHint: { ar: "أدخل بيانات الربط لكل منصة وستكون جاهزة للتفعيل", en: "Store each platform's credentials — ready to activate when you want" },
   connected: { ar: "مُعد", en: "Configured" },
   notConnected: { ar: "غير مُعد", en: "Not configured" },
+  fieldSaved: { ar: "محفوظ ✓", en: "saved ✓" },
+  fieldEmpty: { ar: "فارغ", en: "empty" },
   // Customers DB
   uploadCustomers: { ar: "ملف العملاء", en: "Customers File" },
   uploadCustomersHint: { ar: "ملف CustomersExport من المنصة — يُحدّث الموجود ويضيف الجديد بدون تكرار", en: "CustomersExport file — updates existing and adds new, no duplicates" },
