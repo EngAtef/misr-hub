@@ -48,23 +48,104 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, result: data });
   }
 
-  // ---- link an ad (or a whole campaign) to the book it promotes -----------
+  // ---- connect an ad (or a whole campaign) to what it actually sells -------
+  // Three doors: a custom list, a pasted link, or hand-picked SKUs. A link
+  // that resolves to a known list is stored as a list mapping by the RPC, so
+  // the attribution engine only ever sees "these SKUs".
   if (body.action === "map") {
     const rawName = String(body.rawName ?? "").trim();
     if (!rawName) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    const targetKind = ["book", "list", "link"].includes(String(body.targetKind))
+      ? String(body.targetKind)
+      : "book";
+    const destUrl = body.destUrl ? String(body.destUrl).trim().slice(0, 2000) : null;
+    if (targetKind === "list" && !body.listKey) {
+      return NextResponse.json({ error: "Pick a custom list" }, { status: 400 });
+    }
+    if (targetKind === "link" && !destUrl) {
+      return NextResponse.json({ error: "Paste the ad's link" }, { status: 400 });
+    }
     const skus = Array.isArray(body.skus)
       ? (body.skus as unknown[]).map((s) => String(s).trim()).filter(Boolean)
       : null;
     const { data, error } = await db.rpc("fn_ads_map_set", {
       p_match_level: body.matchLevel === "campaign" ? "campaign" : "ad",
       p_raw_name: rawName,
-      p_book_label: String(body.bookLabel ?? "").trim() || rawName,
-      p_skus: skus && skus.length ? skus : null,
+      p_book_label: String(body.bookLabel ?? "").trim() || null,
+      p_skus: targetKind === "list" || !skus?.length ? null : skus,
       p_keyword: body.keyword ? String(body.keyword).trim() : null,
+      p_target_kind: targetKind,
+      p_list_key: body.listKey ? String(body.listKey) : null,
+      p_dest_url: destUrl,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    await audit("map_ad_book", { name: rawName, book: body.bookLabel, skus: skus?.length ?? 0 });
+    await audit("map_ad_book", {
+      name: rawName,
+      book: body.bookLabel,
+      kind: targetKind,
+      list: body.listKey ?? null,
+      url: destUrl,
+      skus: skus?.length ?? 0,
+    });
     return NextResponse.json({ ok: true, id: data });
+  }
+
+  // ---- connect every ad whose own link points at a list we already know ----
+  if (body.action === "autolink") {
+    const { data, error } = await db.rpc("fn_ads_autolink");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await audit("ads_autolink", (data ?? {}) as Record<string, unknown>);
+    return NextResponse.json({ ok: true, result: data });
+  }
+
+  // ---- custom lists: the destinations the ads link to ---------------------
+  if (body.action === "list_import") {
+    const lists = (Array.isArray(body.lists) ? body.lists : []) as {
+      list_id?: number | null;
+      name?: string;
+      items?: unknown[];
+    }[];
+    if (!lists.length) return NextResponse.json({ error: "No lists" }, { status: 400 });
+    if (!lists.some((l) => (l.items?.length ?? 0) > 0)) {
+      return NextResponse.json({ error: "No products in the file" }, { status: 400 });
+    }
+    const { data, error } = await db.rpc("fn_custom_lists_import", {
+      p_file: body.fileName ?? null,
+      p_lists: lists,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await audit("import_custom_lists", {
+      file: body.fileName ?? null,
+      lists: lists.length,
+      ids: lists.map((l) => l.list_id ?? null),
+      result: data,
+    });
+    return NextResponse.json({ ok: true, result: data });
+  }
+
+  // rename a list, or attach the slug its ads link to (a full URL is fine)
+  if (body.action === "list_set") {
+    if (!body.id) return NextResponse.json({ error: "Invalid" }, { status: 400 });
+    const { error } = await db.rpc("fn_custom_list_set", {
+      p_id: String(body.id),
+      p_name: body.name === undefined ? null : String(body.name).trim().slice(0, 200),
+      // "" deliberately clears the slug; undefined leaves it untouched
+      p_slug: body.slug === undefined ? null : String(body.slug).trim().slice(0, 300),
+      p_note: body.note === undefined ? null : String(body.note).trim().slice(0, 500),
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await audit("custom_list_set", { id: body.id, name: body.name, slug: body.slug });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "list_delete") {
+    if (!body.id) return NextResponse.json({ error: "Invalid" }, { status: 400 });
+    // the list is a re-uploadable snapshot, so no trash copy — but any ad
+    // pointing at it falls back to unmapped rather than silently keeping SKUs
+    const { error } = await db.from("custom_lists").delete().eq("id", body.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await audit("custom_list_delete", { id: body.id });
+    return NextResponse.json({ ok: true });
   }
 
   if (body.action === "map_toggle") {

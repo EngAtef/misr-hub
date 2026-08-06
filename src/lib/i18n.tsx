@@ -1346,6 +1346,12 @@ const dict = {
   uploadAbandonedItemsHint: { ar: "ملف customer_cart_export — صف لكل منتج داخل السلال", en: "customer_cart_export — one row per product inside carts" },
   uploadAbandonedDaily: { ar: "الإيرادات المفقودة يومياً", en: "Daily lost revenue" },
   uploadAbandonedDailyHint: { ar: "ملفا revenue_lost و average_revenue_lost — نفس الكارت يقبل الاثنين", en: "revenue_lost & average_revenue_lost exports — both upload here" },
+  uploadCustomLists: { ar: "القوائم المخصصة", en: "Custom lists" },
+  uploadCustomListsHint: {
+    ar: "تصدير القوائم المخصصة من المتجر — اختر كل الملفات مرة واحدة. اسم كل ملف هو اسم قائمته.",
+    en: "Custom list exports from the store — pick them all at once. Each file name becomes its list's name.",
+  },
+  customListsDetected: { ar: "قوائم", en: "lists" },
   abDailyLostDetected: { ar: "إجمالي الإيرادات المفقودة", en: "Total lost revenue" },
   abDailyAvgDetected: { ar: "متوسط قيمة السلة", en: "Average cart value" },
   abValueAtRisk: { ar: "القيمة المعرضة للفقد", en: "Value at Risk" },

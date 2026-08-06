@@ -10,6 +10,7 @@ import {
   GRAPH_VERSION,
   type AdAccount,
 } from "@/lib/meta-ads/api";
+import { syncAccount, monthWindow } from "@/lib/meta-ads/sync";
 
 export const maxDuration = 60;
 
@@ -124,6 +125,44 @@ export async function POST(request: NextRequest) {
         probeError,
         savedAccounts,
       });
+    } catch (e) {
+      return fail(e);
+    }
+  }
+
+  // ---- pull one account into ad_insights (the caller loops over accounts) --
+  if (body.action === "sync") {
+    if (!token) {
+      return NextResponse.json({ error: "No Meta token saved" }, { status: 400 });
+    }
+    const { data: cfg } = await user.supabase.rpc("fn_meta_ads_config");
+    const saved =
+      (((cfg ?? {}) as { accounts?: { accounts?: MappedAccount[] } }).accounts?.accounts ?? []) as MappedAccount[];
+
+    const win = monthWindow();
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(String(body.since)) ? String(body.since) : win.since;
+    const until = /^\d{4}-\d{2}-\d{2}$/.test(String(body.until)) ? String(body.until) : win.until;
+    if (since > until) return NextResponse.json({ error: "Start is after end" }, { status: 400 });
+
+    // an explicit accountId wins; otherwise take the first enabled one so a
+    // caller with no mapping still gets something useful
+    const wanted = body.accountId ? saved.find((a) => a.id === body.accountId) : saved.find((a) => a.enabled);
+    if (!wanted) {
+      return NextResponse.json(
+        { error: "No ad account selected", hint: "Settings → Meta Ads connection → tick an account and Save mapping" },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const result = await syncAccount(user.supabase, token, { id: wanted.id, label: wanted.label }, since, until);
+      await user.supabase.from("audit_log").insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: "sync_meta_ads",
+        details: { account: wanted.label, id: wanted.id, period: `${since}..${until}`, rows: result.rows },
+      });
+      return NextResponse.json({ ok: true, result });
     } catch (e) {
       return fail(e);
     }

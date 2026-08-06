@@ -56,6 +56,7 @@ export function AdsImportDialog({
           spend: 0,
           purchases: 0,
           conversionValue: 0,
+          withLinks: 0,
           warnings: [],
           error: e instanceof Error ? e.message : "parse error",
         });
@@ -212,6 +213,16 @@ export function AdsImportDialog({
                         <span>
                           {x("metaPurchases")}: <b className="text-slate-800">{formatNumber(s.purchases)}</b>
                         </span>
+                        {/* whether this export can auto-connect its ads to
+                            their custom lists, or they'll need linking by hand */}
+                        {s.levels.ad > 0 && (
+                          <span className={s.withLinks ? "text-emerald-700" : "text-slate-400"}>
+                            {x("targetLink")}:{" "}
+                            <b>
+                              {formatNumber(s.withLinks)} / {formatNumber(s.levels.ad)}
+                            </b>
+                          </span>
+                        )}
                       </div>
 
                       {s.warnings.map((w, i) => (

@@ -1,3 +1,7 @@
+/** How an ad is connected to what it sells. `link` only survives when the URL
+ *  didn't resolve to a known list — once it does, the RPC stores it as `list`. */
+export type TargetKind = "book" | "list" | "link";
+
 // Shape returned by fn_ads_insights — one row per Meta report line.
 // Only `level === "ad"` rows may be summed: Meta restates the same spend at
 // campaign and ad-set level, so mixing levels triples every total.
@@ -45,6 +49,14 @@ export interface AdRow {
   book_label: string | null;
   book_skus: string[] | null;
   map_source: "ad" | "campaign" | null;
+
+  // what this ad is connected to: a custom list, hand-picked SKUs, or a link
+  target_kind: TargetKind | null;
+  list_key: string | null;
+  list_name: string | null;
+  list_slug: string | null;
+  list_items: number | null;
+  dest_url: string | null;
 
   book_orders: number | null;
   book_units: number | null;
@@ -97,8 +109,74 @@ export interface AdMapping {
   is_auto: boolean;
   active: boolean;
   updated_at: string;
+  target_kind: TargetKind;
+  list_key: string | null;
+  list_name: string | null;
+  list_slug: string | null;
+  list_items: number;
+  dest_url: string | null;
   ad_count: number;
   spend: number;
+}
+
+/** fn_custom_lists_overview — one row per custom list: what it holds, what it
+ *  cost, and what its books really sold in the window. */
+export interface CustomListRow {
+  id: string;
+  list_id: number | null;
+  slug: string | null;
+  name: string;
+  note: string | null;
+  item_count: number;
+  known_items: number;
+  out_of_stock: number;
+  stock_units: number;
+  ads: number;
+  campaigns: string[] | null;
+  accounts: string[] | null;
+  spend: number;
+  meta_purchases: number;
+  meta_value: number;
+  page_views: number | null;
+  page_atc: number | null;
+  page_revenue: number | null;
+  orders: number;
+  units: number;
+  revenue: number;
+  net_revenue: number;
+  cancelled_orders: number;
+  buyers: number;
+  roas: number | null;
+  cpa: number | null;
+  cancel_rate: number | null;
+  file_name: string | null;
+  updated_at: string;
+}
+
+/** fn_custom_list_items — the books inside one list. */
+export interface CustomListItemRow {
+  sku: string;
+  product_name: string | null;
+  sort_order: number | null;
+  in_catalog: boolean;
+  ecom_stock: number | null;
+  price: number | null;
+  orders: number;
+  units: number;
+  revenue: number;
+}
+
+/** fn_ads_link_resolve — what a pasted URL turned out to be. */
+export interface LinkResolved {
+  url: string;
+  kind: "list" | "product" | "unknown";
+  ref: string | null;
+  list_key: string | null;
+  list_name: string | null;
+  list_id: number | null;
+  list_items: number | null;
+  sku: string | null;
+  product_name: string | null;
 }
 
 export interface AdSettings {

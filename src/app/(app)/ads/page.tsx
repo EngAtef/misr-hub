@@ -5,10 +5,13 @@ import {
   UploadCloud,
   Download,
   Settings2,
+  RefreshCw,
   X,
   Info,
   ChevronDown,
   Trash2,
+  ListTree,
+  ExternalLink,
   FileSpreadsheet,
   TrendingUp,
   TrendingDown,
@@ -21,6 +24,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { BarsChart, DonutChart } from "@/components/charts";
 import { AdsImportDialog } from "@/components/ads-import-dialog";
 import { AdsMapping } from "@/components/ads-mapping";
+import { AdsLists } from "@/components/ads-lists";
 import { ProductDrawer } from "@/components/product-drawer";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AD } from "@/lib/ads/strings";
@@ -36,7 +40,18 @@ import {
 } from "@/lib/ads/diagnose";
 import { buildAdsWorkbook, downloadWorkbook, adRowsForExport } from "@/lib/ads/export";
 
-type Tab = "overview" | "ads" | "campaigns" | "adsets" | "books" | "gap" | "funnel" | "compare" | "mapping" | "imports";
+type Tab =
+  | "overview"
+  | "ads"
+  | "campaigns"
+  | "adsets"
+  | "books"
+  | "lists"
+  | "gap"
+  | "funnel"
+  | "compare"
+  | "mapping"
+  | "imports";
 
 const TABS: { key: Tab; label: keyof typeof AD }[] = [
   { key: "overview", label: "tabOverview" },
@@ -44,6 +59,7 @@ const TABS: { key: Tab; label: keyof typeof AD }[] = [
   { key: "campaigns", label: "tabCampaigns" },
   { key: "adsets", label: "tabAdsets" },
   { key: "books", label: "tabBooks" },
+  { key: "lists", label: "tabLists" },
   { key: "gap", label: "tabGap" },
   { key: "funnel", label: "tabFunnel" },
   { key: "compare", label: "tabCompare" },
@@ -115,6 +131,8 @@ export default function AdsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncNote, setSyncNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [gapRows, setGapRows] = useState<GapRow[]>([]);
   const [gapLoading, setGapLoading] = useState(false);
   const [drawerSku, setDrawerSku] = useState<{ sku: string; name?: string | null; stock?: number | null } | null>(null);
@@ -365,6 +383,54 @@ export default function AdsPage() {
       .sort((p, q) => q.spend_now + q.spend_prev - (p.spend_now + p.spend_prev));
   }, [adRows, cmpA, cmpB]);
 
+  /** Pulls every selected ad account for the current month, one request each —
+   *  eight accounts in a single call would exceed the function's 60s ceiling. */
+  async function syncFromMeta() {
+    setSyncNote(null);
+    setSyncing(tx(AD.syncing));
+    try {
+      const { data: cfg } = await supabase.rpc("fn_meta_ads_config");
+      const c = (cfg ?? {}) as { has_token?: boolean; accounts?: { accounts?: { id: string; label: string; enabled: boolean }[] } };
+      if (!c.has_token) {
+        setSyncNote({ kind: "err", text: tx(AD.syncNotConnected) });
+        setSyncing(null);
+        return;
+      }
+      const targets = (c.accounts?.accounts ?? []).filter((a) => a.enabled);
+      if (!targets.length) {
+        setSyncNote({ kind: "err", text: tx(AD.syncNoAccounts) });
+        setSyncing(null);
+        return;
+      }
+
+      const done: string[] = [];
+      const failed: string[] = [];
+      for (const [i, acct] of targets.entries()) {
+        setSyncing(`${tx(AD.syncing)} ${i + 1}/${targets.length} · ${acct.label}`);
+        const res = await fetch("/api/meta-ads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync", accountId: acct.id }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const r = j.result as { label: string; adRows: number; spend: number };
+          done.push(`${r.label}: ${formatNumber(r.adRows)} ${tx(AD.ads)} · ${formatMoney(r.spend, lang)}`);
+        } else {
+          failed.push(`${acct.label}: ${[j.error, j.hint].filter(Boolean).join(" — ")}`);
+        }
+      }
+      setSyncNote({
+        kind: failed.length ? "err" : "ok",
+        text: [...done, ...failed].join(" | ") || tx(AD.syncDone),
+      });
+      await load();
+    } catch (e) {
+      setSyncNote({ kind: "err", text: e instanceof Error ? e.message : "sync failed" });
+    }
+    setSyncing(null);
+  }
+
   // ------------------------------------------------------------- exports
   function exportWorkbook() {
     const wb = buildAdsWorkbook(filtered, settings, lang, blended as unknown as Record<string, number | null>);
@@ -501,7 +567,7 @@ export default function AdsPage() {
 
   const hasData = periods.length > 0;
   // the ad-level filters don't apply to tabs that aggregate outside ad rows
-  const showFilters = !["mapping", "imports", "compare"].includes(tab);
+  const showFilters = !["mapping", "imports", "compare", "lists"].includes(tab);
 
   return (
     <div>
@@ -526,13 +592,31 @@ export default function AdsPage() {
                 </button>
               </>
             )}
-            <button className="btn-primary" onClick={() => setImportOpen(true)}>
+            <button className="btn-secondary" onClick={() => setImportOpen(true)}>
               <UploadCloud size={16} />
               {tx(AD.import)}
+            </button>
+            <button className="btn-primary" onClick={syncFromMeta} disabled={syncing !== null}>
+              <RefreshCw size={16} className={cn(syncing !== null && "animate-spin")} />
+              {syncing ?? tx(AD.syncMeta)}
             </button>
           </div>
         }
       />
+
+      {syncNote && (
+        <div
+          className={cn(
+            "mb-5 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm",
+            syncNote.kind === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"
+          )}
+        >
+          <span className="min-w-0 flex-1">{syncNote.text}</span>
+          <button className="rounded p-0.5 opacity-60 hover:opacity-100" onClick={() => setSyncNote(null)}>
+            <X size={15} />
+          </button>
+        </div>
+      )}
 
       {loadError && (
         <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -790,8 +874,23 @@ export default function AdsPage() {
                               {r.campaign_name} · {r.adset_name}
                             </div>
                           </td>
-                          <td className="!whitespace-normal max-w-[130px] text-xs">
-                            {r.book_label ?? <span className="text-violet-500">{VERDICT_META.unmapped.label[lang]}</span>}
+                          <td className="!whitespace-normal max-w-[150px] text-xs">
+                            {r.book_label ? (
+                              <>
+                                <div>{r.book_label}</div>
+                                {/* a list-backed ad is measured on the whole
+                                    list, so say so rather than let it read
+                                    like a single book */}
+                                {r.target_kind === "list" && (
+                                  <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                                    <ListTree size={9} />
+                                    {formatNumber(r.list_items)} {tx(AD.listItems)}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-violet-500">{VERDICT_META.unmapped.label[lang]}</span>
+                            )}
                           </td>
                           <td className="font-semibold">{money(r.spend)}</td>
                           <td className="text-slate-500">{num1(r.cpm)}</td>
@@ -843,6 +942,19 @@ export default function AdsPage() {
                                   ))}
                                 </div>
                                 <div className="space-y-2.5">
+                                  {/* where this ad actually sends people */}
+                                  {r.dest_url && (
+                                    <a
+                                      href={r.dest_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 hover:border-brand-300 hover:text-brand-700"
+                                      dir="ltr"
+                                    >
+                                      <ExternalLink size={12} className="shrink-0" />
+                                      <span className="truncate">{r.dest_url}</span>
+                                    </a>
+                                  )}
                                   {d.reasons.length === 0 && (
                                     <div className="text-sm text-slate-500">
                                       {lang === "ar" ? "مفيش مشاكل واضحة في القمع." : "No obvious funnel problems."}
@@ -1398,6 +1510,8 @@ export default function AdsPage() {
               )}
             </div>
           )}
+
+          {tab === "lists" && <AdsLists from={win?.from ?? null} to={win?.to ?? null} onChanged={load} />}
 
           {tab === "mapping" && <AdsMapping from={win?.from ?? null} to={win?.to ?? null} onChanged={load} />}
 

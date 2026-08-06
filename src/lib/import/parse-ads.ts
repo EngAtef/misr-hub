@@ -40,6 +40,10 @@ export interface ParsedAdRow {
   cost_per_purchase: number | null;
   results_roas: number | null;
   delivery_status: string | null;
+  /** Where the ad sends people — usually a custom-list page. Present only in
+   *  exports that include the link column; it's what lets an ad be connected
+   *  to its list automatically instead of by hand. */
+  dest_url: string | null;
 }
 
 export interface ParsedAdReport {
@@ -52,6 +56,9 @@ export interface ParsedAdReport {
   spend: number;
   purchases: number;
   conversionValue: number;
+  /** How many ad rows carried a destination link — 0 means this export can't
+   *  auto-connect ads to their custom lists and they'll need linking by hand. */
+  withLinks: number;
   warnings: string[];
 }
 
@@ -110,6 +117,18 @@ const COLS: Record<string, string[]> = {
   level: ["delivery level"],
   start: ["reporting starts"],
   end: ["reporting ends"],
+  // Meta names the destination column differently depending on export version
+  // and objective; any of these is the same thing.
+  dest: [
+    "link (ad settings)",
+    "link (ad settings) ",
+    "website url",
+    "link url",
+    "destination url",
+    "destination",
+    "url",
+    "link",
+  ],
 };
 
 function normLevel(v: unknown): AdLevel | null {
@@ -175,6 +194,7 @@ export function parseAdsFile(data: ArrayBuffer, fileName: string): ParsedAdRepor
   const iSpend = idx("spend");
   const iStart = idx("start");
   const iEnd = idx("end");
+  const iDest = idx("dest");
   if (iSpend === -1) warnings.push("No 'Amount spent' column found");
 
   const cell = (row: unknown[], i: number) => (i === -1 ? null : row[i]);
@@ -236,6 +256,8 @@ export function parseAdsFile(data: ArrayBuffer, fileName: string): ParsedAdRepor
       cost_per_purchase: num(cell(row, idx("cpp"))),
       results_roas: num(cell(row, idx("roas"))),
       delivery_status: txt(cell(row, idx("status"))),
+      // only ad rows carry a real destination; campaign/ad-set rollups don't
+      dest_url: level === "ad" ? txt(cell(row, iDest)) : null,
     });
     levels[level]++;
   }
@@ -271,6 +293,7 @@ export function parseAdsFile(data: ArrayBuffer, fileName: string): ParsedAdRepor
     spend: sum((r) => r.spend),
     purchases: sum((r) => r.purchases),
     conversionValue: sum((r) => r.conversion_value),
+    withLinks: adRows.filter((r) => r.dest_url).length,
     warnings,
   };
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -19,6 +19,7 @@ import { syncCatalogUpload } from "@/lib/import/catalog-sync";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
 import { parsePromosFile, type PromoRow } from "@/lib/import/parse-promos";
 import { parseAbandonedAny, type AbandonedParsed } from "@/lib/import/parse-abandoned";
+import { parseCustomListsFile, type ParsedCustomLists } from "@/lib/import/parse-custom-lists";
 
 const CHUNK_SIZE = 250;
 
@@ -46,6 +47,7 @@ type UploadType =
   | "ga4_tx"
   | "ga4_items"
   | "ads"
+  | "custom_lists"
   | "abandoned_carts"
   | "abandoned_items"
   | "abandoned_daily";
@@ -100,8 +102,15 @@ const TEMPLATES: Record<string, string> = {
     "Item name,Items viewed,Items added to cart,Items purchased,Item revenue\r\n" +
     "Book A,759,285,79,9480.00",
   ads:
-    "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Reporting starts,Reporting ends\r\n" +
-    "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,2026-06-01,2026-06-22",
+    "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Link (ad settings),Reporting starts,Reporting ends\r\n" +
+    "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,https://nahdetmisrbookstore.com/ar/products/list/my-list,2026-06-01,2026-06-22\r\n" +
+    '# "Link (ad settings)" is optional — when present, ads connect to their custom list automatically.',
+  custom_lists:
+    "sku,name,list_id,product_type,order\r\n" +
+    "main_C010924220964P,Book A,82,main,1\r\n" +
+    "main_C010923220655P,Book B,82,main,2\r\n" +
+    "# Export one custom list from the store. The file name becomes the list name.\r\n" +
+    "# The list's URL slug (…/products/list/<slug>) is attached afterwards in Ads Center → Lists.",
   abandoned_carts:
     "Full Name,User Email,User Phone,Products Count,Products skus,Cart Value,Created At,Updated At,Notified At,User Ip,User Agent,Web Url,Days Abandoned\r\n" +
     'Ahmed Ali,ahmed@example.com,01000000000,2,"SKU001, SKU002",350,"July 22, 2026, 12 PM","July 22, 2026, 12 PM",,196.0.0.1,web,https://nahdetmisrbookstore.com/ar/cart,0\r\n' +
@@ -142,6 +151,7 @@ interface Pending {
   ga4?: Ga4AnyParsed;
   ads?: ParsedAdReport;
   abandoned?: AbandonedParsed;
+  customLists?: ParsedCustomLists;
   count: number;
   extra?: string;
 }
@@ -197,10 +207,54 @@ export default function DataCenterPage() {
     { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
     { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
     { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
+    { key: "custom_lists", icon: ListTree, title: t("uploadCustomLists"), hint: t("uploadCustomListsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_carts", icon: ShoppingBasket, title: t("uploadAbandonedCarts"), hint: t("uploadAbandonedCartsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_items", icon: PackageSearch, title: t("uploadAbandonedItems"), hint: t("uploadAbandonedItemsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_daily", icon: TrendingDown, title: t("uploadAbandonedDaily"), hint: t("uploadAbandonedDailyHint"), accept: ".xlsx,.xls,.csv" },
   ];
+
+  /**
+   * Custom lists arrive one file per list (the file name IS the list name), and
+   * a store has dozens of them — so this card takes the whole pile at once and
+   * merges them into a single import. A file that holds several list_ids is
+   * split by the parser, so both shapes land the same way.
+   */
+  async function handleCustomListFiles(files: File[]) {
+    setPhase("parsing");
+    setErrorMsg("");
+    try {
+      const merged: ParsedCustomLists = { lists: [], totalItems: 0, skipped: 0, warnings: [] };
+      const failed: string[] = [];
+      for (const file of files) {
+        try {
+          const parsed = parseCustomListsFile(await file.arrayBuffer(), file.name);
+          merged.lists.push(...parsed.lists);
+          merged.totalItems += parsed.totalItems;
+          merged.skipped += parsed.skipped;
+          merged.warnings.push(...parsed.warnings);
+        } catch {
+          failed.push(file.name);
+        }
+      }
+      if (!merged.lists.length) throw new Error(t("invalidFile"));
+      if (failed.length) merged.warnings.push(`${failed.length}: ${failed.join(", ")}`);
+      setPending({
+        type: "custom_lists",
+        fileName: files.length === 1 ? files[0].name : `${files.length} files`,
+        customLists: merged,
+        count: merged.totalItems,
+        extra:
+          merged.lists.length === 1
+            ? `${merged.lists[0].name}${merged.lists[0].list_id !== null ? ` · #${merged.lists[0].list_id}` : ""}`
+            : `${merged.lists.length} ${t("customListsDetected")}`,
+      });
+      setPhase("ready");
+    } catch (e) {
+      setPhase("error");
+      setErrorMsg(e instanceof Error ? e.message : t("invalidFile"));
+    }
+    if (fileRef.current) fileRef.current.value = "";
+  }
 
   async function handleFile(file: File) {
     setPhase("parsing");
@@ -501,6 +555,21 @@ export default function DataCenterPage() {
           }
         }
         await recordUpload(pending.fileName, pending.count, ok, 0);
+      } else if (pending.type === "custom_lists" && pending.customLists) {
+        const res = await fetch("/api/ads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "list_import",
+            fileName: pending.fileName,
+            lists: pending.customLists.lists,
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error ?? "failed");
+        setProcessed(pending.count);
+        setProgress(100);
+        await recordUpload(pending.fileName, pending.count, pending.count, pending.customLists.skipped);
       } else if (pending.type === "ads" && pending.ads) {
         const res = await fetch("/api/ads", {
           method: "POST",
@@ -586,8 +655,10 @@ export default function DataCenterPage() {
               onDrop={(e) => {
                 e.preventDefault();
                 setDragOver(false);
-                const file = e.dataTransfer.files?.[0];
-                if (file) handleFile(file);
+                const files = e.dataTransfer.files;
+                if (!files?.length) return;
+                if (activeType === "custom_lists") handleCustomListFiles(Array.from(files));
+                else handleFile(files[0]);
               }}
               className={cn(
                 "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition",
@@ -601,10 +672,13 @@ export default function DataCenterPage() {
                 ref={fileRef}
                 type="file"
                 accept={active.accept}
+                multiple={activeType === "custom_lists"}
                 className="hidden"
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFile(file);
+                  const files = e.target.files;
+                  if (!files?.length) return;
+                  if (activeType === "custom_lists") handleCustomListFiles(Array.from(files));
+                  else handleFile(files[0]);
                 }}
               />
             </div>
@@ -644,7 +718,10 @@ export default function DataCenterPage() {
                 {formatNumber(pending.count)} {t("rowsReady")}
                 {pending.extra && (
                   <span className="ms-2 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" dir="ltr">
-                    {t("monthDetected")}: {pending.extra}
+                    {/* only the GA4 cards detect a *month*; the others report
+                        an account, a list name, or which export was recognised */}
+                    {pending.type.startsWith("ga4") ? `${t("monthDetected")}: ` : ""}
+                    {pending.extra}
                   </span>
                 )}
               </div>

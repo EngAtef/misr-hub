@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/ga4-sync",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/meta-ads-sync",
+      "schedule": "0 5 * * *"
     }
   ]
 }
