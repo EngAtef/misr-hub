@@ -11,3 +11,6 @@ next-env.d.ts
 .DS_Store
 
 .vercel
+
+# local render/test harnesses
+.scratch/
