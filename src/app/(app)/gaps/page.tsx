@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  FileText,
   Link2,
   RefreshCw,
   ShieldAlert,
@@ -175,7 +176,19 @@ const S = {
   srcAwaiting: { ar: "بانتظار المزامنة", en: "Awaiting sync" },
   campaignCol: { ar: "الحملة (من UTM)", en: "Campaign (from UTM)" },
   sourceCol: { ar: "المصدر", en: "Source" },
-  monthlyReport: { ar: "تقرير الشهر (CSV)", en: "Monthly report (CSV)" },
+  monthlyReport: { ar: "CSV", en: "CSV" },
+  designedReport: { ar: "تقرير الشهر (طباعة/PDF)", en: "Monthly report (print/PDF)" },
+  repGenerated: { ar: "أُنشئ في", en: "Generated" },
+  repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },
+  repScopeTitle: { ar: "نطاق التقرير", en: "Report scope" },
+  repBySource: { ar: "الإيراد ومعدل التحويل حسب المصدر", en: "Revenue & conversion rate by source" },
+  repTrackedShare: { ar: "من الطلبات متتبَّعة في GA4", en: "of orders tracked in GA4" },
+  repMetaCheck: { ar: "فحص أرقام ميتا", en: "Meta reality check" },
+  repMetaClaimed: { ar: "إيراد تدّعيه ميتا", en: "Meta claimed revenue" },
+  repGa4Meta: { ar: "ما نسبه GA4 لميتا", en: "GA4-attributed to Meta" },
+  repBlendedMer: { ar: "MER الكلي (إيراد ÷ إنفاق)", en: "Blended MER (revenue ÷ spend)" },
+  repClicksArrived: { ar: "ضغطات وصلت كجلسات", en: "Clicks that arrived as sessions" },
+  repGapsTitle: { ar: "فجوات التتبع", en: "Tracking gaps" },
   repTitle: { ar: "تقرير المصادر والإيراد الشهري", en: "Monthly Source & Revenue Report" },
   repDefs: {
     ar: "الإيراد = قيمة المنتجات فقط (بدون الشحن)؛ الطلبات الملغاة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط",
@@ -478,6 +491,167 @@ export default function GapsPage() {
     downloadCsv(`source-report-${r.month.slice(0, 7)}.csv`, "﻿" + out.join("\n"));
   }, [supabase, month, tx, lang]);
 
+  // styled, print-ready report in a new tab — same numbers as the CSV,
+  // enriched with the tracking/meta sections already loaded on the page
+  const openDesignedReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_source_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as SourceReport;
+    const rep = report; // fn_gaps_report payload for the same selected month
+    const ar = lang === "ar";
+    const nf = (n: number | null | undefined) =>
+      n === null || n === undefined || isNaN(n) ? "—" : new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const pc = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}%`);
+    const bucketLabel = (b: string) =>
+      ({
+        meta_tagged: tx(S.bMetaTagged),
+        meta_untagged: tx(S.bMetaUntagged),
+        bitly: tx(S.bShortlinks),
+        google_ads: tx(S.bGoogleAds),
+        direct: tx(S.bDirect),
+        seo: tx(S.bSeo),
+        appstore: tx(S.bAppstore),
+        other: tx(S.bOtherMalformed),
+        untracked: tx(S.bUntracked),
+      })[b] ?? b;
+    const t = r.totals;
+    const trackedPctR = rep ? pct(rep.tracking.tracked, rep.tracking.orders) : null;
+    const kpi = (label: string, value: string, sub = "") =>
+      `<div class="kpi"><div class="kl">${label}</div><div class="kv">${value}</div>${sub ? `<div class="ks">${sub}</div>` : ""}</div>`;
+    const srcRows = r.rows
+      .map(
+        (row) => `<tr${row.bucket === "untracked" ? ' class="warn"' : ""}>
+          <td class="s">${bucketLabel(row.bucket)}</td>
+          <td>${row.sessions === null ? "—" : nf(row.sessions)}</td>
+          <td>${nf(row.orders)}</td>
+          <td>${row.cr === null ? "—" : pc(row.cr)}</td>
+          <td>${nf(row.revenue)}</td>
+          <td>${nf(row.aov)}</td></tr>`
+      )
+      .join("");
+    const accountRows = r.spend_by_account
+      .map((a) => `<tr><td class="s">${a.account}</td><td>${nf(a.spend)}</td></tr>`)
+      .join("");
+    const channelRows = (rep?.by_channel ?? [])
+      .map((c) => {
+        const rate = pct(c.tracked, c.orders);
+        return `<tr${rate !== null && rate < 50 ? ' class="warn"' : ""}><td class="s">${c.channel}</td><td>${nf(c.orders)}</td><td>${nf(c.tracked)}</td><td>${rate === null ? "—" : `${rate.toFixed(0)}%`}</td><td>${nf(c.untracked_revenue)}</td></tr>`;
+      })
+      .join("");
+    const paymentRows = (rep?.tracking.payment_breakdown ?? [])
+      .map((p) => {
+        const lost = pct(p.untracked, p.total);
+        return `<tr${lost !== null && lost > 20 ? ' class="warn"' : ""}><td class="s">${p.payment_method}</td><td>${nf(p.total)}</td><td>${nf(p.untracked)}</td><td>${lost === null ? "—" : `${lost.toFixed(0)}%`}</td></tr>`;
+      })
+      .join("");
+    const fu = rep?.funnel;
+    const arrival = fu && fu.meta_clicks > 0 ? Math.round((fu.ga4_meta_sessions * 100) / fu.meta_clicks) : null;
+    const mer = t.spend > 0 ? (t.revenue / t.spend).toFixed(2) : "—";
+    const html = `<!doctype html><html dir="${ar ? "rtl" : "ltr"}" lang="${ar ? "ar" : "en"}"><head><meta charset="utf-8">
+<title>${tx(S.repTitle)} — ${monthLabelFor(r.month, lang)}</title>
+<style>
+  :root { --navy:#1f3864; --navy2:#2f5496; --line:#d9dce6; --soft:#eef1f8; --warn:#fdecec; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:#1a1f2e; margin:0; background:#f4f5f9; }
+  .page { max-width:900px; margin:24px auto; background:#fff; padding:40px 48px; box-shadow:0 2px 14px rgba(30,40,90,.12); }
+  h1 { color:var(--navy); font-size:24px; margin:0 0 2px; }
+  .sub { color:#5a6478; font-size:12.5px; margin-bottom:6px; }
+  .scope { background:var(--soft); border-inline-start:4px solid var(--navy2); padding:10px 14px; font-size:12px; color:#3a4358; border-radius:6px; margin:14px 0 22px; line-height:1.7; }
+  h2 { color:var(--navy2); font-size:15.5px; margin:26px 0 10px; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .kpi { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .kl { font-size:10.5px; color:#6a7288; text-transform:uppercase; letter-spacing:.04em; }
+  .kv { font-size:19px; font-weight:700; color:var(--navy); margin-top:2px; direction:ltr; }
+  .ks { font-size:10.5px; color:#8a91a3; margin-top:1px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { background:var(--navy); color:#fff; padding:8px 10px; text-align:start; font-weight:600; }
+  td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:start; direction:ltr; }
+  td.s { direction:${ar ? "rtl" : "ltr"}; font-weight:600; color:#2a3145; }
+  tbody tr:nth-child(even) { background:#f7f8fc; }
+  tr.warn td { background:var(--warn); }
+  tr.total td { background:var(--soft); font-weight:700; border-top:2px solid var(--navy2); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+  .note { font-size:11px; color:#7a8296; margin-top:6px; line-height:1.6; }
+  .footer { margin-top:30px; font-size:10.5px; color:#9aa0b2; border-top:1px solid var(--line); padding-top:10px; display:flex; justify-content:space-between; }
+  .printbtn { position:fixed; top:14px; inset-inline-end:14px; background:var(--navy2); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+  @media print { body{background:#fff} .page{box-shadow:none; margin:0; padding:10mm 12mm; max-width:none} .printbtn{display:none} }
+</style></head><body>
+<button class="printbtn" onclick="window.print()">${tx(S.repPrint)}</button>
+<div class="page">
+  <h1>${tx(S.repTitle)}</h1>
+  <div class="sub">${monthLabelFor(r.month, lang)} — NM Smart App</div>
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.repDefs)}. ${tx(S.repDelivery)}: ${nf(t.delivery_fees)} EGP.
+  ${trackedPctR !== null ? ` ${trackedPctR.toFixed(1)}% ${tx(S.repTrackedShare)}.` : ""}</div>
+
+  <div class="kpis">
+    ${kpi(tx(S.repSessions), nf(t.sessions))}
+    ${kpi(tx(S.repOrders), nf(t.orders), `${tx(S.repCancelled)}: ${nf(t.cancelled)}`)}
+    ${kpi(tx(S.repRevenue), nf(t.revenue))}
+    ${kpi(tx(S.repCR), pc(t.cr))}
+    ${kpi(tx(S.repAOV), nf(t.aov))}
+    ${kpi(tx(S.repSpend), nf(t.spend), `${tx(S.repSpendPct)}: ${pc(t.spend_pct_of_revenue)}`)}
+    ${kpi(tx(S.repBlendedMer), mer)}
+    ${(() => {
+      const u = r.rows.find((x) => x.bucket === "untracked");
+      return kpi(tx(S.untrackedRevenue), u ? nf(u.revenue) : "0", u ? `${nf(u.orders)} ${tx(S.untrackedSub)}` : "");
+    })()}
+  </div>
+
+  <h2>${tx(S.repBySource)}</h2>
+  <table><thead><tr><th>${tx(S.repSource)}</th><th>${tx(S.repSessions)}</th><th>${tx(S.repOrders)}</th><th>CR</th><th>${tx(S.repRevenue)}</th><th>${tx(S.repAOV)}</th></tr></thead>
+  <tbody>${srcRows}<tr class="total"><td class="s">${tx(S.repTotal)}</td><td>${nf(t.sessions)}</td><td>${nf(t.orders)}</td><td>${pc(t.cr)}</td><td>${nf(t.revenue)}</td><td>${nf(t.aov)}</td></tr></tbody></table>
+
+  <div class="grid2">
+    <div>
+      <h2>${tx(S.repSpendByAccount)}</h2>
+      <table><thead><tr><th>${ar ? "الحساب" : "Account"}</th><th>${tx(S.repSpend)}</th></tr></thead>
+      <tbody>${accountRows}<tr class="total"><td class="s">${tx(S.repTotal)}</td><td>${nf(t.spend)}</td></tr></tbody></table>
+    </div>
+    <div>
+      <h2>${tx(S.repCampaignBlock)}</h2>
+      <table><tbody>
+        <tr><td class="s">${tx(S.repOrdersWithCampaign)}</td><td>${nf(r.campaigns.orders_with_campaign)} (${pc(r.campaigns.pct_of_orders)})</td></tr>
+        <tr><td class="s">${tx(S.repCampaignRevenue)}</td><td>${nf(r.campaigns.campaign_revenue)}</td></tr>
+        <tr><td class="s">${tx(S.repCombosPurch)}</td><td>${nf(r.campaigns.combos_on_purchases)}</td></tr>
+        <tr><td class="s">${tx(S.repCombosAll)}</td><td>${nf(r.campaigns.combos_all_traffic)}</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  ${
+    rep
+      ? `<h2>${tx(S.repMetaCheck)}</h2>
+  <div class="kpis">
+    ${kpi(tx(S.repMetaClaimed), nf(fu?.meta_claimed_value ?? null))}
+    ${kpi(tx(S.repGa4Meta), nf(fu?.ga4_meta_revenue ?? null))}
+    ${kpi(tx(S.metaClaimRatio), fu && fu.ga4_meta_revenue > 0 ? `${(fu.meta_claimed_value / fu.ga4_meta_revenue).toFixed(1)}×` : "—")}
+    ${kpi(tx(S.repClicksArrived), arrival === null ? "—" : `${arrival}%`, fu ? `${nf(fu.meta_clicks)} → ${nf(fu.ga4_meta_sessions)}` : "")}
+  </div>
+  <p class="note">${tx(S.truthNote)}</p>
+
+  <h2>${tx(S.repGapsTitle)}</h2>
+  <div class="grid2">
+    <div>
+      <table><thead><tr><th>${tx(S.channel)}</th><th>${tx(S.orders)}</th><th>${tx(S.tracked)}</th><th>%</th><th>${tx(S.untracked)}</th></tr></thead><tbody>${channelRows}</tbody></table>
+    </div>
+    <div>
+      <table><thead><tr><th>${tx(S.payment)}</th><th>${tx(S.total)}</th><th>${tx(S.untracked)}</th><th>%</th></tr></thead><tbody>${paymentRows}</tbody></table>
+    </div>
+  </div>`
+      : ""
+  }
+
+  <div class="footer"><span>NM Smart App — GAPS</span><span>${tx(S.repGenerated)}: ${new Date().toISOString().slice(0, 10)}</span></div>
+</div></body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }, [supabase, month, tx, lang, report]);
+
   const runLookup = useCallback(async () => {
     const q = lookupQuery.trim();
     if (q.length < 3) return;
@@ -757,9 +931,17 @@ export default function GapsPage() {
               <RefreshCw size={14} /> {tx(S.refresh)}
             </button>
             <button
-              onClick={downloadMonthlyReport}
+              onClick={openDesignedReport}
               disabled={reportBusy}
               className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <FileText size={14} /> {tx(S.designedReport)}
+            </button>
+            <button
+              onClick={downloadMonthlyReport}
+              disabled={reportBusy}
+              className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
+              title="Excel"
             >
               <Download size={14} /> {tx(S.monthlyReport)}
             </button>
