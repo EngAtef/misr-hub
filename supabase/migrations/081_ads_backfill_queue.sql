@@ -197,13 +197,25 @@ end $$;
 -- ------------------------------------------------------------------ claim
 
 /**
- * Hands out the next jobs to run, newest month first — recent history is what
- * anyone actually looks at, so an interrupted backfill still leaves the useful
- * end finished.
+ * Hands out the next job to run.
+ *
+ * Ordering is round-robin across ad accounts, then newest period first. The
+ * account rotation is not cosmetic: Meta's rolling-hour budget is PER ad
+ * account, so draining strictly newest-first ran several quarters of one
+ * account back to back, exhausted that account's budget, and then hit the
+ * same wall on every following claim while three other accounts sat idle.
+ * Preferring the account touched longest ago lets a throttled one rest while
+ * the others work. Within an account, recent history is what anyone actually
+ * looks at, so an interrupted backfill still leaves the useful end finished.
+ *
+ * Note the rotation only works when jobs are claimed ONE at a time — a single
+ * claim of N evaluates the ordering once and returns N jobs from the same
+ * account. runBackfillStep claims singly for exactly this reason.
  *
  * A 'running' job older than 15 minutes is treated as abandoned (browser
- * closed mid-step) and becomes claimable again. Three failed attempts retires
- * a job, so one permanently broken month can't stall the whole queue.
+ * closed mid-step, or the function timed out) and becomes claimable again.
+ * Three failed attempts retires a job, so one permanently broken quarter
+ * can't stall the whole queue.
  */
 create or replace function public.fn_ads_backfill_claim(p_limit integer default 1)
 returns table (
@@ -220,15 +232,21 @@ begin
   end if;
 
   return query
-  with pick as (
+  with last_touch as (
+    select account_id, max(claimed_at) as at
+    from public.ad_sync_jobs
+    group by account_id
+  ),
+  pick as (
     select j.id
     from public.ad_sync_jobs j
+    left join last_touch lt on lt.account_id = j.account_id
     where j.attempts < 3
       and (j.status = 'pending'
            or (j.status = 'running' and j.claimed_at < now() - interval '15 minutes'))
-    order by j.period_start desc
+    order by lt.at asc nulls first, j.period_start desc
     limit greatest(1, least(coalesce(p_limit, 1), 12))
-    for update skip locked
+    for update of j skip locked
   )
   update public.ad_sync_jobs j
      set status = 'running', attempts = j.attempts + 1, claimed_at = now(), updated_at = now()
