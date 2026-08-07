@@ -154,6 +154,27 @@ const S = {
     ar: "الشهر لسه شغال: الطلبات واصلة حتى {orders} لكن GA4 مُزامن حتى {ga4} بس — نسبة التتبع هتبان أقل من حقيقتها لحد ما GA4 يلحق. اعتمد على الأيام المُزامنة في الجدول اليومي.",
     en: "Running month: orders are in through {orders} but GA4 is only synced through {ga4} — the tracking rate will look worse than reality until GA4 catches up. Trust the synced days in the daily table.",
   },
+  lookupTitle: { ar: "ابحث عن كتاب — كل طلب ومصدره بالدليل", en: "Book lookup — every order and its proven source" },
+  lookupSub: {
+    ar: "اكتب اسم الكتاب أو SKU (٣ حروف على الأقل). كل طلب بيظهر بمصدره من GA4 — واللي ملوش مصدر بيتقال عليه صراحةً: فجوة، أو لسه في انتظار مزامنة GA4.",
+    en: "Type a book name or SKU (3+ characters). Each order shows its GA4 source — and orders without one are named honestly: a gap, or still awaiting GA4 sync.",
+  },
+  lookupPlaceholder: { ar: "اسم الكتاب أو SKU…", en: "Book name or SKU…" },
+  searchBtn: { ar: "بحث", en: "Search" },
+  searching: { ar: "جاري البحث…", en: "Searching…" },
+  lookupEmpty: { ar: "لا توجد طلبات مطابقة في الفترة دي", en: "No matching orders in this period" },
+  uniqueOrders: { ar: "طلب فريد", en: "unique orders" },
+  itemRows: { ar: "سطر صنف", en: "item rows" },
+  srcMeta: { ar: "ميتا", en: "Meta" },
+  srcGoogleOrganic: { ar: "جوجل مجاني", en: "Google organic" },
+  srcGoogleAds: { ar: "إعلانات جوجل", en: "Google Ads" },
+  srcDirect: { ar: "مباشر", en: "Direct" },
+  srcShortlinks: { ar: "روابط مختصرة", en: "Short links" },
+  srcOther: { ar: "أخرى", en: "Other" },
+  srcGap: { ar: "فجوة — بدون مصدر", en: "Gap — no source" },
+  srcAwaiting: { ar: "بانتظار المزامنة", en: "Awaiting sync" },
+  campaignCol: { ar: "الحملة (من UTM)", en: "Campaign (from UTM)" },
+  sourceCol: { ar: "المصدر", en: "Source" },
   howToRead: { ar: "إزاي تقرأ الصفحة دي", en: "How to read this page" },
   howToReadBody: {
     ar: "١) المتجر هو الحقيقة الوحيدة — كل طلب فيه فلوس حقيقية. ٢) GA4 بيشوف الطلبات اللي البكسل نجح يتتبعها بس، وبيوزعها على المصادر بآخر ضغطة. ٣) ميتا بتحسب لنفسها أي طلب من حد شاف أو ضغط إعلان خلال أيام — علشان كده رقمها أكبر من الحقيقة دايمًا. ٤) الفجوات مش معناها بيانات مزيفة: كل معاملة في GA4 اتطابقت مع طلب حقيقي. المشكلة في اللي مش متسجّل، مش في اللي متسجّل.",
@@ -267,6 +288,24 @@ interface UntrackedOrder {
 
 type Finding = { severity: "red" | "amber" | "green"; title: string; body: string; action?: { href: string; label: string } };
 
+// fn_gaps_book_orders — one row per (order, matched SKU)
+interface BookOrderRow {
+  order_number: string;
+  order_date: string;
+  order_status: string | null;
+  app_channel: string | null;
+  payment_method: string | null;
+  city: string | null;
+  order_total: number | null;
+  sku: string;
+  product_name: string | null;
+  item_price: number | null;
+  ga4_source: string | null;
+  ga4_medium: string | null;
+  ga4_campaign: string | null;
+  bucket: "meta" | "google_ads" | "google_organic" | "direct" | "shortlinks" | "other" | "gap" | "awaiting";
+}
+
 const BUCKET_LABELS: Record<string, Bi> = {
   meta: S.bMeta,
   google_organic: S.bGoogleOrganic,
@@ -305,6 +344,28 @@ export default function GapsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showAllUntracked, setShowAllUntracked] = useState(false);
   const [showAllBooks, setShowAllBooks] = useState(false);
+
+  // book lookup — searches all months, not just the selected one
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [lookupRows, setLookupRows] = useState<BookOrderRow[] | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
+  const runLookup = useCallback(async () => {
+    const q = lookupQuery.trim();
+    if (q.length < 3) return;
+    setLookupLoading(true);
+    setLookupError(null);
+    const { data, error } = await supabase.rpc("fn_gaps_book_orders", {
+      p_query: q,
+      p_from: null,
+      p_to: null,
+      p_limit: 600,
+    });
+    if (error) setLookupError(error.message);
+    setLookupRows((data as BookOrderRow[]) ?? []);
+    setLookupLoading(false);
+  }, [supabase, lookupQuery]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1077,6 +1138,142 @@ export default function GapsPage() {
                 </tbody>
               </table>
             </div>
+          </ChartCard>
+
+          {/* ------------------------------------------------------ book lookup */}
+          <ChartCard title={tx(S.lookupTitle)}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.lookupSub)}</p>
+            <div className="mb-4 flex gap-2">
+              <input
+                value={lookupQuery}
+                onChange={(e) => setLookupQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runLookup()}
+                placeholder={tx(S.lookupPlaceholder)}
+                className="w-full max-w-md rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                onClick={runLookup}
+                disabled={lookupLoading || lookupQuery.trim().length < 3}
+                className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50"
+              >
+                <Search size={14} /> {lookupLoading ? tx(S.searching) : tx(S.searchBtn)}
+              </button>
+            </div>
+
+            {lookupError && (
+              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{lookupError}</div>
+            )}
+
+            {lookupRows !== null && !lookupLoading && (
+              <>
+                {lookupRows.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-slate-500">{tx(S.lookupEmpty)}</div>
+                ) : (
+                  (() => {
+                    const byOrder = new Map<string, BookOrderRow>();
+                    for (const r of lookupRows) if (!byOrder.has(r.order_number)) byOrder.set(r.order_number, r);
+                    const orders = Array.from(byOrder.values());
+                    const bucketMeta: Record<BookOrderRow["bucket"], { label: Bi; cls: string }> = {
+                      meta: { label: S.srcMeta, cls: "bg-indigo-100 text-indigo-700" },
+                      google_organic: { label: S.srcGoogleOrganic, cls: "bg-emerald-100 text-emerald-700" },
+                      google_ads: { label: S.srcGoogleAds, cls: "bg-teal-100 text-teal-700" },
+                      direct: { label: S.srcDirect, cls: "bg-slate-200 text-slate-700" },
+                      shortlinks: { label: S.srcShortlinks, cls: "bg-cyan-100 text-cyan-700" },
+                      other: { label: S.srcOther, cls: "bg-slate-100 text-slate-600" },
+                      gap: { label: S.srcGap, cls: "bg-red-100 text-red-700" },
+                      awaiting: { label: S.srcAwaiting, cls: "bg-sky-100 text-sky-700" },
+                    };
+                    const counts = orders.reduce<Record<string, number>>((acc, o) => {
+                      acc[o.bucket] = (acc[o.bucket] ?? 0) + 1;
+                      return acc;
+                    }, {});
+                    return (
+                      <>
+                        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="font-bold text-slate-700">
+                            {formatNumber(orders.length)} {tx(S.uniqueOrders)} · {formatNumber(lookupRows.length)} {tx(S.itemRows)}
+                          </span>
+                          {(Object.keys(bucketMeta) as BookOrderRow["bucket"][])
+                            .filter((b) => counts[b])
+                            .map((b) => (
+                              <span key={b} className={cn("rounded-full px-2.5 py-0.5 font-semibold", bucketMeta[b].cls)}>
+                                {tx(bucketMeta[b].label)}: {counts[b]}
+                              </span>
+                            ))}
+                          <button
+                            onClick={() =>
+                              downloadCsv(
+                                `book-orders-${lookupQuery.trim().slice(0, 20)}.csv`,
+                                toCsv(lookupRows as unknown as Record<string, unknown>[])
+                              )
+                            }
+                            className="btn-secondary ms-auto flex items-center gap-1.5 text-xs"
+                          >
+                            <Download size={13} /> {tx(S.exportCsv)}
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-xs text-slate-500">
+                                <th className="py-2 text-start">{tx(S.date)}</th>
+                                <th className="py-2 text-start">#</th>
+                                <th className="py-2 text-start">{tx(S.book)}</th>
+                                <th className="py-2 text-start">{tx(S.channel)}</th>
+                                <th className="py-2 text-start">{tx(S.payment)}</th>
+                                <th className="py-2 text-center">{tx(S.sourceCol)}</th>
+                                <th className="py-2 text-start">{tx(S.campaignCol)}</th>
+                                <th className="py-2 text-end">{tx(S.amount)}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lookupRows.map((r, i) => (
+                                <tr key={`${r.order_number}-${r.sku}-${i}`} className="border-b border-slate-100">
+                                  <td className="py-1.5 font-mono text-xs" dir="ltr">
+                                    {r.order_date.slice(0, 10)}
+                                  </td>
+                                  <td className="py-1.5 font-mono text-xs" dir="ltr">
+                                    {r.order_number}
+                                  </td>
+                                  <td className="max-w-[220px] truncate py-1.5 text-xs" title={r.product_name ?? r.sku}>
+                                    {r.product_name ?? r.sku}
+                                  </td>
+                                  <td className="py-1.5 text-xs" dir="ltr">
+                                    {r.app_channel ?? "—"}
+                                  </td>
+                                  <td className="py-1.5 text-xs">{r.payment_method ?? "—"}</td>
+                                  <td className="py-1.5 text-center">
+                                    <span
+                                      className={cn(
+                                        "inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold",
+                                        bucketMeta[r.bucket].cls
+                                      )}
+                                      title={r.ga4_source ? `${r.ga4_source} / ${r.ga4_medium ?? ""}` : undefined}
+                                    >
+                                      {tx(bucketMeta[r.bucket].label)}
+                                    </span>
+                                  </td>
+                                  <td className="max-w-[200px] truncate py-1.5 text-xs text-slate-500" title={r.ga4_campaign ?? undefined}>
+                                    {r.ga4_campaign && !["(not set)", "(referral)", "(organic)", "(direct)"].includes(r.ga4_campaign)
+                                      ? r.ga4_campaign
+                                      : r.ga4_source
+                                        ? `${r.ga4_source}/${r.ga4_medium ?? ""}`
+                                        : "—"}
+                                  </td>
+                                  <td className="py-1.5 text-end font-semibold" dir="ltr">
+                                    {formatMoney(r.order_total, lang)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    );
+                  })()
+                )}
+              </>
+            )}
           </ChartCard>
 
           {/* ------------------------------------------------------ unmapped ads */}
