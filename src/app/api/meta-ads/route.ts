@@ -246,7 +246,7 @@ export async function POST(request: NextRequest) {
   if (body.action === "backfill_step") {
     if (!token) return NextResponse.json({ error: "No Meta token saved" }, { status: 400 });
     try {
-      const result = await runBackfillStep(user.supabase, token, { budgetMs: 50_000 });
+      const result = await runBackfillStep(user.supabase, token, { budgetMs: 45_000 });
       const { data: progress } = await user.supabase.rpc("fn_ads_backfill_progress");
       return NextResponse.json({ ok: true, result, progress });
     } catch (e) {

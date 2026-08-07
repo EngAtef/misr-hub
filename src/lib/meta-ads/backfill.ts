@@ -57,12 +57,20 @@ export async function runBackfillStep(
     items: [],
   };
   const maxJobs = opts.maxJobs ?? 25;
+  // How long the slowest job in this run took. A quarter of a busy account is
+  // ~30s and an empty one is ~3s, so a fixed reserve either overruns the
+  // function's 60s ceiling or wastes most of an invocation. Measuring instead
+  // means empty quarters batch up and heavy ones get an invocation to
+  // themselves.
+  let longestMs = 0;
+  const FIRST_JOB_RESERVE_MS = 34_000;
 
   while (out.processed < maxJobs) {
-    // A month has taken up to ~12s on the busiest accounts, so stop claiming
-    // once there isn't room for one — a job abandoned mid-flight sits in
-    // 'running' for 15 minutes before anyone can pick it up again.
-    if (Date.now() - started > opts.budgetMs - 15_000) {
+    // Overrunning is the expensive failure: the request 504s, and the job it
+    // was holding sits in 'running' for 15 minutes before anyone can reclaim
+    // it. Only start a job there is room to finish.
+    const reserve = longestMs > 0 ? Math.round(longestMs * 1.3) : FIRST_JOB_RESERVE_MS;
+    if (Date.now() - started + reserve > opts.budgetMs) {
       out.ranOutOfTime = true;
       break;
     }
@@ -74,6 +82,7 @@ export async function runBackfillStep(
 
     const job = jobs[0];
     const period = `${job.job_start}..${job.job_end}`;
+    const jobStarted = Date.now();
 
     // an account Meta has already throttled goes back on the queue untouched
     if (isBlocked(job.job_account_id)) {
@@ -99,6 +108,7 @@ export async function runBackfillStep(
         p_rows: r.rows,
         p_spend: r.spend,
       });
+      longestMs = Math.max(longestMs, Date.now() - jobStarted);
       out.processed += 1;
       out.rows += r.rows;
       out.spend += r.spend;

@@ -76,8 +76,10 @@ export async function GET(request: NextRequest) {
 
   for (const { since, until } of backfillOnly ? [] : windows) {
     for (const account of accounts) {
-      // leave headroom so a slow account can't take the whole run down with it
-      if (rateLimited || Date.now() - started > 35_000) {
+      // Hobby caps a function at 60s, and an account can take ~10s, so stop
+      // starting new ones well before the ceiling — a 504 loses the whole
+      // response, including the accounts that did succeed.
+      if (rateLimited || Date.now() - started > 20_000) {
         results.push({ account: account.label, period: `${since}..${until}`, skipped: "time budget" });
         continue;
       }
@@ -105,8 +107,8 @@ export async function GET(request: NextRequest) {
 
   // anything left in the history queue gets whatever time remains
   let backfill: unknown = null;
-  const remaining = 52_000 - (Date.now() - started);
-  if (!rateLimited && remaining > 18_000) {
+  const remaining = 45_000 - (Date.now() - started);
+  if (!rateLimited && remaining > 20_000) {
     try {
       backfill = await runBackfillStep(db, token, { budgetMs: remaining });
     } catch (e) {
