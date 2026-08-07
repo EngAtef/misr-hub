@@ -349,16 +349,22 @@ grant execute on function public.fn_custom_list_set(uuid, text, text, text) to a
 -- the Books tab uses — so a list's revenue can be compared to its ad spend
 -- directly. GA4 landing-page traffic is monthly, so it is reported for the
 -- months the window touches and is a context number, not a windowed one.
+-- dropped first: the column list has changed since this migration was first
+-- applied, and `create or replace` cannot alter a function's return type
+drop function if exists public.fn_custom_lists_overview(date, date);
+
 create or replace function public.fn_custom_lists_overview(p_from date default null, p_to date default null)
 returns table (
   id uuid, list_id integer, slug text, name text, note text,
-  item_count integer, known_items bigint, out_of_stock bigint, stock_units numeric,
+  item_count integer, known_items bigint,
+  in_stock bigint, out_of_stock bigint, unknown_items bigint, stock_units numeric,
   ads bigint, campaigns text[], accounts text[], spend numeric,
   meta_purchases numeric, meta_value numeric,
   page_views numeric, page_atc numeric, page_revenue numeric,
   orders bigint, units numeric, revenue numeric, net_revenue numeric,
   cancelled_orders bigint, buyers bigint,
   roas numeric, cpa numeric, cancel_rate numeric,
+  stock_health text,
   file_name text, updated_at timestamptz
 )
 language sql
@@ -366,7 +372,14 @@ stable
 security definer
 set search_path to 'public'
 as $$
-  with lists as (
+  with bounds as (
+    -- `(p_from is null or o.order_date >= p_from)` reads naturally but forces a
+    -- generic plan the date index can't be used for; coalescing to infinity
+    -- keeps it a plain range predicate
+    select coalesce(p_from, '-infinity'::date) as lo,
+           coalesce(p_to + 1, 'infinity'::date) as hi
+  ),
+  lists as (
     -- the role gate: no role -> no lists -> empty result, not an error
     select c.* from public.custom_lists c
     where (select public.my_role()) in ('admin', 'manager', 'viewer')
@@ -375,16 +388,22 @@ as $$
     select i.list_key, i.sku from public.custom_list_items i
     join lists l on l.id = i.list_key
   ),
+  live_skus as materialized (
+    select distinct sku from items
+  ),
   catalog as (
     select it.list_key,
            count(*) filter (where s.sku is not null) as known_items,
-           count(*) filter (where coalesce(s.ecom_stock, 0) <= 0) as out_of_stock,
+           count(*) filter (where coalesce(s.ecom_stock, 0) > 0) as in_stock,
+           -- a book absent from stock_items is UNKNOWN, not out of stock —
+           -- counting it as out of stock is what made big lists look alarming
+           count(*) filter (where s.sku is not null and coalesce(s.ecom_stock, 0) <= 0) as out_of_stock,
+           count(*) filter (where s.sku is null) as unknown_items,
            coalesce(sum(s.ecom_stock), 0) as stock_units
     from items it
     left join public.stock_items s on s.sku = it.sku
     group by 1
   ),
-  -- spend attached to this list through the ad -> list mapping
   ad_spend_by_list as (
     select coalesce(ma.list_key, mc.list_key) as list_key,
            count(*) as ads,
@@ -405,27 +424,55 @@ as $$
       and coalesce(ma.list_key, mc.list_key) is not null
     group by 1
   ),
-  hits as (
-    select it.list_key, oi.order_number, oi.sku, oi.price, o.order_status, o.master_id, o.customer_id
-    from items it
-    join public.order_items oi on oi.sku = it.sku
+  -- ONE pass over the orders, keyed by SKU only. Joining per list membership
+  -- instead re-read the same orders for every list a SKU belongs to (3.5k SKUs
+  -- but 12.4k memberships) and pushed the all-time window to 7s — near enough
+  -- the 8s statement timeout to surface as an empty page instead of an error.
+  rows_in_window as materialized (
+    select oi.sku, oi.order_number, oi.price, o.order_status,
+           coalesce(o.master_id, o.customer_id, o.order_number) as person,
+           coalesce(ps.quantity, 1) as qty
+    from live_skus ls
+    cross join bounds b
+    join public.order_items oi on oi.sku = ls.sku
     join public.orders o
       on o.order_number = oi.order_number
-     and (p_from is null or o.order_date >= p_from)
-     and (p_to is null or o.order_date < p_to + 1)
+     and o.order_date >= b.lo
+     and o.order_date < b.hi
+    left join public.product_sales ps on ps.order_id = oi.order_number and ps.sku = oi.sku
   ),
-  sales as (
-    select h.list_key,
-           count(distinct h.order_number) filter (where h.order_status <> 'Cancelled') as orders,
-           coalesce(sum(coalesce(ps.quantity, 1)) filter (where h.order_status <> 'Cancelled'), 0) as units,
-           coalesce(sum(h.price) filter (where h.order_status <> 'Cancelled'), 0) as revenue,
-           coalesce(sum(h.price) filter (
-             where h.order_status not in ('Cancelled', 'Returned', 'Return Request', 'Return Sent To Erp', 'Delivery Failed')), 0) as net_revenue,
-           count(distinct h.order_number) filter (where h.order_status = 'Cancelled') as cancelled_orders,
-           count(distinct coalesce(h.master_id, h.customer_id, h.order_number))
-             filter (where h.order_status <> 'Cancelled') as buyers
-    from hits h
-    left join public.product_sales ps on ps.order_id = h.order_number and ps.sku = h.sku
+  sku_money as (
+    select r.sku,
+           coalesce(sum(r.qty) filter (where r.order_status <> 'Cancelled'), 0) as units,
+           coalesce(sum(r.price) filter (where r.order_status <> 'Cancelled'), 0) as revenue,
+           coalesce(sum(r.price) filter (
+             where r.order_status not in ('Cancelled', 'Returned', 'Return Request', 'Return Sent To Erp', 'Delivery Failed')), 0) as net_revenue
+    from rows_in_window r
+    group by 1
+  ),
+  -- money is additive across a list's SKUs, so summing per-SKU totals is exact
+  list_money as (
+    select it.list_key,
+           coalesce(sum(m.units), 0) as units,
+           coalesce(sum(m.revenue), 0) as revenue,
+           coalesce(sum(m.net_revenue), 0) as net_revenue
+    from items it
+    join sku_money m on m.sku = it.sku
+    group by 1
+  ),
+  -- distinct counts genuinely need the fan-out (two books of the same list in
+  -- one order are still ONE order), but over slim pairs with no price or
+  -- product_sales join hanging off them
+  sku_orders as materialized (
+    select distinct sku, order_number, order_status, person from rows_in_window
+  ),
+  list_orders as (
+    select it.list_key,
+           count(distinct so.order_number) filter (where so.order_status <> 'Cancelled') as orders,
+           count(distinct so.order_number) filter (where so.order_status = 'Cancelled') as cancelled_orders,
+           count(distinct so.person) filter (where so.order_status <> 'Cancelled') as buyers
+    from items it
+    join sku_orders so on so.sku = it.sku
     group by 1
   ),
   ga4 as (
@@ -444,25 +491,40 @@ as $$
   )
   select l.id, l.list_id, l.slug, l.name, l.note,
          l.item_count,
-         coalesce(cat.known_items, 0), coalesce(cat.out_of_stock, 0), coalesce(cat.stock_units, 0),
+         coalesce(cat.known_items, 0),
+         coalesce(cat.in_stock, 0), coalesce(cat.out_of_stock, 0), coalesce(cat.unknown_items, 0),
+         coalesce(cat.stock_units, 0),
          coalesce(a.ads, 0), a.campaigns, a.accounts, coalesce(a.spend, 0),
          coalesce(a.meta_purchases, 0), coalesce(a.meta_value, 0),
          g.views, g.atc, g.revenue,
-         coalesce(s.orders, 0), coalesce(s.units, 0),
-         round(coalesce(s.revenue, 0), 2), round(coalesce(s.net_revenue, 0), 2),
-         coalesce(s.cancelled_orders, 0), coalesce(s.buyers, 0),
-         case when coalesce(a.spend, 0) > 0 then round(coalesce(s.revenue, 0) / a.spend, 2) end as roas,
-         case when coalesce(s.orders, 0) > 0 and coalesce(a.spend, 0) > 0
-              then round(a.spend / s.orders, 2) end as cpa,
-         case when coalesce(s.orders, 0) + coalesce(s.cancelled_orders, 0) > 0
-              then round(s.cancelled_orders * 100.0 / (s.orders + s.cancelled_orders), 1) end as cancel_rate,
+         coalesce(o.orders, 0), coalesce(mn.units, 0),
+         round(coalesce(mn.revenue, 0), 2), round(coalesce(mn.net_revenue, 0), 2),
+         coalesce(o.cancelled_orders, 0), coalesce(o.buyers, 0),
+         case when coalesce(a.spend, 0) > 0 then round(coalesce(mn.revenue, 0) / a.spend, 2) end as roas,
+         case when coalesce(o.orders, 0) > 0 and coalesce(a.spend, 0) > 0
+              then round(a.spend / o.orders, 2) end as cpa,
+         case when coalesce(o.orders, 0) + coalesce(o.cancelled_orders, 0) > 0
+              then round(o.cancelled_orders * 100.0 / (o.orders + o.cancelled_orders), 1) end as cancel_rate,
+         -- Stock is not pass/fail. A 10-book list with 5 in stock is a fine ad
+         -- — there are still 5 things to sell. What matters is how many remain
+         -- SELLABLE, and only when that reaches one (or none) does the ad need
+         -- pausing or the list restocking. Judged on depletion, not list size:
+         -- 2-of-2 available is healthy, 2-of-40 is not.
+         case
+           when coalesce(cat.known_items, 0) = 0 then 'unknown'
+           when coalesce(cat.in_stock, 0) = 0 then 'empty'
+           when coalesce(cat.in_stock, 0) = 1 and l.item_count > 1 then 'last_book'
+           when coalesce(cat.in_stock, 0) = 2 and coalesce(cat.out_of_stock, 0) > 0 then 'thin'
+           else 'ok'
+         end as stock_health,
          l.file_name, l.updated_at
   from lists l
   left join catalog cat on cat.list_key = l.id
   left join ad_spend_by_list a on a.list_key = l.id
-  left join sales s on s.list_key = l.id
+  left join list_money mn on mn.list_key = l.id
+  left join list_orders o on o.list_key = l.id
   left join ga4 g on g.list_key = l.id
-  order by coalesce(a.spend, 0) desc, coalesce(s.revenue, 0) desc, l.name;
+  order by coalesce(a.spend, 0) desc, coalesce(mn.revenue, 0) desc, l.name;
 $$;
 
 -- Drill-down: every book inside one list, with how it sold in the window.
@@ -481,7 +543,13 @@ stable
 security definer
 set search_path to 'public'
 as $$
-  with items as (
+  with bounds as (
+    -- same reason as the overview: a coalesced range beats `is null or …`,
+    -- which took the 3,511-book list's drill-down from 7.1s to 0.8s
+    select coalesce(p_from, '-infinity'::date) as lo,
+           coalesce(p_to + 1, 'infinity'::date) as hi
+  ),
+  items as (
     select i.sku, i.product_name, i.sort_order
     from public.custom_list_items i
     where (select public.my_role()) in ('admin', 'manager', 'viewer')
@@ -493,11 +561,12 @@ as $$
            coalesce(sum(coalesce(ps.quantity, 1)) filter (where o.order_status <> 'Cancelled'), 0) as units,
            coalesce(sum(oi.price) filter (where o.order_status <> 'Cancelled'), 0) as revenue
     from items it
+    cross join bounds b
     join public.order_items oi on oi.sku = it.sku
     join public.orders o
       on o.order_number = oi.order_number
-     and (p_from is null or o.order_date >= p_from)
-     and (p_to is null or o.order_date < p_to + 1)
+     and o.order_date >= b.lo
+     and o.order_date < b.hi
     left join public.product_sales ps on ps.order_id = oi.order_number and ps.sku = oi.sku
     group by 1
   )
@@ -517,22 +586,45 @@ $$;
 
 -- ---------------------------------------------------------- slug helpers
 
--- Candidate slugs for a list (or an ad name), taken from the list pages GA4
--- has actually seen traffic on, ranked by word overlap then by views. This is
--- how a slug gets attached without anyone digging through the storefront.
+-- Candidate slugs for a list, from two witnesses:
+--
+--   ad_link  an ad's own destination URL points at this list page — this is
+--            precisely the slug that needs attaching, so it ranks first
+--   ga4      the page merely had traffic; weaker, but it covers lists whose
+--            ads use short links (bit.ly) that hide their destination
+--
+-- Name similarity is deliberately absent: list names describe themes and ad
+-- names describe creatives, so word overlap produces confident nonsense.
 create or replace function public.fn_ads_slug_suggest(p_text text, p_limit integer default 8)
-returns table (slug text, views numeric, taken_by text, score integer)
+returns table (
+  slug text, views numeric, taken_by text, score integer,
+  source text, ads bigint, spend numeric, ad_names text[]
+)
 language sql
 stable
 security definer
 set search_path to 'public'
 as $$
   with words as (
-    select w from unnest(string_to_array(public.norm_ad(p_text), ' ')) as w
+    select w from unnest(string_to_array(public.norm_ad(coalesce(p_text, '')), ' ')) as w
     where length(w) >= 3
       and w !~ '^(copy|new|video|design|carousel|gif|static|ad|ads|con|adv|v1|v2|the|and|list)$'
   ),
-  slugs as (
+  ad_slugs as (
+    select lower(d.ref) as slug,
+           count(distinct i.ad_name) as ads,
+           coalesce(sum(i.spend), 0) as spend,
+           array_agg(distinct i.ad_name) filter (where i.ad_name is not null) as ad_names
+    from public.ad_insights i
+    cross join lateral public.parse_dest_url(i.dest_url) d
+    where (select public.my_role()) in ('admin', 'manager', 'viewer')
+      and i.level = 'ad'
+      and coalesce(i.dest_url, '') <> ''
+      and d.kind = 'list'
+      and coalesce(d.ref, '') <> ''
+    group by 1
+  ),
+  ga4_slugs as (
     select lower(split_part(g.page_path, '/products/list/', 2)) as slug,
            sum(g.views) as views
     from public.ga4_pages g
@@ -540,14 +632,26 @@ as $$
       and g.page_path like '%/products/list/%'
       and split_part(g.page_path, '/products/list/', 2) <> ''
     group by 1
+  ),
+  merged as (
+    select coalesce(a.slug, g.slug) as slug,
+           g.views,
+           coalesce(a.ads, 0) as ads,
+           coalesce(a.spend, 0) as spend,
+           a.ad_names,
+           case when a.slug is not null then 'ad_link' else 'ga4' end as source
+    from ad_slugs a
+    full outer join ga4_slugs g on g.slug = a.slug
   )
-  select s.slug, s.views,
-         (select c.name from public.custom_lists c where lower(c.slug) = s.slug) as taken_by,
+  select m.slug, m.views,
+         (select c.name from public.custom_lists c where lower(c.slug) = m.slug) as taken_by,
          (select count(*)::integer from words w
-           where replace(replace(s.slug, '-', ' '), '.', ' ') like '%' || w.w || '%'
-              or w.w like '%' || s.slug || '%') as score
-  from slugs s
-  order by 4 desc, s.views desc
+           where replace(replace(m.slug, '-', ' '), '.', ' ') like '%' || w.w || '%'
+              or w.w like '%' || m.slug || '%') as score,
+         m.source, m.ads, m.spend, m.ad_names
+  from merged m
+  where m.slug is not null
+  order by (m.source = 'ad_link') desc, 4 desc, m.spend desc, m.views desc nulls last
   limit greatest(coalesce(p_limit, 8), 1);
 $$;
 
@@ -1178,24 +1282,14 @@ as $$
          sg.id, sg.name, sg.reason
   from backlog b
   left join lateral (
-    -- the ad's own link wins; otherwise the best word overlap between the ad
-    -- or campaign name and a list's name or slug
-    select c.id, c.name, 'url'::text as reason, 3 as rank
+    -- ONLY the ad's own destination URL. Name similarity is deliberately not
+    -- used: a list is named for a theme ("Award-Winning Books") while its ads
+    -- are named for creatives, so word overlap produces confident nonsense —
+    -- and a wrong connection silently moves real money into the wrong pool.
+    select c.id, c.name, 'url'::text as reason
     from public.parse_dest_url(b.dest_url) d
     join public.custom_lists c on lower(c.slug) = lower(d.ref)
     where d.kind = 'list'
-    union all
-    select c.id, c.name, 'name'::text, count(*)::integer
-    from public.custom_lists c
-    join lateral (
-      select w from unnest(string_to_array(
-        public.norm_ad(b.ad_name || ' ' || coalesce(array_to_string(b.campaigns, ' '), '')), ' ')) as w
-      where length(w) >= 3
-        and w !~ '^(copy|new|video|design|carousel|gif|static|ad|ads|con|adv|l|v1|v2)$'
-    ) words on public.norm_ad(c.name) like '%' || words.w || '%'
-           or replace(replace(coalesce(lower(c.slug), ''), '-', ' '), '.', ' ') like '%' || words.w || '%'
-    group by c.id, c.name
-    order by 4 desc, 2
     limit 1
   ) sg on true
   order by b.spend desc;

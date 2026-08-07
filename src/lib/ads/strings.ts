@@ -43,7 +43,8 @@ export const AD = {
   tabCompare: { ar: "مقارنة الفترات", en: "Compare periods" },
   tabLists: { ar: "القوائم المخصصة", en: "Custom lists" },
   tabMapping: { ar: "ربط الإعلانات", en: "Ad connections" },
-  tabImports: { ar: "الملفات المستوردة", en: "Imports" },
+  tabImports: { ar: "المصادر والاستيراد", en: "Sources & imports" },
+  sourceFile: { ar: "ملف", en: "File" },
 
   // filters
   filters: { ar: "الفلاتر", en: "Filters" },
@@ -246,6 +247,39 @@ export const AD = {
   listUnknown: { ar: "كتب مش في الكتالوج", en: "Not in catalogue" },
   listOutOfStock: { ar: "خلصت من المخزون", en: "Out of stock" },
   listStock: { ar: "إجمالي المخزون", en: "Total stock" },
+  listInStock: { ar: "متاح للبيع", en: "Sellable" },
+  stockHealth: { ar: "حالة المخزون", en: "Stock" },
+  shOk: { ar: "كويس", en: "Healthy" },
+  shOkHint: {
+    ar: "لسه في كتب كتير متاحة في القائمة — الإعلان يكمل عادي حتى لو بعض الكتب خلصت.",
+    en: "Plenty of the list is still sellable — the ad keeps running even though some books ran out.",
+  },
+  shThin: { ar: "بقى قليل", en: "Running thin" },
+  shThinHint: {
+    ar: "فاضل كتابين متاحين بس. الإعلان لسه شغال، بس جهّز مخزون قبل ما يوصل لكتاب واحد.",
+    en: "Only two books left sellable. The ad can still run — but restock before it drops to one.",
+  },
+  shLastBook: { ar: "فاضل كتاب واحد", en: "One book left" },
+  shLastBookHint: {
+    ar: "كتاب واحد بس متاح في القائمة دي — زوّد المخزون أو وقّف الإعلان.",
+    en: "Only one book in this list is still sellable — restock it or pause the ad.",
+  },
+  shEmpty: { ar: "مفيش مخزون", en: "Nothing to sell" },
+  shEmptyHint: {
+    ar: "كل كتب القائمة خلصت — الإعلان بيصرف على صفحة مفيهاش حاجة تتباع. وقّفه.",
+    en: "Every book in the list is out of stock — the ad is paying for a page with nothing to buy. Pause it.",
+  },
+  shUnknown: { ar: "مش معروف", en: "Unknown" },
+  shUnknownHint: {
+    ar: "كتب القائمة مش موجودة في الكتالوج، فمش قادرين نعرف المخزون. ارفع الكتالوج والمخزون.",
+    en: "The list's books aren't in the catalogue, so stock can't be read. Upload the catalogue and stock.",
+  },
+  stockRule: {
+    ar: "خروج بعض الكتب من المخزون مش سبب لإيقاف الإعلان — المهم عدد الكتب اللي لسه بتتباع. التحذير بيظهر لما يفضل كتابين، والإيقاف لما يفضل كتاب واحد أو لا شيء.",
+    en: "Some books going out of stock is not a reason to pause an ad — what matters is how many are still sellable. It warns at two left and calls for action at one or none.",
+  },
+  perPage: { ar: "لكل صفحة", en: "per page" },
+  ofBooks: { ar: "من", en: "of" },
   listAds: { ar: "إعلانات موصولة", en: "Ads connected" },
   listPageViews: { ar: "زيارات صفحة القائمة", en: "List page views" },
   listPageViewsHint: {
@@ -265,7 +299,20 @@ export const AD = {
     ar: "هيتم حذف القائمة وكل روابط الإعلانات عليها، والإعلانات دي هترجع «مش مربوطة». تأكيد؟",
     en: "This deletes the list and every ad connection to it — those ads go back to unconnected. Continue?",
   },
-  slugSuggestions: { ar: "روابط قوائم شافها GA4", en: "List URLs GA4 has seen" },
+  slugSuggestions: { ar: "روابط قوائم معروفة", en: "Known list URLs" },
+  fromAdLink: { ar: "من رابط إعلان", en: "from an ad's link" },
+  fromGa4: { ar: "من زيارات GA4", en: "from GA4 traffic" },
+  adLinksTitle: { ar: "روابط إعلانات لسه مش مربوطة بقائمة", en: "Ad links with no list attached yet" },
+  adLinksHint: {
+    ar: "الإعلانات دي بتودّي على صفحات قوائم في المتجر، لكن مفيش قائمة مرفوعة مربوط بيها الـ slug ده. افتح القائمة الصح واربط الـ slug — بعدها الإعلانات دي هتتربط لوحدها. الأسماء مش دليل، افتح القائمة وشوف كتبها الأول.",
+    en: "These ads point at list pages on the store, but no uploaded list carries that slug yet. Open the right list and attach the slug — those ads then connect on their own. Names aren't proof: open a list and check its books first.",
+  },
+  attachSlug: { ar: "اربط الـ slug", en: "Attach slug" },
+  adsPointing: { ar: "إعلانات", en: "ads" },
+  shortLinksNote: {
+    ar: "الإعلانات اللي بتستخدم روابط مختصرة (bit.ly) مش بنقدر نقرا وجهتها — اربطها يدويًا.",
+    en: "Ads using short links (bit.ly) hide their destination — connect those by hand.",
+  },
   slugTaken: { ar: "مستخدم في", en: "used by" },
   views: { ar: "زيارة", en: "views" },
 
@@ -314,6 +361,28 @@ export const AD = {
   connectSuggested: { ar: "اربط بـ", en: "Connect to" },
   targetColumn: { ar: "موصول بـ", en: "Connected to" },
   viewList: { ar: "افتح القائمة", en: "Open list" },
+  allAdsTitle: { ar: "كل الإعلانات", en: "All ads" },
+  allAdsHint: {
+    ar: "كل إعلان في الفترة المختارة وهو موصول بإيه. اربط كل إعلان بالقائمة اللي بيودّي عليها، أو بالرابط، أو بكتاب محدد.",
+    en: "Every ad in the selected period and what it's connected to. Connect each one to the list it links to, to its link, or to a specific book.",
+  },
+  filterAll: { ar: "الكل", en: "All" },
+  filterConnected: { ar: "موصولة", en: "Connected" },
+  filterUnconnected: { ar: "مش موصولة", en: "Not connected" },
+  notConnected: { ar: "مش موصول", en: "Not connected" },
+  connect: { ar: "اربط", en: "Connect" },
+  changeTarget: { ar: "تغيير", en: "Change" },
+  searchAds: { ar: "ابحث في الإعلانات", en: "Search ads" },
+  previewBooks: { ar: "شوف الكتب", en: "See the books" },
+  hideBooks: { ar: "إخفاء", en: "Hide" },
+  clickToSeeBooks: {
+    ar: "اضغط على أي قائمة عشان تشوف الكتب والأكواد اللي جواها قبل ما تربطها.",
+    en: "Click any list to see the books and SKUs inside it before connecting.",
+  },
+  noAutoConnect: {
+    ar: "مفيش ربط تلقائي بالأسماء — أسماء القوائم مش زي أسماء الكتب، فالربط بيتم بالرابط أو باختيارك أنت.",
+    en: "No automatic name matching — list names don't match book names, so connections come from the ad's link or from your own choice.",
+  },
 
   // imports
   file: { ar: "الملف", en: "File" },

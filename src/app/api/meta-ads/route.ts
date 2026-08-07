@@ -11,7 +11,9 @@ import {
   GRAPH_VERSION,
   type AdAccount,
 } from "@/lib/meta-ads/api";
-import { syncAccount, monthWindow } from "@/lib/meta-ads/sync";
+import { syncAccount, monthWindow, earliestPullableDate } from "@/lib/meta-ads/sync";
+import { runBackfillStep } from "@/lib/meta-ads/backfill";
+import { RateLimitedError } from "@/lib/meta-ads/throttle";
 
 export const maxDuration = 60;
 
@@ -22,6 +24,13 @@ interface MappedAccount {
 }
 
 function fail(e: unknown) {
+  if (e instanceof RateLimitedError) {
+    // 429 so the browser loop can tell "wait" apart from "broken"
+    return NextResponse.json(
+      { error: e.message, hint: "The sync pauses itself and picks up where it stopped", rateLimited: true },
+      { status: 429 }
+    );
+  }
   if (e instanceof MetaError) {
     return NextResponse.json(
       { error: e.message, hint: e.hint, code: e.code, subcode: e.subcode },
@@ -193,6 +202,79 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       return fail(e);
     }
+  }
+
+  // ---- plan the full-history backfill ------------------------------------
+  // Meta only serves the last 37 months, so "everything" has a hard floor.
+  if (body.action === "backfill_plan") {
+    if (!token) return NextResponse.json({ error: "No Meta token saved" }, { status: 400 });
+
+    const { data: cfg } = await user.supabase.rpc("fn_meta_ads_config");
+    const saved =
+      (((cfg ?? {}) as { accounts?: { accounts?: MappedAccount[] } }).accounts?.accounts ?? []) as MappedAccount[];
+    const enabled = saved.filter((a) => a.enabled);
+    if (!enabled.length) {
+      return NextResponse.json(
+        { error: "No ad account selected", hint: "Settings → Meta Ads connection → tick an account and Save mapping" },
+        { status: 400 }
+      );
+    }
+
+    const floor = earliestPullableDate();
+    const asked = /^\d{4}-\d{2}-\d{2}$/.test(String(body.since)) ? String(body.since) : floor;
+    const since = asked < floor ? floor : asked;
+    const until = monthWindow().until;
+
+    const { data, error } = await user.supabase.rpc("fn_ads_backfill_plan", {
+      p_accounts: enabled.map((a) => ({ id: a.id, label: a.label })),
+      p_from: since,
+      p_to: until,
+      p_redo: body.redo === true,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await user.supabase.from("audit_log").insert({
+      user_id: user.id,
+      user_email: user.email,
+      action: "meta_ads_backfill_plan",
+      details: { since, until, accounts: enabled.length, ...(data as object) },
+    });
+    return NextResponse.json({ ok: true, since, until, floor, clipped: asked < floor, plan: data });
+  }
+
+  // ---- run a slice of the queue; the caller loops until pending hits 0 ----
+  if (body.action === "backfill_step") {
+    if (!token) return NextResponse.json({ error: "No Meta token saved" }, { status: 400 });
+    try {
+      const result = await runBackfillStep(user.supabase, token, { budgetMs: 50_000 });
+      const { data: progress } = await user.supabase.rpc("fn_ads_backfill_progress");
+      return NextResponse.json({ ok: true, result, progress });
+    } catch (e) {
+      return fail(e);
+    }
+  }
+
+  if (body.action === "backfill_progress") {
+    const { data, error } = await user.supabase.rpc("fn_ads_backfill_progress");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, progress: data });
+  }
+
+  // ---- drop the hand-uploaded spreadsheets, keeping only API data ---------
+  if (body.action === "purge_manual") {
+    const { data, error } = await user.supabase.rpc("fn_ads_purge_manual_imports", {
+      p_dry_run: body.dryRun === true,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (body.dryRun !== true) {
+      await user.supabase.from("audit_log").insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: "meta_ads_purge_manual",
+        details: data as object,
+      });
+    }
+    return NextResponse.json({ ok: true, ...(data as object) });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

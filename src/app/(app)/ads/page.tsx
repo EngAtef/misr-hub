@@ -25,6 +25,7 @@ import { BarsChart, DonutChart } from "@/components/charts";
 import { AdsImportDialog } from "@/components/ads-import-dialog";
 import { AdsMapping } from "@/components/ads-mapping";
 import { AdsLists } from "@/components/ads-lists";
+import { AdsBackfill } from "@/components/ads-backfill";
 import { ProductDrawer } from "@/components/product-drawer";
 import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AD } from "@/lib/ads/strings";
@@ -1513,11 +1514,15 @@ export default function AdsPage() {
 
           {tab === "lists" && <AdsLists from={win?.from ?? null} to={win?.to ?? null} onChanged={load} />}
 
-          {tab === "mapping" && <AdsMapping from={win?.from ?? null} to={win?.to ?? null} onChanged={load} />}
+          {tab === "mapping" && (
+            <AdsMapping from={win?.from ?? null} to={win?.to ?? null} ads={inPeriod} onChanged={load} />
+          )}
 
           {/* ===================================================== IMPORTS */}
           {tab === "imports" && (
-            <div className="card overflow-x-auto">
+            <div className="space-y-4">
+              <AdsBackfill onChanged={load} />
+              <div className="card overflow-x-auto">
               <table className="table-base">
                 <thead>
                   <tr>
@@ -1541,7 +1546,20 @@ export default function AdsPage() {
                       </td>
                       <td className="font-semibold">{money(p.spend)}</td>
                       <td className="text-slate-500">{formatNumber(p.reported_purchases)}</td>
+                      {/* file_name is the only thing separating an API pull
+                          from a hand-uploaded sheet — `source` is 'meta' for
+                          both, because both describe Meta data */}
                       <td className="max-w-[220px] truncate text-xs text-slate-400" dir="ltr">
+                        <span
+                          className={cn(
+                            "me-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                            p.file_name?.startsWith("Meta API")
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-amber-100 text-amber-700"
+                          )}
+                        >
+                          {p.file_name?.startsWith("Meta API") ? "API" : tx(AD.sourceFile)}
+                        </span>
                         {p.file_name ?? "—"}
                       </td>
                       <td className="text-xs text-slate-500">
@@ -1570,6 +1588,7 @@ export default function AdsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </>

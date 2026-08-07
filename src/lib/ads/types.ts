@@ -129,7 +129,10 @@ export interface CustomListRow {
   note: string | null;
   item_count: number;
   known_items: number;
+  /** books still sellable — the number that decides whether an ad can run */
+  in_stock: number;
   out_of_stock: number;
+  unknown_items: number;
   stock_units: number;
   ads: number;
   campaigns: string[] | null;
@@ -149,9 +152,14 @@ export interface CustomListRow {
   roas: number | null;
   cpa: number | null;
   cancel_rate: number | null;
+  stock_health: StockHealth;
   file_name: string | null;
   updated_at: string;
 }
+
+/** Whether a list still has enough in stock for its ads to keep running.
+ *  Depletion-based, not size-based: 2-of-2 available is fine, 2-of-40 is not. */
+export type StockHealth = "ok" | "thin" | "last_book" | "empty" | "unknown";
 
 /** fn_custom_list_items — the books inside one list. */
 export interface CustomListItemRow {

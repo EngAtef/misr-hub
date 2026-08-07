@@ -1,13 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link2, Search, Trash2, Check, X, Sparkles, Power, Wand2, ExternalLink, ListTree, BookOpen } from "lucide-react";
+import {
+  Link2,
+  Search,
+  Trash2,
+  Check,
+  X,
+  Sparkles,
+  Power,
+  Wand2,
+  ExternalLink,
+  ListTree,
+  BookOpen,
+  ChevronDown,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { adText, AD } from "@/lib/ads/strings";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui";
-import type { AdMapping, TargetKind, LinkResolved } from "@/lib/ads/types";
+import type { AdMapping, TargetKind, LinkResolved, AdRow, CustomListItemRow } from "@/lib/ads/types";
 
 interface Unmapped {
   ad_name: string;
@@ -65,10 +78,14 @@ const STORE_LIST = "https://nahdetmisrbookstore.com/ar/products/list/";
 export function AdsMapping({
   from,
   to,
+  ads,
   onChanged,
 }: {
   from: string | null;
   to: string | null;
+  /** every ad row in the selected period, so this tab can list ALL ads and
+   *  what each is currently connected to — not just the unconnected ones */
+  ads: AdRow[];
   onChanged: () => void;
 }) {
   const { lang } = useLang();
@@ -89,6 +106,11 @@ export function AdsMapping({
   const [notice, setNotice] = useState("");
   const [resolved, setResolved] = useState<LinkResolved | null>(null);
   const [listQuery, setListQuery] = useState("");
+  const [adFilter, setAdFilter] = useState<"unconnected" | "connected" | "all">("unconnected");
+  const [adQuery, setAdQuery] = useState("");
+  // books of a list, previewed inside the picker before committing to it
+  const [peekList, setPeekList] = useState<string | null>(null);
+  const [peekItems, setPeekItems] = useState<Record<string, CustomListItemRow[]>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -252,6 +274,100 @@ export function AdsMapping({
     setEditing((e) => (e ? { ...e, skus: e.skus.includes(sku) ? e.skus.filter((s) => s !== sku) : [...e.skus, sku] } : e));
   }
 
+  /** Fetch a list's books the first time it's peeked at, then keep them. */
+  const peek = useCallback(
+    async (listId: string) => {
+      if (peekList === listId) {
+        setPeekList(null);
+        return;
+      }
+      setPeekList(listId);
+      if (peekItems[listId]) return;
+      const { data } = await supabase.rpc("fn_custom_list_items", { p_list: listId, p_from: from, p_to: to });
+      setPeekItems((m) => ({ ...m, [listId]: (data as CustomListItemRow[]) ?? [] }));
+    },
+    [peekList, peekItems, supabase, from, to]
+  );
+
+  /**
+   * One row per ad name in the window, carrying whatever it's currently
+   * connected to. Derived from the rows the page already loaded, so this table
+   * can never disagree with the Ads tab above it.
+   */
+  const allAds = useMemo(() => {
+    const m = new Map<
+      string,
+      {
+        name: string;
+        campaigns: Set<string>;
+        spend: number;
+        bookLabel: string | null;
+        targetKind: TargetKind | null;
+        listName: string | null;
+        listItems: number | null;
+        destUrl: string | null;
+        viaCampaign: boolean;
+      }
+    >();
+    for (const r of ads) {
+      const name = r.ad_name;
+      if (!name) continue;
+      let cur = m.get(name);
+      if (!cur) {
+        cur = {
+          name,
+          campaigns: new Set(),
+          spend: 0,
+          bookLabel: null,
+          targetKind: null,
+          listName: null,
+          listItems: null,
+          destUrl: null,
+          viaCampaign: false,
+        };
+        m.set(name, cur);
+      }
+      cur.spend += r.spend ?? 0;
+      if (r.campaign_name) cur.campaigns.add(r.campaign_name);
+      if (r.book_label && !cur.bookLabel) {
+        cur.bookLabel = r.book_label;
+        cur.targetKind = r.target_kind;
+        cur.listName = r.list_name;
+        cur.listItems = r.list_items;
+        cur.viaCampaign = r.map_source === "campaign";
+      }
+      if (r.dest_url && !cur.destUrl) cur.destUrl = r.dest_url;
+    }
+    const q = adQuery.trim().toLowerCase();
+    return Array.from(m.values())
+      .filter((a) => {
+        if (adFilter === "connected" && !a.bookLabel) return false;
+        if (adFilter === "unconnected" && a.bookLabel) return false;
+        if (q && !`${a.name} ${Array.from(a.campaigns).join(" ")} ${a.bookLabel ?? ""}`.toLowerCase().includes(q))
+          return false;
+        return true;
+      })
+      .sort((a, b) => b.spend - a.spend);
+  }, [ads, adFilter, adQuery]);
+
+  const adCounts = useMemo(() => {
+    let connected = 0;
+    const seen = new Map<string, boolean>();
+    for (const r of ads) {
+      if (!r.ad_name) continue;
+      if (!seen.has(r.ad_name)) seen.set(r.ad_name, !!r.book_label);
+      else if (r.book_label) seen.set(r.ad_name, true);
+    }
+    for (const v of seen.values()) if (v) connected++;
+    return { total: seen.size, connected, unconnected: seen.size - connected };
+  }, [ads]);
+
+  /** Suggestion for an ad, looked up from the URL-only backlog. */
+  const suggestionFor = useCallback(
+    (name: string) => unmapped.find((u) => u.ad_name === name && u.suggest_list_key) ?? null,
+    [unmapped]
+  );
+
   const listsFiltered = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
     if (!q) return lists;
@@ -343,12 +459,12 @@ export function AdsMapping({
 
   return (
     <div className="space-y-6">
-      {/* ---------------------------------------------------------- backlog */}
+      {/* --------------------------------------------------------- all ads */}
       <div className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-700">{x("unmappedTitle")}</h3>
-            <p className="mt-1 text-xs text-slate-500">{x("unmappedHint")}</p>
+            <h3 className="text-sm font-bold text-slate-700">{tx(AD.allAdsTitle)}</h3>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">{tx(AD.allAdsHint)}</p>
           </div>
           <div className="text-end">
             <button className="btn-secondary !py-1.5 text-xs" onClick={runAutolink} disabled={busy}>
@@ -359,13 +475,50 @@ export function AdsMapping({
           </div>
         </div>
 
+        <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+          {tx(AD.noAutoConnect)}
+        </div>
+
         {notice && (
           <div className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-xs leading-relaxed text-brand-800">{notice}</div>
         )}
 
-        {unmapped.length === 0 ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {(
+            [
+              { k: "unconnected" as const, label: AD.filterUnconnected, n: adCounts.unconnected },
+              { k: "connected" as const, label: AD.filterConnected, n: adCounts.connected },
+              { k: "all" as const, label: AD.filterAll, n: adCounts.total },
+            ] as const
+          ).map((f) => (
+            <button
+              key={f.k}
+              onClick={() => setAdFilter(f.k)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                adFilter === f.k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              {tx(f.label)} ({formatNumber(f.n)})
+            </button>
+          ))}
+          <input
+            className="input !py-1.5 w-[220px] text-sm ms-auto"
+            placeholder={tx(AD.searchAds)}
+            value={adQuery}
+            onChange={(e) => setAdQuery(e.target.value)}
+          />
+        </div>
+
+        {allAds.length === 0 ? (
           <div className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {lang === "ar" ? "كل الإعلانات موصولة ✓" : "Every ad is connected ✓"}
+            {adFilter === "unconnected"
+              ? lang === "ar"
+                ? "كل الإعلانات موصولة ✓"
+                : "Every ad is connected ✓"
+              : lang === "ar"
+              ? "مفيش نتائج"
+              : "No results"}
           </div>
         ) : (
           <div className="mt-4 overflow-x-auto">
@@ -375,62 +528,92 @@ export function AdsMapping({
                   <th>{x("ad")}</th>
                   <th>{x("campaign")}</th>
                   <th>{x("spend")}</th>
-                  <th>{tx(AD.suggested)}</th>
+                  <th>{tx(AD.targetColumn)}</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {unmapped.map((u) => (
-                  <tr key={u.pattern}>
-                    <td className="!whitespace-normal max-w-[200px]">
-                      <div className="font-medium">{u.ad_name}</div>
-                      {u.dest_url && (
-                        <div className="mt-0.5 font-mono text-[10px] text-slate-400" dir="ltr">
-                          {u.dest_url.replace(/^https?:\/\/[^/]+/, "").slice(0, 40)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="max-w-[220px] !whitespace-normal text-xs text-slate-500">
-                      {(u.campaigns ?? []).slice(0, 2).join(" · ")}
-                      {(u.campaigns?.length ?? 0) > 2 ? ` +${(u.campaigns?.length ?? 0) - 2}` : ""}
-                    </td>
-                    <td className="font-semibold">{formatMoney(u.spend, lang)}</td>
-                    <td className="!whitespace-normal max-w-[190px]">
-                      {u.suggest_list_name ? (
-                        <>
-                          <div className="text-xs font-semibold text-slate-700">{u.suggest_list_name}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {u.suggest_reason === "url" ? tx(AD.suggestedFromUrl) : tx(AD.suggestedFromName)}
+                {allAds.map((a) => {
+                  const sug = a.bookLabel ? null : suggestionFor(a.name);
+                  return (
+                    <tr key={a.name}>
+                      <td className="!whitespace-normal max-w-[200px]">
+                        <div className="font-medium">{a.name}</div>
+                        {a.destUrl && (
+                          <div className="mt-0.5 font-mono text-[10px] text-slate-400" dir="ltr">
+                            {a.destUrl.replace(/^https?:\/\/[^/]+/, "").slice(0, 40)}
                           </div>
-                        </>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="flex gap-1.5">
-                        {u.suggest_list_key && (
-                          <button
-                            className="btn-primary !px-2.5 !py-1 text-xs"
-                            disabled={busy}
-                            onClick={() => connectSuggested(u)}
-                            title={`${tx(AD.connectSuggested)} ${u.suggest_list_name}`}
-                          >
-                            <Check size={13} />
-                            {tx(AD.connectSuggested)}
-                          </button>
                         )}
-                        <button
-                          className="btn-secondary !px-2.5 !py-1 text-xs"
-                          onClick={() => openEditor("ad", u.ad_name, undefined, u.dest_url)}
-                        >
-                          <Link2 size={13} />
-                          {x("mapNow")}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="max-w-[200px] !whitespace-normal text-xs text-slate-500">
+                        {Array.from(a.campaigns).slice(0, 2).join(" · ")}
+                        {a.campaigns.size > 2 ? ` +${a.campaigns.size - 2}` : ""}
+                      </td>
+                      <td className="font-semibold">{formatMoney(a.spend, lang)}</td>
+                      <td className="!whitespace-normal max-w-[240px]">
+                        {a.bookLabel ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {a.targetKind === "list" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-800">
+                                <ListTree size={10} />
+                                {a.listName ?? a.bookLabel}
+                                <span className="font-normal opacity-70">
+                                  · {formatNumber(a.listItems ?? 0)}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                                <BookOpen size={10} />
+                                {a.bookLabel}
+                              </span>
+                            )}
+                            {a.viaCampaign && (
+                              <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">
+                                {x("campaign")}
+                              </span>
+                            )}
+                          </div>
+                        ) : sug ? (
+                          <div>
+                            <span className="text-xs font-semibold text-slate-700">{sug.suggest_list_name}</span>
+                            <span className="ms-1 text-[10px] text-slate-400">({tx(AD.suggestedFromUrl)})</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-violet-500">{tx(AD.notConnected)}</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex gap-1.5">
+                          {sug && (
+                            <button
+                              className="btn-primary !px-2.5 !py-1 text-xs"
+                              disabled={busy}
+                              onClick={() => connectSuggested(sug)}
+                              title={`${tx(AD.connectSuggested)} ${sug.suggest_list_name}`}
+                            >
+                              <Check size={13} />
+                              {tx(AD.connectSuggested)}
+                            </button>
+                          )}
+                          <button
+                            className="btn-secondary !px-2.5 !py-1 text-xs"
+                            onClick={() =>
+                              openEditor(
+                                "ad",
+                                a.name,
+                                maps.find((m) => m.match_level === "ad" && (m.raw_name ?? m.pattern) === a.name),
+                                a.destUrl
+                              )
+                            }
+                          >
+                            <Link2 size={13} />
+                            {a.bookLabel ? tx(AD.changeTarget) : tx(AD.connect)}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -568,41 +751,94 @@ export function AdsMapping({
                         onChange={(e) => setListQuery(e.target.value)}
                       />
                     </div>
-                    <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto">
-                      {listsFiltered.map((l) => (
-                        <button
-                          key={l.id}
-                          onClick={() => setEditing({ ...editing, listKey: l.id, bookLabel: editing.bookLabel || l.name })}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-start text-sm transition",
-                            editing.listKey === l.id
-                              ? "border-brand-400 bg-brand-50 text-brand-900"
-                              : "border-slate-200 hover:border-brand-300 hover:bg-slate-50"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-                              editing.listKey === l.id ? "border-brand-500 bg-brand-500 text-white" : "border-slate-300"
+                    <p className="mt-2 text-[11px] text-slate-400">{tx(AD.clickToSeeBooks)}</p>
+                    <div className="mt-2 max-h-80 space-y-1.5 overflow-y-auto">
+                      {listsFiltered.map((l) => {
+                        const open = peekList === l.id;
+                        return (
+                          <div key={l.id}>
+                            <div
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
+                                editing.listKey === l.id
+                                  ? "border-brand-400 bg-brand-50 text-brand-900"
+                                  : "border-slate-200 hover:border-brand-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center gap-2 text-start"
+                                onClick={() =>
+                                  setEditing({ ...editing, listKey: l.id, bookLabel: editing.bookLabel || l.name })
+                                }
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                                    editing.listKey === l.id
+                                      ? "border-brand-500 bg-brand-500 text-white"
+                                      : "border-slate-300"
+                                  )}
+                                >
+                                  {editing.listKey === l.id && <Check size={10} />}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate font-medium">{l.name}</span>
+                                {l.slug ? (
+                                  <span className="shrink-0 font-mono text-[10px] text-slate-400" dir="ltr">
+                                    {l.slug}
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">
+                                    {tx(AD.listNoSlug)}
+                                  </span>
+                                )}
+                                <span className="shrink-0 text-[11px] text-slate-500">
+                                  {formatNumber(l.item_count)} {tx(AD.listItems)}
+                                </span>
+                              </button>
+                              {/* the list name says nothing about its contents,
+                                  so the books have to be inspectable here */}
+                              <button
+                                type="button"
+                                className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                                title={open ? tx(AD.hideBooks) : tx(AD.previewBooks)}
+                                onClick={() => peek(l.id)}
+                              >
+                                <ChevronDown size={14} className={cn("transition", open && "rotate-180")} />
+                              </button>
+                            </div>
+
+                            {open && (
+                              <div className="mb-1 ms-6 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50">
+                                {!peekItems[l.id] ? (
+                                  <div className="px-3 py-2 text-xs text-slate-400">…</div>
+                                ) : (
+                                  <table className="w-full text-xs">
+                                    <tbody>
+                                      {peekItems[l.id].map((it) => (
+                                        <tr key={it.sku} className="border-b border-slate-200/70 last:border-0">
+                                          <td className="w-7 py-1.5 ps-2 text-slate-400">{it.sort_order ?? "—"}</td>
+                                          <td className="py-1.5 pe-2">
+                                            {it.product_name ?? "—"}
+                                            {!it.in_catalog && (
+                                              <span className="ms-1 rounded bg-amber-100 px-1 text-[9px] font-bold text-amber-800">
+                                                {tx(AD.notInCatalog)}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 pe-2 text-end font-mono text-[10px] text-slate-400" dir="ltr">
+                                            {it.sku}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
                             )}
-                          >
-                            {editing.listKey === l.id && <Check size={10} />}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-medium">{l.name}</span>
-                          {l.slug ? (
-                            <span className="shrink-0 font-mono text-[10px] text-slate-400" dir="ltr">
-                              {l.slug}
-                            </span>
-                          ) : (
-                            <span className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">
-                              {tx(AD.listNoSlug)}
-                            </span>
-                          )}
-                          <span className="shrink-0 text-[11px] text-slate-500">
-                            {formatNumber(l.item_count)} {tx(AD.listItems)}
-                          </span>
-                        </button>
-                      ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 )}

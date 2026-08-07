@@ -1,21 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  fetchInsights,
+  fetchInsightsAdaptive,
   pickAction,
   ACTION_CANDIDATES,
   MetaError,
+  MAX_LOOKBACK_MONTHS,
   type RawInsightRow,
   type InsightLevel,
 } from "./api";
+import { beforeCall, recordUsage, RateLimitedError, usageReport, type ThrottleReport } from "./throttle";
 
 /**
- * Pulls one ad account straight into the same tables the spreadsheet import
- * fills, via the same fn_ads_import RPC — so live data and hand-imported
- * history share one model, and re-syncing a period refreshes it in place
- * rather than duplicating it.
+ * Pulls one ad account × one period straight into the same tables the
+ * spreadsheet import fills, via the same fn_ads_import RPC — so live data and
+ * any hand-imported history share one model, and re-syncing a period refreshes
+ * it in place rather than duplicating it.
  *
- * One account per call: eight accounts × three levels × paging would blow the
- * 60s function ceiling, so the caller loops and shows progress.
+ * One account-month per call: several accounts × three levels × paging would
+ * blow the function's time ceiling, so callers loop and show progress.
  */
 
 export interface SyncAccountResult {
@@ -23,11 +25,14 @@ export interface SyncAccountResult {
   label: string;
   since: string;
   until: string;
+  /** Calendar months written — a range job produces one import per month. */
+  months: number;
   rows: number;
   adRows: number;
   spend: number;
   withLinks: number;
-  importId?: string;
+  superseded?: number;
+  throttle?: ThrottleReport | null;
 }
 
 /** The row shape fn_ads_import destructures — identical to the file parser's. */
@@ -60,7 +65,7 @@ const numOrNull = (v: string | undefined): number | null => {
   return isNaN(n) ? null : n;
 };
 
-interface AdMeta {
+export interface AdMeta {
   status: string | null;
   destUrl: string | null;
 }
@@ -88,10 +93,24 @@ function creativeLink(c: CreativeShape | undefined): string | null {
   );
 }
 
-/** Ad-level status and destination aren't part of the Insights response, so
- *  they come from the /ads edge and are joined on ad_id. */
-async function fetchAdMeta(token: string, accountId: string): Promise<Map<string, AdMeta>> {
+/**
+ * Ad-level status and destination aren't part of the Insights response, so
+ * they come from the /ads edge and are joined on ad_id.
+ *
+ * Both are CURRENT state, not history — the same answer for every month — so a
+ * backfill fetches them once per account and reuses the map across all 30-odd
+ * months. Re-listing every ad in the account once per month would multiply the
+ * request count for identical data, which is precisely the traffic pattern
+ * Meta's rate limits exist to stop.
+ */
+const adMetaCache = new Map<string, { at: number; map: Map<string, AdMeta> }>();
+const AD_META_TTL_MS = 30 * 60_000;
+
+export async function fetchAdMeta(token: string, accountId: string): Promise<Map<string, AdMeta>> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  const hit = adMetaCache.get(act);
+  if (hit && Date.now() - hit.at < AD_META_TTL_MS) return hit.map;
+
   const out = new Map<string, AdMeta>();
   const url = new URL(`https://graph.facebook.com/v26.0/${act}/ads`);
   url.searchParams.set("fields", "id,effective_status,creative{link_url,object_story_spec,asset_feed_spec}");
@@ -100,7 +119,9 @@ async function fetchAdMeta(token: string, accountId: string): Promise<Map<string
 
   let next: string | null = url.toString();
   for (let page = 0; page < 15 && next; page++) {
-    const res = await fetch(next, { cache: "no-store" });
+    await beforeCall(act);
+    const res = await fetch(next, { cache: "no-store", headers: { "User-Agent": "misr-hub/1.0 (+ads-center)" } });
+    recordUsage(act, res.headers);
     const json = (await res.json().catch(() => ({}))) as {
       data?: { id: string; effective_status?: string; creative?: CreativeShape }[];
       paging?: { next?: string };
@@ -117,6 +138,8 @@ async function fetchAdMeta(token: string, accountId: string): Promise<Map<string
     }
     next = json.paging?.next ?? null;
   }
+
+  adMetaCache.set(act, { at: Date.now(), map: out });
   return out;
 }
 
@@ -154,68 +177,157 @@ function toImportRow(r: RawInsightRow, level: InsightLevel, meta: Map<string, Ad
   };
 }
 
-export async function syncAccount(
+/** One calendar month's worth of rows, as Meta bucketed them. */
+interface MonthBucket {
+  since: string;
+  until: string;
+  rows: ImportRow[];
+  adRows: number;
+  spend: number;
+}
+
+function bucketByMonth(
+  rows: RawInsightRow[],
+  level: InsightLevel,
+  meta: Map<string, AdMeta>,
+  into: Map<string, MonthBucket>
+) {
+  for (const r of rows) {
+    // With time_increment=monthly, Meta stamps every row with the bucket it
+    // belongs to — including a date_stop clipped to today for the open month,
+    // which is exactly the period the import should carry.
+    const since = r.date_start;
+    const until = r.date_stop;
+    if (!since || !until) continue;
+    const key = `${since}_${until}`;
+    let b = into.get(key);
+    if (!b) {
+      b = { since, until, rows: [], adRows: 0, spend: 0 };
+      into.set(key, b);
+    }
+    const row = toImportRow(r, level, meta);
+    b.rows.push(row);
+    if (level === "ad") {
+      b.adRows += 1;
+      b.spend += row.spend ?? 0;
+    }
+  }
+}
+
+/**
+ * Pulls a whole range in one pass and writes one import per calendar month.
+ *
+ * Asking Meta for three months at time_increment=monthly costs almost exactly
+ * what asking for one month costs — measured on the busiest account, a full
+ * year came back for the same 1% of the hourly call budget as a single month.
+ * Since the rate limit is what blocks an integration, fetching wide and
+ * splitting locally is both faster and dramatically safer than looping month
+ * by month.
+ */
+export async function syncRange(
   db: SupabaseClient,
   token: string,
   account: { id: string; label: string },
   since: string,
   until: string
 ): Promise<SyncAccountResult> {
-  // ad-level first: if the account has nothing in the window, skip the rest
-  const adRows = await fetchInsights(token, account.id, { since, until, level: "ad" });
+  const act = account.id.startsWith("act_") ? account.id : `act_${account.id}`;
+
+  // ad level first: if the account ran nothing in the range, the other two
+  // levels are guaranteed empty too and asking for them is pure waste
+  const adRows = await fetchInsightsAdaptive(token, account.id, { since, until, level: "ad", monthly: true });
 
   let meta = new Map<string, AdMeta>();
   if (adRows.length) {
     try {
       meta = await fetchAdMeta(token, account.id);
-    } catch {
-      // links are a bonus, not a requirement
+    } catch (e) {
+      // links are a bonus, not a requirement — but a rate-limit block is not
+      // something to swallow, the caller needs to stop
+      if (e instanceof RateLimitedError) throw e;
     }
   }
 
-  const [campaignRows, adsetRows] = adRows.length
-    ? await Promise.all([
-        fetchInsights(token, account.id, { since, until, level: "campaign" }),
-        fetchInsights(token, account.id, { since, until, level: "adset" }),
-      ])
-    : [[], []];
+  // Sequential, not Promise.all: two concurrent insights queries on the same
+  // ad account race past the pacing in throttle.ts and land on the same hourly
+  // budget at once. Meta's guidance is to spread calls out, not fan them out.
+  const campaignRows = adRows.length
+    ? await fetchInsightsAdaptive(token, account.id, { since, until, level: "campaign", monthly: true })
+    : [];
+  const adsetRows = adRows.length
+    ? await fetchInsightsAdaptive(token, account.id, { since, until, level: "adset", monthly: true })
+    : [];
 
-  const rows: ImportRow[] = [
-    ...campaignRows.map((r) => toImportRow(r, "campaign", meta)),
-    ...adsetRows.map((r) => toImportRow(r, "adset", meta)),
-    ...adRows.map((r) => toImportRow(r, "ad", meta)),
-  ];
+  const buckets = new Map<string, MonthBucket>();
+  bucketByMonth(campaignRows, "campaign", meta, buckets);
+  bucketByMonth(adsetRows, "adset", meta, buckets);
+  bucketByMonth(adRows, "ad", meta, buckets);
 
   const result: SyncAccountResult = {
     accountId: account.id,
     label: account.label,
     since,
     until,
-    rows: rows.length,
+    months: buckets.size,
+    rows: 0,
     adRows: adRows.length,
-    spend: Math.round(rows.filter((r) => r.level === "ad").reduce((s, r) => s + (r.spend ?? 0), 0) * 100) / 100,
-    withLinks: rows.filter((r) => r.level === "ad" && r.dest_url).length,
+    spend: 0,
+    withLinks: 0,
+    superseded: 0,
+    throttle: usageReport(act),
   };
 
-  if (!rows.length) return result;
+  for (const b of [...buckets.values()].sort((x, y) => x.since.localeCompare(y.since))) {
+    result.rows += b.rows.length;
+    result.spend += b.spend;
+    result.withLinks += b.rows.filter((r) => r.level === "ad" && r.dest_url).length;
 
-  const { data, error } = await db.rpc("fn_ads_import", {
-    p_account: account.label,
-    p_start: since,
-    p_end: until,
-    p_file: `Meta API · ${account.id}`,
-    p_rows: rows,
-  });
-  if (error) throw new MetaError(`Saving ${account.label} failed: ${error.message}`, 500);
-  result.importId = (data as { import_id?: string } | null)?.import_id;
+    // The open month gets re-pulled under a later end date every run, which
+    // lands BESIDE the earlier copy rather than replacing it (fn_ads_import
+    // keys on the exact period) — and fn_ads_insights selects on overlap, so
+    // both copies would be counted. Clear the overlapping ones first.
+    const { data: superseded } = await db.rpc("fn_ads_import_supersede", {
+      p_account: account.label,
+      p_start: b.since,
+      p_end: b.until,
+    });
+    result.superseded = (result.superseded ?? 0) + Number(superseded ?? 0);
+
+    const { error } = await db.rpc("fn_ads_import", {
+      p_account: account.label,
+      p_start: b.since,
+      p_end: b.until,
+      p_file: `Meta API · ${account.id}`,
+      p_rows: b.rows,
+    });
+    if (error) throw new MetaError(`Saving ${account.label} ${b.since} failed: ${error.message}`, 500);
+  }
+
+  result.spend = Math.round(result.spend * 100) / 100;
   return result;
 }
 
+/** The open-month refresh the cron runs — one month, same machinery. */
+export const syncAccount = syncRange;
+
+// ----------------------------------------------------------------- windows
+
+const iso = (x: Date) => x.toISOString().slice(0, 10);
+
 /** Calendar month containing `d`, clipped to today — Meta rejects future dates. */
 export function monthWindow(d = new Date()): { since: string; until: string } {
-  const iso = (x: Date) => x.toISOString().slice(0, 10);
   const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
   const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
   const today = new Date();
   return { since: iso(start), until: iso(end > today ? today : end) };
+}
+
+/**
+ * The oldest date Meta will still answer for. Its limit is 37 months; asking
+ * for a start beyond that fails the entire call with code 3018, so the plan
+ * has to stop one month short rather than discover the wall halfway through.
+ */
+export function earliestPullableDate(d = new Date()): string {
+  const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - MAX_LOOKBACK_MONTHS, 1));
+  return iso(start);
 }

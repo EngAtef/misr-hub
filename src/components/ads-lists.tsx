@@ -6,15 +6,32 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { AD } from "@/lib/ads/strings";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
-import { Spinner, EmptyState, KpiCard } from "@/components/ui";
+import { Spinner, EmptyState, KpiCard, Pagination } from "@/components/ui";
 import { ProductDrawer } from "@/components/product-drawer";
-import type { CustomListRow, CustomListItemRow } from "@/lib/ads/types";
+import type { CustomListRow, CustomListItemRow, StockHealth } from "@/lib/ads/types";
+
+const BOOKS_PER_PAGE = 50;
+
+/** How a list's stock reads at a glance, and whether it demands action.
+ *  `act` is what separates "some books ran out" from "stop spending". */
+const STOCK_META: Record<StockHealth, { label: { ar: string; en: string }; hint: { ar: string; en: string }; className: string; act: boolean }> = {
+  ok: { label: AD.shOk, hint: AD.shOkHint, className: "bg-emerald-100 text-emerald-800", act: false },
+  thin: { label: AD.shThin, hint: AD.shThinHint, className: "bg-amber-100 text-amber-800", act: false },
+  last_book: { label: AD.shLastBook, hint: AD.shLastBookHint, className: "bg-orange-100 text-orange-800", act: true },
+  empty: { label: AD.shEmpty, hint: AD.shEmptyHint, className: "bg-red-100 text-red-700", act: true },
+  unknown: { label: AD.shUnknown, hint: AD.shUnknownHint, className: "bg-slate-100 text-slate-600", act: false },
+};
 
 interface SlugHit {
   slug: string;
-  views: number;
+  views: number | null;
   taken_by: string | null;
   score: number;
+  /** `ad_link` = an ad really points here, `ga4` = the page just had traffic */
+  source: "ad_link" | "ga4";
+  ads: number;
+  spend: number;
+  ad_names: string[] | null;
 }
 
 const STORE = "https://nahdetmisrbookstore.com/ar/products/list/";
@@ -48,16 +65,33 @@ export function AdsLists({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, CustomListItemRow[]>>({});
   const [editing, setEditing] = useState<CustomListRow | null>(null);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "ads" | "noslug" | "stock">("all");
+  const [slugs, setSlugs] = useState<SlugHit[]>([]);
+  // per-list page index for the book drill-down; a list can hold 3,500+ books
+  const [bookPage, setBookPage] = useState<Record<string, number>>({});
+
+  // ad links whose slug no uploaded list has claimed — connecting these is
+  // the single highest-value action on this screen
+  const unclaimed = useMemo(
+    () => slugs.filter((s) => s.source === "ad_link" && !s.taken_by).sort((a, b) => b.spend - a.spend),
+    [slugs]
+  );
   const [drawerSku, setDrawerSku] = useState<{ sku: string; name?: string | null; stock?: number | null } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const { data, error } = await supabase.rpc("fn_custom_lists_overview", { p_from: from, p_to: to });
+    const [o, s] = await Promise.all([
+      supabase.rpc("fn_custom_lists_overview", { p_from: from, p_to: to }),
+      // the slugs the ads themselves point at — the worklist for attaching
+      supabase.rpc("fn_ads_slug_suggest", { p_text: "", p_limit: 60 }),
+    ]);
     // an errored RPC must never look like "no lists" — that mistake has cost
     // this project a day before (see the July ads import)
-    if (error) setLoadError(error.message);
-    setRows((data as CustomListRow[]) ?? []);
+    if (o.error) setLoadError(o.error.message);
+    setRows((o.data as CustomListRow[]) ?? []);
+    setSlugs((s.data as SlugHit[]) ?? []);
     setLoading(false);
   }, [supabase, from, to]);
 
@@ -72,12 +106,25 @@ export function AdsLists({
         return;
       }
       setExpanded(row.id);
+      setBookPage((p) => ({ ...p, [row.id]: p[row.id] ?? 0 }));
       if (items[row.id]) return;
       const { data } = await supabase.rpc("fn_custom_list_items", { p_list: row.id, p_from: from, p_to: to });
       setItems((m) => ({ ...m, [row.id]: (data as CustomListItemRow[]) ?? [] }));
     },
     [expanded, items, supabase, from, to]
   );
+
+  // 200+ lists, so the table is only usable with a filter on it
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filter === "ads" && !r.ads) return false;
+      if (filter === "noslug" && r.slug) return false;
+      if (filter === "stock" && !STOCK_META[r.stock_health]?.act) return false;
+      if (q && !`${r.name} ${r.slug ?? ""} ${r.list_id ?? ""}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [rows, filter, query]);
 
   const money = (v: number | null | undefined) => formatMoney(v ?? 0, lang);
   const num2 = (v: number | null | undefined, s = "") => (v === null || v === undefined ? "—" : `${v.toFixed(2)}${s}`);
@@ -92,8 +139,9 @@ export function AdsLists({
           revenue: t.revenue + r.revenue,
           connected: t.connected + (r.ads > 0 ? 1 : 0),
           noSlug: t.noSlug + (r.slug ? 0 : 1),
+          needsStock: t.needsStock + (STOCK_META[r.stock_health]?.act ? 1 : 0),
         }),
-        { lists: 0, books: 0, spend: 0, revenue: 0, connected: 0, noSlug: 0 }
+        { lists: 0, books: 0, spend: 0, revenue: 0, connected: 0, noSlug: 0, needsStock: 0 }
       ),
     [rows]
   );
@@ -115,6 +163,36 @@ export function AdsLists({
       <div className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-xs leading-relaxed text-brand-900">
         {tx(AD.listsSubtitle)}
       </div>
+
+      {unclaimed.length > 0 && (
+        <div className="card border-amber-200 p-5">
+          <h3 className="flex items-center gap-2 text-sm font-bold text-amber-800">
+            <AlertTriangle size={15} />
+            {tx(AD.adLinksTitle)} ({formatNumber(unclaimed.length)})
+          </h3>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-600">{tx(AD.adLinksHint)}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {unclaimed.map((s) => (
+              <div
+                key={s.slug}
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs"
+                title={(s.ad_names ?? []).join(" · ")}
+              >
+                <div className="font-mono font-bold text-amber-900" dir="ltr">
+                  {s.slug}
+                </div>
+                <div className="mt-0.5 text-[11px] text-amber-800">
+                  {formatNumber(s.ads)} {tx(AD.adsPointing)} · {money(s.spend)}
+                </div>
+                <div className="mt-0.5 max-w-[220px] truncate text-[10px] text-slate-500">
+                  {(s.ad_names ?? []).join(" · ")}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-slate-500">{tx(AD.shortLinksNote)}</p>
+        </div>
+      )}
 
       {!rows.length ? (
         <EmptyState message={tx(AD.listsEmpty)} />
@@ -142,13 +220,49 @@ export function AdsLists({
             />
           </div>
 
+          <div className="card p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { k: "all" as const, label: AD.filterAll, n: rows.length },
+                  { k: "ads" as const, label: AD.listAds, n: totals.connected },
+                  { k: "noslug" as const, label: AD.listNoSlug, n: totals.noSlug },
+                  { k: "stock" as const, label: AD.stockHealth, n: totals.needsStock },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.k}
+                  onClick={() => setFilter(f.k)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                    filter === f.k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  )}
+                >
+                  {tx(f.label)} ({formatNumber(f.n)})
+                </button>
+              ))}
+              <input
+                className="input !py-1.5 w-[240px] text-sm ms-auto"
+                placeholder={tx(AD.searchLists)}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <span className="text-xs text-slate-500">
+                {tx(AD.showing)} {formatNumber(shown.length)} / {formatNumber(rows.length)}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400">{tx(AD.clickToSeeBooks)}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{tx(AD.stockRule)}</p>
+          </div>
+
           <div className="card overflow-x-auto">
             <table className="table-base">
               <thead>
                 <tr>
                   <th>{tx(AD.list)}</th>
                   <th>{tx(AD.listItems)}</th>
-                  <th>{tx(AD.listStock)}</th>
+                  <th>{tx(AD.listInStock)}</th>
+                  <th>{tx(AD.stockHealth)}</th>
                   <th>{tx(AD.listAds)}</th>
                   <th>{tx(AD.spend)}</th>
                   <th>{tx(AD.listPageViews)}</th>
@@ -160,12 +274,18 @@ export function AdsLists({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {shown.map((r) => {
                   const open = expanded === r.id;
                   const unknown = r.item_count - r.known_items;
                   return (
                     <Fragment key={r.id}>
-                      <tr className={cn(open && "bg-slate-50")}>
+                      {/* the whole row opens the list: a list's name says
+                          nothing about which books are in it, and that's the
+                          thing you need to know before connecting an ad */}
+                      <tr
+                        className={cn("cursor-pointer hover:bg-slate-50", open && "bg-slate-50")}
+                        onClick={() => toggleRow(r)}
+                      >
                         <td className="!whitespace-normal max-w-[260px]">
                           <div className="font-semibold">{r.name}</div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -181,6 +301,7 @@ export function AdsLists({
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 font-mono text-brand-700 hover:bg-brand-100"
                                 dir="ltr"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 {r.slug}
                                 <ExternalLink size={9} />
@@ -188,7 +309,10 @@ export function AdsLists({
                             ) : (
                               <button
                                 className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800 hover:bg-amber-200"
-                                onClick={() => setEditing(r)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditing(r);
+                                }}
                               >
                                 <Link2 size={9} />
                                 {tx(AD.listNoSlug)}
@@ -208,12 +332,38 @@ export function AdsLists({
                             </span>
                           )}
                         </td>
-                        <td className={cn(r.out_of_stock > 0 && "text-amber-600")}>
-                          {formatNumber(r.stock_units)}
+                        {/* what's still SELLABLE leads; books that ran out are
+                            context, not an alarm */}
+                        <td>
+                          <span className="font-semibold">{formatNumber(r.in_stock)}</span>
+                          <span className="text-slate-400"> / {formatNumber(r.item_count)}</span>
                           {r.out_of_stock > 0 && (
-                            <span className="ms-1 text-[11px] text-red-600" title={tx(AD.listOutOfStock)}>
-                              −{formatNumber(r.out_of_stock)}
-                            </span>
+                            <div className="text-[11px] text-slate-500" title={tx(AD.listOutOfStock)}>
+                              {formatNumber(r.out_of_stock)} {tx(AD.listOutOfStock)}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {(() => {
+                            const m = STOCK_META[r.stock_health] ?? STOCK_META.unknown;
+                            return (
+                              <span
+                                className={cn(
+                                  "inline-block rounded-full px-2.5 py-0.5 text-xs font-bold",
+                                  m.className
+                                )}
+                                title={tx(m.hint)}
+                              >
+                                {tx(m.label)}
+                              </span>
+                            );
+                          })()}
+                          {/* only a list with money behind it turns a stock
+                              problem into something to do right now */}
+                          {STOCK_META[r.stock_health]?.act && r.ads > 0 && (
+                            <div className="mt-0.5 text-[11px] font-semibold text-red-600">
+                              {r.stock_health === "empty" ? tx(AD.shEmpty) : tx(AD.shLastBook)}
+                            </div>
                           )}
                         </td>
                         <td className={cn(!r.ads && "text-slate-300")}>{r.ads ? formatNumber(r.ads) : "—"}</td>
@@ -238,7 +388,7 @@ export function AdsLists({
                           {num2(r.roas, "x")}
                         </td>
                         <td>{r.cpa === null ? "—" : money(r.cpa)}</td>
-                        <td>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1">
                             <button
                               className="rounded p-1 text-slate-400 hover:bg-slate-100"
@@ -249,7 +399,7 @@ export function AdsLists({
                             </button>
                             <button
                               className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                              title={tx(AD.listBooks)}
+                              title={open ? tx(AD.hideBooks) : tx(AD.previewBooks)}
                               onClick={() => toggleRow(r)}
                             >
                               <ChevronDown size={15} className={cn("transition", open && "rotate-180")} />
@@ -276,7 +426,7 @@ export function AdsLists({
 
                       {open && (
                         <tr>
-                          <td colSpan={11} className="!whitespace-normal bg-slate-50 p-4">
+                          <td colSpan={12} className="!whitespace-normal bg-slate-50 p-4">
                             {r.campaigns?.length ? (
                               <div className="mb-3 text-xs text-slate-500">
                                 <span className="font-semibold">{tx(AD.gapCampaignsCol)}:</span>{" "}
@@ -286,6 +436,14 @@ export function AdsLists({
                             ) : (
                               <div className="mb-3 text-xs text-amber-700">{tx(AD.listNoAds)}</div>
                             )}
+                            {(() => {
+                              const all = items[r.id] ?? [];
+                              const page = bookPage[r.id] ?? 0;
+                              const totalPages = Math.max(1, Math.ceil(all.length / BOOKS_PER_PAGE));
+                              const safe = Math.min(page, totalPages - 1);
+                              const slice = all.slice(safe * BOOKS_PER_PAGE, safe * BOOKS_PER_PAGE + BOOKS_PER_PAGE);
+                              return (
+                                <>
                             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                               <table className="table-base">
                                 <thead>
@@ -300,7 +458,7 @@ export function AdsLists({
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {(items[r.id] ?? []).map((it) => (
+                                  {slice.map((it) => (
                                     <tr
                                       key={it.sku}
                                       className="cursor-pointer"
@@ -331,6 +489,24 @@ export function AdsLists({
                                 </tbody>
                               </table>
                             </div>
+
+                            {all.length > BOOKS_PER_PAGE && (
+                              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                <span className="text-xs text-slate-500">
+                                  {formatNumber(safe * BOOKS_PER_PAGE + 1)}–
+                                  {formatNumber(Math.min((safe + 1) * BOOKS_PER_PAGE, all.length))}{" "}
+                                  {tx(AD.ofBooks)} {formatNumber(all.length)}
+                                </span>
+                                <Pagination
+                                  page={safe}
+                                  totalPages={totalPages}
+                                  onPage={(p) => setBookPage((m) => ({ ...m, [r.id]: p }))}
+                                />
+                              </div>
+                            )}
+                                </>
+                              );
+                            })()}
                           </td>
                         </tr>
                       )}
@@ -392,7 +568,7 @@ function ListEditor({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.rpc("fn_ads_slug_suggest", { p_text: row.name, p_limit: 10 });
+      const { data } = await supabase.rpc("fn_ads_slug_suggest", { p_text: row.name, p_limit: 14 });
       if (!cancelled) setHits((data as SlugHit[]) ?? []);
     })();
     return () => {
@@ -482,10 +658,21 @@ function ListEditor({
                     <span className="min-w-0 flex-1 truncate font-mono text-xs" dir="ltr">
                       {h.slug}
                     </span>
-                    {h.score > 0 && (
-                      <span className="shrink-0 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
-                        {tx(AD.suggested)}
+                    {/* an ad pointing here is far stronger evidence than page
+                        traffic, so it is called out explicitly */}
+                    {h.source === "ad_link" ? (
+                      <span
+                        className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800"
+                        title={(h.ad_names ?? []).join(" · ")}
+                      >
+                        {tx(AD.fromAdLink)} · {formatNumber(h.ads)}
                       </span>
+                    ) : (
+                      h.score > 0 && (
+                        <span className="shrink-0 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                          {tx(AD.suggested)}
+                        </span>
+                      )
                     )}
                     {takenByOther && (
                       <span className="shrink-0 truncate text-[10px] text-slate-500">
@@ -493,7 +680,7 @@ function ListEditor({
                       </span>
                     )}
                     <span className="shrink-0 text-[11px] text-slate-400">
-                      {formatNumber(h.views)} {tx(AD.views)}
+                      {h.views === null ? "—" : `${formatNumber(h.views)} ${tx(AD.views)}`}
                     </span>
                   </button>
                 );
