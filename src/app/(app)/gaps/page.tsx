@@ -1,0 +1,999 @@
+"use client";
+
+// GAPS center — every data source (store orders, GA4, Meta, Search Console)
+// tells a different story about the same month. This page puts the four
+// witnesses side by side, names each gap, and says what to do about it.
+// The store's orders table is always the truth; everything else is a claim.
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  Link2,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  ShoppingCart,
+  BarChart3,
+  Megaphone,
+  Search,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { useLang } from "@/lib/i18n";
+import { PageHeader, Spinner, KpiCard, ChartCard } from "@/components/ui";
+import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
+
+// ------------------------------------------------------------------ strings
+
+type Bi = { ar: string; en: string };
+const S = {
+  subtitle: {
+    ar: "مطابقة كل مصادر البيانات مع الطلبات الحقيقية — فين الفجوة ومين بيقول الحقيقة",
+    en: "Reconcile every data source against real orders — where the gaps are and who tells the truth",
+  },
+  refresh: { ar: "تحديث", en: "Refresh" },
+  sources: { ar: "المصادر المتصلة", en: "Connected sources" },
+  ordersSrc: { ar: "طلبات المتجر", en: "Store orders" },
+  ga4Src: { ar: "GA4", en: "GA4" },
+  metaSrc: { ar: "إعلانات ميتا", en: "Meta Ads" },
+  gscSrc: { ar: "Search Console", en: "Search Console" },
+  syncedThrough: { ar: "بيانات حتى", en: "Data through" },
+  truthChain: { ar: "سلسلة الحقيقة — نفس الشهر بثلاث روايات", en: "The truth chain — one month, three stories" },
+  storeTruth: { ar: "المتجر (الحقيقة)", en: "Store (the truth)" },
+  ga4Tracked: { ar: "GA4 (المتتبَّع)", en: "GA4 (tracked)" },
+  metaClaimed: { ar: "ميتا (المُدَّعى)", en: "Meta (claimed)" },
+  truthNote: {
+    ar: "المتجر هو المرجع. GA4 شاف أقل لأن في طلبات مش متتبَّعة. ميتا بتنسب لنفسها جزء كبير من كل المبيعات — منها مبيعات كانت هتحصل برضه.",
+    en: "The store is the reference. GA4 saw less because some orders are untracked. Meta credits itself a big share of all sales — including sales that would have happened anyway.",
+  },
+  trackingRate: { ar: "نسبة التتبع", en: "Tracking rate" },
+  ofOrders: { ar: "من الطلبات وصلت GA4", en: "of orders reached GA4" },
+  untrackedRevenue: { ar: "إيراد غير متتبَّع", en: "Untracked revenue" },
+  untrackedSub: { ar: "طلبات حقيقية GA4 ماشافهاش", en: "real orders GA4 never saw" },
+  metaClaimRatio: { ar: "مبالغة ميتا", en: "Meta over-claim" },
+  metaClaimSub: { ar: "المُدَّعى ÷ ما تتبعه GA4 من ميتا", en: "claimed ÷ GA4-attributed to Meta" },
+  unmappedSpend: { ar: "إنفاق غير مربوط", en: "Unlinked spend" },
+  unmappedSub: { ar: "إعلانات من غير كتاب/قائمة", en: "ads with no book/list link" },
+  findings: { ar: "الخلاصة — الفجوات بالترتيب", en: "Findings — the gaps, ranked" },
+  gapTracking: { ar: "فجوة التتبع حسب القناة", en: "Tracking gap by channel" },
+  channel: { ar: "القناة", en: "Channel" },
+  orders: { ar: "طلبات", en: "Orders" },
+  revenue: { ar: "إيراد", en: "Revenue" },
+  tracked: { ar: "متتبَّع", en: "Tracked" },
+  untracked: { ar: "غير متتبَّع", en: "Untracked" },
+  gapPayment: { ar: "فجوة التتبع حسب طريقة الدفع", en: "Tracking gap by payment method" },
+  payment: { ar: "طريقة الدفع", en: "Payment" },
+  total: { ar: "الإجمالي", en: "Total" },
+  untrackedOrders: { ar: "الطلبات الغير متتبَّعة", en: "Untracked orders" },
+  untrackedOrdersSub: {
+    ar: "طلبات حقيقية في المتجر لكن GA4 ماسجّلهاش — الأعلى قيمة الأول",
+    en: "Real store orders GA4 never recorded — highest value first",
+  },
+  exportCsv: { ar: "تصدير CSV", en: "Export CSV" },
+  showAll: { ar: "عرض الكل", en: "Show all" },
+  showLess: { ar: "عرض أقل", en: "Show less" },
+  metaReality: { ar: "ميتا تحت الاختبار — من الضغطة للطلب", en: "Meta reality check — from click to order" },
+  metaClicks: { ar: "ضغطات ميتا", en: "Meta link clicks" },
+  ga4MetaSessions: { ar: "جلسات وصلت فعلاً (GA4)", en: "Sessions that arrived (GA4)" },
+  ga4MetaTx: { ar: "معاملات منسوبة لميتا (GA4)", en: "GA4 transactions from Meta" },
+  metaPurchClaimed: { ar: "مشتريات ميتا المُدَّعاة", en: "Meta claimed purchases" },
+  clickLoss: {
+    ar: "من كل 100 ضغطة مدفوعة، حوالي {n} بس بتوصل كجلسة متتبَّعة — الباقي بيضيع في متصفح فيسبوك الداخلي أو ضغطات غير حقيقية.",
+    en: "Out of every 100 paid clicks, only ~{n} arrive as a tracked session — the rest die in Facebook's in-app browser or are low-quality clicks.",
+  },
+  booksWitness: { ar: "لكل كتاب: ميتا بتقول إيه والمتجر بيقول إيه", en: "Per book: what Meta says vs what the store says" },
+  booksWitnessSub: {
+    ar: "نفس جدول «الفجوة» في مركز الإعلانات — الكتب المربوطة بالإعلانات فقط. اربط الباقي من تبويب الربط.",
+    en: "Same as the Gap tab in Ads Center — only ad-linked books appear. Link the rest from the Mapping tab.",
+  },
+  book: { ar: "الكتاب", en: "Book" },
+  spend: { ar: "الإنفاق", en: "Spend" },
+  metaValue: { ar: "قيمة ميتا", en: "Meta value" },
+  storeRevenue: { ar: "إيراد المتجر", en: "Store revenue" },
+  metaRoas: { ar: "ROAS ميتا", en: "Meta ROAS" },
+  actualRoas: { ar: "ROAS حقيقي", en: "Real ROAS" },
+  verdict: { ar: "الحكم", en: "Verdict" },
+  vImpossible: { ar: "مستحيل", en: "Impossible" },
+  vInflated: { ar: "مُبالَغ", en: "Inflated" },
+  vPlausible: { ar: "منطقي", en: "Plausible" },
+  unmappedTitle: { ar: "إعلانات من غير ربط — إنفاق أعمى", en: "Unlinked ads — blind spend" },
+  unmappedNote: {
+    ar: "الإعلانات دي بتصرف لكن مش مربوطة بكتاب أو قائمة، فمفيش طريقة نعرف رجّعت إيه فعلاً. الربط يدوي من مركز الإعلانات ← تبويب الربط.",
+    en: "These ads spend money but aren't linked to a book or list, so their real return is invisible. Link them manually in Ads Center → Mapping tab.",
+  },
+  adName: { ar: "الإعلان", en: "Ad" },
+  campaign: { ar: "الحملة", en: "Campaign" },
+  goMapping: { ar: "افتح تبويب الربط", en: "Open Mapping tab" },
+  whereRevenue: { ar: "الإيراد المتتبَّع جاي منين (GA4)", en: "Where tracked revenue comes from (GA4)" },
+  bucket: { ar: "المصدر", en: "Source" },
+  txCount: { ar: "معاملات", en: "Transactions" },
+  bMeta: { ar: "ميتا (فيسبوك + انستجرام)", en: "Meta (FB + IG)" },
+  bGoogleOrganic: { ar: "جوجل مجاني (SEO)", en: "Google organic (SEO)" },
+  bGoogleAds: { ar: "إعلانات جوجل", en: "Google Ads" },
+  bDirect: { ar: "مباشر", en: "Direct" },
+  bShortlinks: { ar: "روابط مختصرة (bit.ly)", en: "Short links (bit.ly)" },
+  bReferral: { ar: "إحالات أخرى", en: "Other referrals" },
+  bOther: { ar: "أخرى", en: "Other" },
+  fragTitle: { ar: "فوضى الوسوم — نفس ميتا بـ 15 اسم", en: "Tag chaos — Meta arrives under 15 names" },
+  fragNote: {
+    ar: "لما الإعلان ينزل من غير UTM، الزيارة بتوصل باسم m.facebook.com / referral وبتتلخبط مع الأورجانيك. كل صف «بدون وسم» هنا معناه إعلانات أو بوستات نازلة من غير UTM.",
+    en: "When an ad runs without UTM tags, its traffic lands as m.facebook.com / referral and mixes with organic. Every untagged row here means ads or posts running without UTMs.",
+  },
+  tagged: { ar: "موسوم", en: "Tagged" },
+  untagged: { ar: "بدون وسم", en: "Untagged" },
+  organicTitle: { ar: "البحث المجاني — GSC مقابل GA4", en: "Organic search — GSC vs GA4" },
+  gscClicks: { ar: "ضغطات جوجل (GSC)", en: "Google clicks (GSC)" },
+  ga4OrgSessions: { ar: "جلسات أورجانيك (GA4)", en: "Organic sessions (GA4)" },
+  ga4OrgRevenue: { ar: "إيراد الأورجانيك", en: "Organic revenue" },
+  organicNote: {
+    ar: "GSC بيعدّ ضغطات نتائج البحث فقط، وGA4 بيعدّ الجلسات — طبيعي GA4 يكون أعلى شوية. الرقمين قريبين = التتبع سليم.",
+    en: "GSC counts search-result clicks only while GA4 counts sessions — GA4 being slightly higher is normal. Close numbers = healthy tracking.",
+  },
+  howToRead: { ar: "إزاي تقرأ الصفحة دي", en: "How to read this page" },
+  howToReadBody: {
+    ar: "١) المتجر هو الحقيقة الوحيدة — كل طلب فيه فلوس حقيقية. ٢) GA4 بيشوف الطلبات اللي البكسل نجح يتتبعها بس، وبيوزعها على المصادر بآخر ضغطة. ٣) ميتا بتحسب لنفسها أي طلب من حد شاف أو ضغط إعلان خلال أيام — علشان كده رقمها أكبر من الحقيقة دايمًا. ٤) الفجوات مش معناها بيانات مزيفة: كل معاملة في GA4 اتطابقت مع طلب حقيقي. المشكلة في اللي مش متسجّل، مش في اللي متسجّل.",
+    en: "1) The store is the only truth — every order is real money. 2) GA4 only sees orders the pixel managed to track, credited to the last click. 3) Meta credits itself any order from someone who saw or clicked an ad within its window — so its number always exceeds reality. 4) Gaps don't mean fake data: every GA4 transaction matched a real order. The problem is what's missing, not what's there.",
+  },
+  loadError: { ar: "فشل تحميل البيانات", en: "Failed to load" },
+  noData: { ar: "لا توجد بيانات لهذا الشهر", en: "No data for this month" },
+  date: { ar: "التاريخ", en: "Date" },
+  status: { ar: "الحالة", en: "Status" },
+  city: { ar: "المدينة", en: "City" },
+  amount: { ar: "المبلغ", en: "Amount" },
+} satisfies Record<string, Bi>;
+
+// ------------------------------------------------------------------- types
+
+interface Report {
+  month: string;
+  orders: { total: number; revenue: number; net_revenue: number; by_status: { status: string; n: number; revenue: number }[] };
+  ga4: { tx: number; revenue: number; sessions: number; purchases: number; days: number; last_day: string | null };
+  meta: { ads: number; campaigns: number; spend: number; purchases: number; value: number; clicks: number; atc: number; checkouts: number };
+  gsc: { clicks: number; impressions: number; days: number; last_day: string | null };
+  freshness: {
+    orders_last_date: string | null;
+    orders_last_import: string | null;
+    ga4_last_day: string | null;
+    meta_last_period: string | null;
+    meta_last_import: string | null;
+    gsc_last_day: string | null;
+  };
+  tracking: {
+    orders: number;
+    tracked: number;
+    untracked: number;
+    ga4_only: number;
+    ga4_transactions: number;
+    orders_revenue: number;
+    ga4_revenue: number;
+    untracked_revenue: number;
+    untracked_by_source: Record<string, number>;
+    payment_breakdown: { payment_method: string; untracked: number; total: number }[];
+  };
+  by_channel: { channel: string; orders: number; revenue: number; tracked: number; untracked_revenue: number }[];
+  attribution: { bucket: string; tx: number; revenue: number }[];
+  fragmentation: { source: string; medium: string; bucket: string; tagged: boolean; tx: number; revenue: number }[];
+  funnel: {
+    meta_clicks: number;
+    ga4_meta_sessions: number;
+    ga4_meta_tx: number;
+    ga4_meta_revenue: number;
+    meta_claimed_purchases: number;
+    meta_claimed_value: number;
+  };
+  organic: { gsc_clicks: number; ga4_sessions: number; ga4_tx: number; ga4_revenue: number };
+  mapping: {
+    ads: number;
+    mapped: number;
+    unmapped: number;
+    spend: number;
+    unmapped_spend: number;
+    unmapped_top: { ad_name: string | null; campaign_name: string | null; spend: number }[];
+  };
+}
+
+interface GapRow {
+  book_label: string;
+  spend: number;
+  meta_purchases: number;
+  meta_value: number;
+  meta_roas: number | null;
+  store_orders: number;
+  store_revenue: number;
+  actual_roas: number | null;
+  claim_vs_reality: number | null;
+  verdict: "impossible" | "inflated" | "plausible";
+}
+
+interface UntrackedOrder {
+  order_number: string;
+  order_date: string;
+  order_status: string | null;
+  payment_method: string | null;
+  source: string | null;
+  city: string | null;
+  total_order_amount: number | null;
+}
+
+type Finding = { severity: "red" | "amber" | "green"; title: string; body: string; action?: { href: string; label: string } };
+
+const BUCKET_LABELS: Record<string, Bi> = {
+  meta: S.bMeta,
+  google_organic: S.bGoogleOrganic,
+  google_ads: S.bGoogleAds,
+  direct: S.bDirect,
+  shortlinks: S.bShortlinks,
+  referral: S.bReferral,
+  other: S.bOther,
+};
+
+// last 13 full months, newest first; default = previous month
+function monthOptions(): string[] {
+  const now = new Date();
+  const list: string[] = [];
+  for (let i = 1; i <= 13; i++) {
+    list.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 10));
+  }
+  return list;
+}
+
+function pct(part: number, whole: number): number | null {
+  return whole > 0 ? (part * 100) / whole : null;
+}
+
+export default function GapsPage() {
+  const { lang } = useLang();
+  const tx = useCallback((v: Bi) => v[lang], [lang]);
+  const supabase = useMemo(() => createClient(), []);
+
+  const months = useMemo(monthOptions, []);
+  const [month, setMonth] = useState(months[0]);
+  const [report, setReport] = useState<Report | null>(null);
+  const [gapRows, setGapRows] = useState<GapRow[]>([]);
+  const [untracked, setUntracked] = useState<UntrackedOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [showAllUntracked, setShowAllUntracked] = useState(false);
+  const [showAllBooks, setShowAllBooks] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const monthEnd = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7), 0)).toISOString().slice(0, 10);
+    const [r, g, u] = await Promise.all([
+      supabase.rpc("fn_gaps_report", { p_month: month }),
+      supabase.rpc("fn_ads_gap", { p_from: month, p_to: monthEnd }),
+      supabase.rpc("fn_untracked_orders", { p_month: month, p_limit: 500 }),
+    ]);
+    // a failed RPC must never masquerade as "no data" (timeouts return
+    // an error with empty data — same lesson as the ads page)
+    const failed = [r.error, g.error, u.error].find(Boolean);
+    if (failed) setLoadError(failed.message);
+    setReport((r.data as Report) ?? null);
+    setGapRows((g.data as GapRow[]) ?? []);
+    setUntracked((u.data as UntrackedOrder[]) ?? []);
+    setLoading(false);
+  }, [supabase, month]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // ------------------------------------------------------------- findings
+  const findings = useMemo<Finding[]>(() => {
+    if (!report) return [];
+    const f: Finding[] = [];
+    const t = report.tracking;
+    const fu = report.funnel;
+    const ar = lang === "ar";
+
+    // per-channel tracking failures (iOS is the classic one)
+    for (const c of report.by_channel) {
+      const rate = pct(c.tracked, c.orders);
+      if (rate !== null && c.orders >= 10 && rate < 50) {
+        f.push({
+          severity: "red",
+          title: ar
+            ? `تتبع ${c.channel} شبه معدوم (${rate.toFixed(0)}%)`
+            : `${c.channel} tracking is nearly dead (${rate.toFixed(0)}%)`,
+          body: ar
+            ? `${c.orders} طلب من تطبيق ${c.channel} بقيمة ${formatMoney(c.revenue, lang)} — GA4 شاف ${c.tracked} بس. التطبيق مش بيبعت أحداث الشراء لـ GA4، فأي حملة بتودّي للتطبيق شكلها فاشل وهي مش كده.`
+            : `${c.orders} orders from the ${c.channel} app worth ${formatMoney(c.revenue, lang)} — GA4 saw only ${c.tracked}. The app doesn't send purchase events to GA4, so any campaign driving app installs looks like a failure when it isn't.`,
+        });
+      }
+    }
+
+    // payment-redirect purchase-event loss
+    for (const p of t.payment_breakdown ?? []) {
+      const lost = pct(p.untracked, p.total);
+      if (lost !== null && p.total >= 20 && lost > 20) {
+        f.push({
+          severity: "red",
+          title: ar
+            ? `الدفع الأونلاين بيضيّع التتبع (${p.payment_method}: ${lost.toFixed(0)}% ضايع)`
+            : `Online payment loses tracking (${p.payment_method}: ${lost.toFixed(0)}% lost)`,
+          body: ar
+            ? `${p.untracked} من ${p.total} طلب مدفوع بـ«${p.payment_method}» ماوصلوش GA4. العميل بيروح صفحة بوابة الدفع ويرجع، وحدث الشراء بيضيع في الرجوع. الحل: إطلاق حدث purchase من صفحة التأكيد بعد الرجوع من البوابة، أو تفعيل القياس من السيرفر.`
+            : `${p.untracked} of ${p.total} orders paid via "${p.payment_method}" never reached GA4. The customer bounces to the payment gateway and back, and the purchase event dies on the return. Fix: fire the purchase event on the confirmation page after the gateway redirect, or use server-side measurement.`,
+        });
+      }
+    }
+
+    // meta over-claim vs its own GA4-attributed revenue
+    if (fu.ga4_meta_revenue > 0 && fu.meta_claimed_value > fu.ga4_meta_revenue * 1.4) {
+      const ratio = fu.meta_claimed_value / fu.ga4_meta_revenue;
+      f.push({
+        severity: "amber",
+        title: ar
+          ? `ميتا بتدّعي ${ratio.toFixed(1)}× اللي اتتبع منها فعلاً`
+          : `Meta claims ${ratio.toFixed(1)}× what actually tracked from it`,
+        body: ar
+          ? `ميتا بتقول ${formatMoney(fu.meta_claimed_value, lang)} إيراد، لكن GA4 نسب لميتا ${formatMoney(fu.ga4_meta_revenue, lang)} بس. السبب: ميتا بتحسب أي حد شاف الإعلان واشترى خلال أيام (حتى من غير ضغطة)، وبتاخد كريدت مبيعات كانت جاية من مصادر تانية. اعتبر رقم ميتا «سقف تفاؤلي» وقيّم الإعلانات بالـ ROAS الحقيقي من جدول الكتب تحت.`
+          : `Meta reports ${formatMoney(fu.meta_claimed_value, lang)} in revenue, but GA4 credited Meta only ${formatMoney(fu.ga4_meta_revenue, lang)}. Why: Meta counts anyone who saw an ad and bought within its window (even without clicking), taking credit for sales other channels drove. Treat Meta's number as an optimistic ceiling and judge ads by the real ROAS in the books table below.`,
+      });
+    }
+
+    // click → session loss
+    if (fu.meta_clicks > 0) {
+      const arrival = pct(fu.ga4_meta_sessions, fu.meta_clicks);
+      if (arrival !== null && arrival < 60) {
+        f.push({
+          severity: "amber",
+          title: ar
+            ? `${(100 - arrival).toFixed(0)}% من ضغطات ميتا مش بتوصل الموقع`
+            : `${(100 - arrival).toFixed(0)}% of Meta clicks never reach the site`,
+          body: ar
+            ? `${formatNumber(fu.meta_clicks)} ضغطة مدفوعة قابلها ${formatNumber(fu.ga4_meta_sessions)} جلسة بس في GA4. جزء طبيعي (متصفح فيسبوك الداخلي بيمنع التتبع)، لكن النسبة دي عالية — اتأكد إن صفحات الهبوط سريعة وإن مفيش إعلانات بتودّي لروابط مكسورة.`
+            : `${formatNumber(fu.meta_clicks)} paid clicks produced only ${formatNumber(fu.ga4_meta_sessions)} GA4 sessions. Some loss is normal (Facebook's in-app browser blocks tracking), but this rate is high — check landing pages load fast and no ads point to broken links.`,
+        });
+      }
+    }
+
+    // unmapped spend
+    const m = report.mapping;
+    if (m.spend > 0 && m.unmapped_spend / m.spend > 0.1) {
+      f.push({
+        severity: "amber",
+        title: ar
+          ? `${formatMoney(m.unmapped_spend, lang)} إنفاق أعمى (${m.unmapped} إعلان من غير ربط)`
+          : `${formatMoney(m.unmapped_spend, lang)} of blind spend (${m.unmapped} unlinked ads)`,
+        body: ar
+          ? `${((m.unmapped_spend * 100) / m.spend).toFixed(0)}% من إنفاق الشهر مش مربوط بكتاب أو قائمة، فمستحيل نعرف عائده الحقيقي. الربط خطوة يدوية — الجدول تحت فيه الأعلى إنفاقًا.`
+          : `${((m.unmapped_spend * 100) / m.spend).toFixed(0)}% of the month's spend isn't linked to any book or list, so its real return is unknowable. Linking is manual — the table below lists the biggest spenders.`,
+        action: { href: "/ads", label: tx(S.goMapping) },
+      });
+    }
+
+    // untagged meta traffic (UTM hygiene)
+    const metaFrag = report.fragmentation.filter((r) => r.bucket === "meta");
+    const untaggedRev = metaFrag.filter((r) => !r.tagged).reduce((a, r) => a + r.revenue, 0);
+    const metaRev = metaFrag.reduce((a, r) => a + r.revenue, 0);
+    if (metaRev > 0 && untaggedRev / metaRev > 0.3) {
+      f.push({
+        severity: "amber",
+        title: ar
+          ? `${((untaggedRev * 100) / metaRev).toFixed(0)}% من إيراد ميتا واصل من غير وسوم UTM`
+          : `${((untaggedRev * 100) / metaRev).toFixed(0)}% of Meta revenue arrives untagged`,
+        body: ar
+          ? `${formatMoney(untaggedRev, lang)} واصلين كـ m.facebook.com/referral وما ينفعش نعرف من أنهي حملة. ثبّت صيغة UTM واحدة لكل الإعلانات: utm_source=fb & utm_medium=paid & utm_campaign=اسم-الحملة — ساعتها GA4 هيفرز كل حملة لوحدها.`
+          : `${formatMoney(untaggedRev, lang)} arrived as m.facebook.com/referral with no way to tell which campaign sent it. Standardize one UTM format on every ad: utm_source=fb & utm_medium=paid & utm_campaign=campaign-name — then GA4 can split every campaign cleanly.`,
+      });
+    }
+
+    // ga4-only phantoms (should stay zero)
+    if (t.ga4_only > 0) {
+      f.push({
+        severity: "red",
+        title: ar ? `${t.ga4_only} معاملة في GA4 ملهاش طلب حقيقي` : `${t.ga4_only} GA4 transactions with no real order`,
+        body: ar
+          ? "معاملات ظهرت في GA4 من غير طلب مطابق في المتجر — ممكن تكون تكرار في إطلاق الحدث أو اختبارات."
+          : "Transactions appeared in GA4 with no matching store order — possibly duplicate event firing or test orders.",
+      });
+    } else {
+      f.push({
+        severity: "green",
+        title: ar ? "كل معاملات GA4 حقيقية — صفر معاملات وهمية" : "Every GA4 transaction is real — zero phantoms",
+        body: ar
+          ? `كل الـ ${formatNumber(t.ga4_transactions ?? t.tracked)} معاملة في GA4 اتطابقت مع طلب حقيقي بنفس الرقم. البيانات المتتبَّعة موثوقة ١٠٠٪ — المشكلة الوحيدة في الطلبات اللي مش بتتسجّل أصلًا.`
+          : `All ${formatNumber(t.ga4_transactions ?? t.tracked)} GA4 transactions matched a real order by ID. What is tracked is 100% trustworthy — the only problem is orders that never get recorded.`,
+      });
+    }
+
+    // google ads present but not imported anywhere
+    const gAds = report.attribution.find((b) => b.bucket === "google_ads");
+    if (gAds && gAds.tx > 10) {
+      f.push({
+        severity: "amber",
+        title: ar ? "في إعلانات جوجل شغالة ومش مستوردة هنا" : "Google Ads is running but not imported here",
+        body: ar
+          ? `GA4 شاف ${gAds.tx} معاملة بقيمة ${formatMoney(gAds.revenue, lang)} من google/cpc، لكن مفيش بيانات إنفاق جوجل في المنصة — الـ ROAS بتاعها غير معروف. لو الحملات دي مقصودة، ضيف استيراد تقارير Google Ads زي ميتا.`
+          : `GA4 saw ${gAds.tx} transactions worth ${formatMoney(gAds.revenue, lang)} from google/cpc, but no Google Ads spend data exists in the platform — its ROAS is unknown. If those campaigns are intentional, add a Google Ads import like the Meta one.`,
+      });
+    }
+
+    const order = { red: 0, amber: 1, green: 2 };
+    return f.sort((a, b) => order[a.severity] - order[b.severity]);
+  }, [report, lang, tx]);
+
+  // ------------------------------------------------------------ renderers
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+
+  const monthLabel = (iso: string) =>
+    new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  const t = report?.tracking;
+  const trackedPct = t ? pct(t.tracked, t.orders) : null;
+  const claimRatio =
+    report && report.funnel.ga4_meta_revenue > 0 ? report.funnel.meta_claimed_value / report.funnel.ga4_meta_revenue : null;
+  const unmappedPct = report && report.mapping.spend > 0 ? (report.mapping.unmapped_spend * 100) / report.mapping.spend : null;
+
+  const sourceCards = report
+    ? [
+        {
+          icon: ShoppingCart,
+          label: tx(S.ordersSrc),
+          ok: report.orders.total > 0,
+          main: `${formatNumber(report.orders.total)} • ${formatMoney(report.orders.revenue, lang)}`,
+          fresh: report.freshness.orders_last_date?.slice(0, 10) ?? "—",
+        },
+        {
+          icon: BarChart3,
+          label: tx(S.ga4Src),
+          ok: report.ga4.tx > 0,
+          main: `${formatNumber(report.ga4.tx)} • ${formatMoney(report.ga4.revenue, lang)}`,
+          fresh: report.freshness.ga4_last_day ?? "—",
+        },
+        {
+          icon: Megaphone,
+          label: tx(S.metaSrc),
+          ok: report.meta.ads > 0,
+          main: `${formatNumber(report.meta.ads)} ads • ${formatMoney(report.meta.spend, lang)}`,
+          fresh: report.freshness.meta_last_period ?? "—",
+        },
+        {
+          icon: Search,
+          label: tx(S.gscSrc),
+          ok: report.gsc.clicks > 0,
+          main: `${formatNumber(report.gsc.clicks)} clicks`,
+          fresh: report.freshness.gsc_last_day ?? "—",
+        },
+      ]
+    : [];
+
+  const chainMax = report ? Math.max(report.orders.revenue, report.ga4.revenue, report.meta.value, 1) : 1;
+  const chain = report
+    ? [
+        { label: tx(S.storeTruth), value: report.orders.revenue, cls: "bg-emerald-500" },
+        { label: tx(S.ga4Tracked), value: report.ga4.revenue, cls: "bg-sky-500" },
+        { label: tx(S.metaClaimed), value: report.meta.value, cls: "bg-amber-500" },
+      ]
+    : [];
+
+  const visibleUntracked = showAllUntracked ? untracked : untracked.slice(0, 12);
+  const sortedBooks = [...gapRows].sort((a, b) => b.spend - a.spend);
+  const visibleBooks = showAllBooks ? sortedBooks : sortedBooks.slice(0, 12);
+
+  const verdictChip = (v: GapRow["verdict"]) => (
+    <span
+      className={cn(
+        "inline-block rounded-full px-2 py-0.5 text-[11px] font-bold",
+        v === "impossible" ? "bg-red-100 text-red-700" : v === "inflated" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+      )}
+    >
+      {v === "impossible" ? tx(S.vImpossible) : v === "inflated" ? tx(S.vInflated) : tx(S.vPlausible)}
+    </span>
+  );
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="GAPS"
+        subtitle={tx(S.subtitle)}
+        actions={
+          <div className="flex items-center gap-2">
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"
+            >
+              {months.map((m) => (
+                <option key={m} value={m}>
+                  {monthLabel(m)}
+                </option>
+              ))}
+            </select>
+            <button onClick={load} className="btn-secondary flex items-center gap-1.5 text-sm">
+              <RefreshCw size={14} /> {tx(S.refresh)}
+            </button>
+          </div>
+        }
+      />
+
+      {loadError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {tx(S.loadError)}: {loadError}
+        </div>
+      )}
+
+      {!report && !loadError && <div className="card p-8 text-center text-slate-500">{tx(S.noData)}</div>}
+
+      {report && (
+        <>
+          {/* ------------------------------------------------ connected sources */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {sourceCards.map((c) => (
+              <div key={c.label} className="card flex items-start gap-3 p-4">
+                <div className={cn("rounded-lg p-2", c.ok ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600")}>
+                  <c.icon size={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {c.label}
+                    {c.ok ? <CheckCircle2 size={13} className="text-emerald-500" /> : <AlertTriangle size={13} className="text-red-500" />}
+                  </div>
+                  <div className="mt-0.5 truncate text-sm font-bold text-slate-900" dir="ltr">
+                    {c.main}
+                  </div>
+                  <div className="text-[11px] text-slate-400" dir="ltr">
+                    {tx(S.syncedThrough)} {c.fresh}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ------------------------------------------------------ truth chain */}
+          <ChartCard title={tx(S.truthChain)}>
+            <div className="space-y-3">
+              {chain.map((b) => (
+                <div key={b.label}>
+                  <div className="mb-1 flex items-baseline justify-between text-sm">
+                    <span className="font-semibold text-slate-700">{b.label}</span>
+                    <span className="font-bold text-slate-900" dir="ltr">
+                      {formatMoney(b.value, lang)}
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div className={cn("h-full rounded-full", b.cls)} style={{ width: `${(b.value * 100) / chainMax}%` }} />
+                  </div>
+                </div>
+              ))}
+              <p className="pt-1 text-xs leading-5 text-slate-500">{tx(S.truthNote)}</p>
+            </div>
+          </ChartCard>
+
+          {/* ------------------------------------------------------------- KPIs */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <KpiCard
+              label={tx(S.trackingRate)}
+              value={trackedPct !== null ? `${trackedPct.toFixed(1)}%` : "—"}
+              sub={tx(S.ofOrders)}
+              accent={trackedPct !== null && trackedPct < 90 ? "amber" : "green"}
+            />
+            <KpiCard
+              label={tx(S.untrackedRevenue)}
+              value={formatMoney(t?.untracked_revenue ?? 0, lang)}
+              sub={`${formatNumber(t?.untracked ?? 0)} ${tx(S.untrackedSub)}`}
+              accent="red"
+            />
+            <KpiCard
+              label={tx(S.metaClaimRatio)}
+              value={claimRatio !== null ? `${claimRatio.toFixed(1)}×` : "—"}
+              sub={tx(S.metaClaimSub)}
+              accent={claimRatio !== null && claimRatio > 1.4 ? "amber" : "green"}
+            />
+            <KpiCard
+              label={tx(S.unmappedSpend)}
+              value={formatMoney(report.mapping.unmapped_spend, lang)}
+              sub={`${formatNumber(report.mapping.unmapped)} ${tx(S.unmappedSub)}${unmappedPct !== null ? ` (${unmappedPct.toFixed(0)}%)` : ""}`}
+              accent={unmappedPct !== null && unmappedPct > 10 ? "amber" : "green"}
+            />
+          </div>
+
+          {/* --------------------------------------------------------- findings */}
+          <ChartCard title={tx(S.findings)}>
+            <div className="space-y-3">
+              {findings.map((f, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-xl border p-4",
+                    f.severity === "red"
+                      ? "border-red-200 bg-red-50/60"
+                      : f.severity === "amber"
+                        ? "border-amber-200 bg-amber-50/60"
+                        : "border-emerald-200 bg-emerald-50/60"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    {f.severity === "red" ? (
+                      <ShieldAlert size={18} className="mt-0.5 shrink-0 text-red-500" />
+                    ) : f.severity === "amber" ? (
+                      <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-500" />
+                    ) : (
+                      <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-500" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-900">{f.title}</div>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">{f.body}</p>
+                      {f.action && (
+                        <Link href={f.action.href} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:underline">
+                          <Link2 size={12} /> {f.action.label}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ChartCard>
+
+          {/* ----------------------------------------- tracking gap by channel */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title={tx(S.gapTracking)}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-start text-xs text-slate-500">
+                    <th className="py-2 text-start">{tx(S.channel)}</th>
+                    <th className="py-2 text-end">{tx(S.orders)}</th>
+                    <th className="py-2 text-end">{tx(S.tracked)}</th>
+                    <th className="py-2 text-end">%</th>
+                    <th className="py-2 text-end">{tx(S.untracked)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.by_channel.map((c) => {
+                    const rate = pct(c.tracked, c.orders);
+                    return (
+                      <tr key={c.channel} className="border-b border-slate-100">
+                        <td className="py-2 font-semibold text-slate-700" dir="ltr">
+                          {c.channel}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {formatNumber(c.orders)}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {formatNumber(c.tracked)}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-2 text-end font-bold",
+                            rate !== null && rate < 50 ? "text-red-600" : rate !== null && rate < 90 ? "text-amber-600" : "text-emerald-600"
+                          )}
+                          dir="ltr"
+                        >
+                          {rate !== null ? `${rate.toFixed(0)}%` : "—"}
+                        </td>
+                        <td className="py-2 text-end text-slate-500" dir="ltr">
+                          {formatMoney(c.untracked_revenue, lang)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ChartCard>
+
+            <ChartCard title={tx(S.gapPayment)}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">{tx(S.payment)}</th>
+                    <th className="py-2 text-end">{tx(S.total)}</th>
+                    <th className="py-2 text-end">{tx(S.untracked)}</th>
+                    <th className="py-2 text-end">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(t?.payment_breakdown ?? []).map((p) => {
+                    const lost = pct(p.untracked, p.total);
+                    return (
+                      <tr key={p.payment_method} className="border-b border-slate-100">
+                        <td className="py-2 font-semibold text-slate-700">{p.payment_method}</td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {formatNumber(p.total)}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {formatNumber(p.untracked)}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-2 text-end font-bold",
+                            lost !== null && lost > 20 ? "text-red-600" : lost !== null && lost > 8 ? "text-amber-600" : "text-emerald-600"
+                          )}
+                          dir="ltr"
+                        >
+                          {lost !== null ? `${lost.toFixed(0)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ChartCard>
+          </div>
+
+          {/* ------------------------------------------------- untracked orders */}
+          <ChartCard title={`${tx(S.untrackedOrders)} (${formatNumber(untracked.length)})`}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.untrackedOrdersSub)}</p>
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() =>
+                  downloadCsv(
+                    `untracked-orders-${month.slice(0, 7)}.csv`,
+                    toCsv(untracked as unknown as Record<string, unknown>[])
+                  )
+                }
+                className="btn-secondary flex items-center gap-1.5 text-xs"
+              >
+                <Download size={13} /> {tx(S.exportCsv)}
+              </button>
+              {untracked.length > 12 && (
+                <button onClick={() => setShowAllUntracked((v) => !v)} className="btn-secondary text-xs">
+                  {showAllUntracked ? tx(S.showLess) : `${tx(S.showAll)} (${untracked.length})`}
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">#</th>
+                    <th className="py-2 text-start">{tx(S.date)}</th>
+                    <th className="py-2 text-start">{tx(S.status)}</th>
+                    <th className="py-2 text-start">{tx(S.payment)}</th>
+                    <th className="py-2 text-start">{tx(S.channel)}</th>
+                    <th className="py-2 text-start">{tx(S.city)}</th>
+                    <th className="py-2 text-end">{tx(S.amount)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleUntracked.map((o) => (
+                    <tr key={o.order_number} className="border-b border-slate-100">
+                      <td className="py-1.5 font-mono text-xs" dir="ltr">
+                        {o.order_number}
+                      </td>
+                      <td className="py-1.5 text-xs" dir="ltr">
+                        {o.order_date?.slice(0, 10)}
+                      </td>
+                      <td className="py-1.5 text-xs">{o.order_status ?? "—"}</td>
+                      <td className="py-1.5 text-xs">{o.payment_method ?? "—"}</td>
+                      <td className="py-1.5 text-xs" dir="ltr">
+                        {o.source ?? "—"}
+                      </td>
+                      <td className="py-1.5 text-xs">{o.city ?? "—"}</td>
+                      <td className="py-1.5 text-end font-semibold" dir="ltr">
+                        {formatMoney(o.total_order_amount, lang)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+
+          {/* ---------------------------------------------- meta reality check */}
+          <ChartCard title={tx(S.metaReality)}>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                { label: tx(S.metaClicks), value: formatNumber(report.funnel.meta_clicks) },
+                { label: tx(S.ga4MetaSessions), value: formatNumber(report.funnel.ga4_meta_sessions) },
+                { label: tx(S.ga4MetaTx), value: `${formatNumber(report.funnel.ga4_meta_tx)} • ${formatMoney(report.funnel.ga4_meta_revenue, lang)}` },
+                { label: tx(S.metaPurchClaimed), value: `${formatNumber(report.funnel.meta_claimed_purchases)} • ${formatMoney(report.funnel.meta_claimed_value, lang)}` },
+              ].map((c) => (
+                <div key={c.label} className="rounded-xl bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{c.label}</div>
+                  <div className="mt-1 text-sm font-bold text-slate-900" dir="ltr">
+                    {c.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {report.funnel.meta_clicks > 0 && (
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                {tx(S.clickLoss).replace("{n}", `${Math.round((report.funnel.ga4_meta_sessions * 100) / report.funnel.meta_clicks)}`)}
+              </p>
+            )}
+          </ChartCard>
+
+          {/* -------------------------------------------------- books witnesses */}
+          <ChartCard title={tx(S.booksWitness)}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.booksWitnessSub)}</p>
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() =>
+                  downloadCsv(`gaps-books-${month.slice(0, 7)}.csv`, toCsv(sortedBooks as unknown as Record<string, unknown>[]))
+                }
+                className="btn-secondary flex items-center gap-1.5 text-xs"
+              >
+                <Download size={13} /> {tx(S.exportCsv)}
+              </button>
+              {sortedBooks.length > 12 && (
+                <button onClick={() => setShowAllBooks((v) => !v)} className="btn-secondary text-xs">
+                  {showAllBooks ? tx(S.showLess) : `${tx(S.showAll)} (${sortedBooks.length})`}
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">{tx(S.book)}</th>
+                    <th className="py-2 text-end">{tx(S.spend)}</th>
+                    <th className="py-2 text-end">{tx(S.metaValue)}</th>
+                    <th className="py-2 text-end">{tx(S.storeRevenue)}</th>
+                    <th className="py-2 text-end">{tx(S.metaRoas)}</th>
+                    <th className="py-2 text-end">{tx(S.actualRoas)}</th>
+                    <th className="py-2 text-center">{tx(S.verdict)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleBooks.map((b) => (
+                    <tr key={b.book_label} className="border-b border-slate-100">
+                      <td className="max-w-[220px] truncate py-2 font-semibold text-slate-700">{b.book_label}</td>
+                      <td className="py-2 text-end" dir="ltr">
+                        {formatMoney(b.spend, lang)}
+                      </td>
+                      <td className="py-2 text-end text-amber-700" dir="ltr">
+                        {formatMoney(b.meta_value, lang)}
+                      </td>
+                      <td className="py-2 text-end font-semibold text-emerald-700" dir="ltr">
+                        {formatMoney(b.store_revenue, lang)}
+                      </td>
+                      <td className="py-2 text-end" dir="ltr">
+                        {b.meta_roas ?? "—"}
+                      </td>
+                      <td
+                        className={cn(
+                          "py-2 text-end font-bold",
+                          (b.actual_roas ?? 0) >= 3 ? "text-emerald-600" : (b.actual_roas ?? 0) >= 1.5 ? "text-amber-600" : "text-red-600"
+                        )}
+                        dir="ltr"
+                      >
+                        {b.actual_roas ?? "—"}
+                      </td>
+                      <td className="py-2 text-center">{verdictChip(b.verdict)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+
+          {/* ------------------------------------------------------ unmapped ads */}
+          {report.mapping.unmapped > 0 && (
+            <ChartCard title={tx(S.unmappedTitle)}>
+              <p className="mb-3 text-xs text-slate-500">{tx(S.unmappedNote)}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs text-slate-500">
+                      <th className="py-2 text-start">{tx(S.adName)}</th>
+                      <th className="py-2 text-start">{tx(S.campaign)}</th>
+                      <th className="py-2 text-end">{tx(S.spend)}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.mapping.unmapped_top.map((u, i) => (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="py-1.5 font-semibold text-slate-700">{u.ad_name ?? "—"}</td>
+                        <td className="max-w-[280px] truncate py-1.5 text-xs text-slate-500">{u.campaign_name ?? "—"}</td>
+                        <td className="py-1.5 text-end font-semibold" dir="ltr">
+                          {formatMoney(u.spend, lang)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Link href="/ads" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:underline">
+                <Link2 size={12} /> {tx(S.goMapping)}
+              </Link>
+            </ChartCard>
+          )}
+
+          {/* --------------------------------------------- attribution buckets */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title={tx(S.whereRevenue)}>
+              <div className="space-y-2.5">
+                {report.attribution.map((b) => {
+                  const share = pct(b.revenue, report.ga4.revenue);
+                  return (
+                    <div key={b.bucket}>
+                      <div className="mb-0.5 flex items-baseline justify-between text-xs">
+                        <span className="font-semibold text-slate-700">{BUCKET_LABELS[b.bucket] ? tx(BUCKET_LABELS[b.bucket]) : b.bucket}</span>
+                        <span className="text-slate-500" dir="ltr">
+                          {formatNumber(b.tx)} • {formatMoney(b.revenue, lang)}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-brand-500" style={{ width: `${share ?? 0}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ChartCard>
+
+            <ChartCard title={tx(S.organicTitle)}>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: tx(S.gscClicks), value: formatNumber(report.organic.gsc_clicks) },
+                  { label: tx(S.ga4OrgSessions), value: formatNumber(report.organic.ga4_sessions) },
+                  { label: tx(S.ga4OrgRevenue), value: formatMoney(report.organic.ga4_revenue, lang) },
+                ].map((c) => (
+                  <div key={c.label} className="rounded-xl bg-slate-50 p-3 text-center">
+                    <div className="text-[11px] font-semibold text-slate-500">{c.label}</div>
+                    <div className="mt-1 text-sm font-bold text-slate-900" dir="ltr">
+                      {c.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">{tx(S.organicNote)}</p>
+            </ChartCard>
+          </div>
+
+          {/* ------------------------------------------------- fragmentation */}
+          <ChartCard title={tx(S.fragTitle)}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.fragNote)}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">source / medium</th>
+                    <th className="py-2 text-start">{tx(S.bucket)}</th>
+                    <th className="py-2 text-center">UTM</th>
+                    <th className="py-2 text-end">{tx(S.txCount)}</th>
+                    <th className="py-2 text-end">{tx(S.revenue)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.fragmentation.map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100">
+                      <td className="py-1.5 font-mono text-xs" dir="ltr">
+                        {r.source} / {r.medium}
+                      </td>
+                      <td className="py-1.5 text-xs">{BUCKET_LABELS[r.bucket] ? tx(BUCKET_LABELS[r.bucket]) : r.bucket}</td>
+                      <td className="py-1.5 text-center">
+                        <span
+                          className={cn(
+                            "inline-block rounded-full px-2 py-0.5 text-[10px] font-bold",
+                            r.tagged ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
+                          )}
+                        >
+                          {r.tagged ? tx(S.tagged) : tx(S.untagged)}
+                        </span>
+                      </td>
+                      <td className="py-1.5 text-end" dir="ltr">
+                        {formatNumber(r.tx)}
+                      </td>
+                      <td className="py-1.5 text-end font-semibold" dir="ltr">
+                        {formatMoney(r.revenue, lang)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+
+          {/* ------------------------------------------------------- explainer */}
+          <div className="card border-s-4 border-s-brand-500 p-5">
+            <h3 className="mb-2 text-sm font-bold text-slate-700">{tx(S.howToRead)}</h3>
+            <p className="text-xs leading-6 text-slate-600">{tx(S.howToReadBody)}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

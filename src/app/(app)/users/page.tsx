@@ -31,6 +31,7 @@ const PAGE_LABELS: Record<string, DictKey> = {
   customers: "customers",
   abandoned: "abandoned",
   ads: "ads",
+  gaps: "gaps",
   campaigns: "campaigns",
   marketing: "marketing",
   delivery: "deliveryReports",
