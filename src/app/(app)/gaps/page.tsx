@@ -175,6 +175,35 @@ const S = {
   srcAwaiting: { ar: "بانتظار المزامنة", en: "Awaiting sync" },
   campaignCol: { ar: "الحملة (من UTM)", en: "Campaign (from UTM)" },
   sourceCol: { ar: "المصدر", en: "Source" },
+  monthlyReport: { ar: "تقرير الشهر (CSV)", en: "Monthly report (CSV)" },
+  repTitle: { ar: "تقرير المصادر والإيراد الشهري", en: "Monthly Source & Revenue Report" },
+  repDefs: {
+    ar: "الإيراد = قيمة المنتجات فقط (بدون الشحن)؛ الطلبات الملغاة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط",
+    en: "Revenue = products value only (delivery excluded); cancelled orders counted but revenue removed; attribution = GA4 last-click matched to order records; spend summed at ad level only",
+  },
+  repSessions: { ar: "الجلسات", en: "Sessions" },
+  repOrders: { ar: "الطلبات", en: "Orders" },
+  repCancelled: { ar: "ملغاة", en: "Cancelled" },
+  repRevenue: { ar: "الإيراد (ج.م)", en: "Revenue (EGP)" },
+  repDelivery: { ar: "رسوم الشحن (مستبعدة)", en: "Delivery fees (excluded)" },
+  repCR: { ar: "معدل التحويل", en: "Conversion rate" },
+  repAOV: { ar: "متوسط قيمة الطلب", en: "AOV" },
+  repSpend: { ar: "إنفاق الإعلانات (ج.م)", en: "Ad spend (EGP)" },
+  repSpendPct: { ar: "الإنفاق من الإيراد", en: "Spend % of revenue" },
+  repSpendByAccount: { ar: "الإنفاق حسب الحساب", en: "Spend by account" },
+  repSource: { ar: "المصدر", en: "Source" },
+  repCampaignBlock: { ar: "قابلية قياس الحملات", en: "Campaign measurability" },
+  repOrdersWithCampaign: { ar: "طلبات باسم حملة صالح", en: "Orders with usable campaign name" },
+  repCampaignRevenue: { ar: "إيراد معروف الحملة (ج.م)", en: "Campaign-identified revenue (EGP)" },
+  repCombosPurch: { ar: "توليفات source/medium على المشتريات", en: "Source/medium combos on purchases" },
+  repCombosAll: { ar: "توليفات source/medium على كل الزيارات", en: "Source/medium combos across all traffic" },
+  repTotal: { ar: "الإجمالي", en: "Total" },
+  bMetaTagged: { ar: "ميتا — إعلانات موسومة UTM", en: "Meta — UTM-tagged ads" },
+  bMetaUntagged: { ar: "ميتا — بدون وسم UTM", en: "Meta — untagged (no UTM)" },
+  bSeo: { ar: "بحث مجاني (SEO)", en: "SEO organic" },
+  bAppstore: { ar: "Google Play / تطبيق مجاني", en: "Google Play / app organic" },
+  bUntracked: { ar: "غير متتبَّع في GA4", en: "Not tracked in GA4" },
+  bOtherMalformed: { ar: "إحالات أخرى ووسوم تالفة", en: "Other referral & malformed tags" },
   howToRead: { ar: "إزاي تقرأ الصفحة دي", en: "How to read this page" },
   howToReadBody: {
     ar: "١) المتجر هو الحقيقة الوحيدة — كل طلب فيه فلوس حقيقية. ٢) GA4 بيشوف الطلبات اللي البكسل نجح يتتبعها بس، وبيوزعها على المصادر بآخر ضغطة. ٣) ميتا بتحسب لنفسها أي طلب من حد شاف أو ضغط إعلان خلال أيام — علشان كده رقمها أكبر من الحقيقة دايمًا. ٤) الفجوات مش معناها بيانات مزيفة: كل معاملة في GA4 اتطابقت مع طلب حقيقي. المشكلة في اللي مش متسجّل، مش في اللي متسجّل.",
@@ -316,6 +345,39 @@ const BUCKET_LABELS: Record<string, Bi> = {
   other: S.bOther,
 };
 
+// fn_gaps_source_report — the monthly export payload
+interface SourceReport {
+  month: string;
+  totals: {
+    sessions: number;
+    orders: number;
+    cancelled: number;
+    revenue: number;
+    delivery_fees: number;
+    spend: number;
+    cr: number | null;
+    aov: number | null;
+    spend_pct_of_revenue: number | null;
+  };
+  spend_by_account: { account: string; spend: number }[];
+  rows: {
+    bucket: string;
+    sessions: number | null;
+    orders: number;
+    cancelled: number;
+    revenue: number;
+    cr: number | null;
+    aov: number | null;
+  }[];
+  campaigns: {
+    orders_with_campaign: number;
+    pct_of_orders: number | null;
+    campaign_revenue: number;
+    combos_on_purchases: number;
+    combos_all_traffic: number;
+  };
+}
+
 // current month first (the one being fixed), then 13 back
 function monthOptions(): string[] {
   const now = new Date();
@@ -328,6 +390,10 @@ function monthOptions(): string[] {
 
 function pct(part: number, whole: number): number | null {
   return whole > 0 ? (part * 100) / whole : null;
+}
+
+function monthLabelFor(iso: string, lang: "ar" | "en") {
+  return new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 export default function GapsPage() {
@@ -350,6 +416,67 @@ export default function GapsPage() {
   const [lookupRows, setLookupRows] = useState<BookOrderRow[] | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+
+  const [reportBusy, setReportBusy] = useState(false);
+
+  // one CSV, sectioned like the hand-made July report, reconciling by design
+  const downloadMonthlyReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_source_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as SourceReport;
+    const esc = (v: string | number | null | undefined) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const line = (...cells: (string | number | null | undefined)[]) => cells.map(esc).join(",");
+    const bucketLabel = (b: string) =>
+      ({
+        meta_tagged: tx(S.bMetaTagged),
+        meta_untagged: tx(S.bMetaUntagged),
+        bitly: tx(S.bShortlinks),
+        google_ads: tx(S.bGoogleAds),
+        direct: tx(S.bDirect),
+        seo: tx(S.bSeo),
+        appstore: tx(S.bAppstore),
+        other: tx(S.bOtherMalformed),
+        untracked: tx(S.bUntracked),
+      })[b] ?? b;
+    const t = r.totals;
+    const out: string[] = [
+      line(tx(S.repTitle), monthLabelFor(r.month, lang)),
+      line("", tx(S.repDefs)),
+      "",
+      line(tx(S.repSessions), t.sessions),
+      line(tx(S.repOrders), t.orders),
+      line(tx(S.repCancelled), t.cancelled),
+      line(tx(S.repRevenue), t.revenue),
+      line(tx(S.repDelivery), t.delivery_fees),
+      line(tx(S.repCR), t.cr !== null ? `${t.cr}%` : ""),
+      line(tx(S.repAOV), t.aov),
+      line(tx(S.repSpend), t.spend),
+      line(tx(S.repSpendPct), t.spend_pct_of_revenue !== null ? `${t.spend_pct_of_revenue}%` : ""),
+      "",
+      line(tx(S.repSpendByAccount)),
+      ...r.spend_by_account.map((a) => line(a.account, a.spend)),
+      "",
+      line(tx(S.repSource), tx(S.repSessions), tx(S.repOrders), tx(S.repCancelled), "CR %", tx(S.repRevenue), tx(S.repAOV)),
+      ...r.rows.map((row) => line(bucketLabel(row.bucket), row.sessions, row.orders, row.cancelled, row.cr, row.revenue, row.aov)),
+      line(tx(S.repTotal), t.sessions, t.orders, t.cancelled, t.cr, t.revenue, t.aov),
+      "",
+      line(tx(S.repCampaignBlock)),
+      line(tx(S.repOrdersWithCampaign), `${r.campaigns.orders_with_campaign} (${r.campaigns.pct_of_orders ?? 0}%)`),
+      line(tx(S.repCampaignRevenue), r.campaigns.campaign_revenue),
+      line(tx(S.repCombosPurch), r.campaigns.combos_on_purchases),
+      line(tx(S.repCombosAll), r.campaigns.combos_all_traffic),
+    ];
+    // BOM so Excel opens the Arabic labels correctly
+    downloadCsv(`source-report-${r.month.slice(0, 7)}.csv`, "﻿" + out.join("\n"));
+  }, [supabase, month, tx, lang]);
 
   const runLookup = useCallback(async () => {
     const q = lookupQuery.trim();
@@ -536,8 +663,7 @@ export default function GapsPage() {
     );
   }
 
-  const monthLabel = (iso: string) =>
-    new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  const monthLabel = (iso: string) => monthLabelFor(iso, lang);
 
   const t = report?.tracking;
   const trackedPct = t ? pct(t.tracked, t.orders) : null;
@@ -629,6 +755,13 @@ export default function GapsPage() {
             </select>
             <button onClick={load} className="btn-secondary flex items-center gap-1.5 text-sm">
               <RefreshCw size={14} /> {tx(S.refresh)}
+            </button>
+            <button
+              onClick={downloadMonthlyReport}
+              disabled={reportBusy}
+              className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <Download size={14} /> {tx(S.monthlyReport)}
             </button>
           </div>
         }
