@@ -259,6 +259,10 @@ begin
 
   update public.ad_sync_jobs
      set status      = p_status,
+         -- Being throttled is not the month's fault. Putting a job back as
+         -- 'pending' undoes the claim's attempt increment, so a run that
+         -- pauses three times doesn't retire a perfectly good job.
+         attempts    = case when p_status = 'pending' then greatest(0, attempts - 1) else attempts end,
          row_count   = coalesce(p_rows, row_count),
          spend_total = coalesce(p_spend, spend_total),
          last_error  = case when p_status = 'error' then left(coalesce(p_error, 'failed'), 400) else null end,
