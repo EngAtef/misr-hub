@@ -95,51 +95,60 @@ function creativeLink(c: CreativeShape | undefined): string | null {
 
 /**
  * Ad-level status and destination aren't part of the Insights response, so
- * they come from the /ads edge and are joined on ad_id.
+ * they're fetched separately and joined on ad_id.
  *
- * Both are CURRENT state, not history — the same answer for every month — so a
- * backfill fetches them once per account and reuses the map across all 30-odd
- * months. Re-listing every ad in the account once per month would multiply the
- * request count for identical data, which is precisely the traffic pattern
- * Meta's rate limits exist to stop.
+ * By ID, not by listing the account. Walking /act_X/ads measured 37-44s for
+ * one account — on its own more than the whole function is allowed — because
+ * it returns every ad ever created (1,440 on the culture account) with its
+ * creative attached. Filtering by effective_status barely helped and a large
+ * page size made Meta refuse outright.
+ *
+ * The insights response has already named the handful of ads that actually
+ * ran in the window, so ask for exactly those: one request per 40 ads, which
+ * for a live month is one or two calls instead of eight pages.
  */
-const adMetaCache = new Map<string, { at: number; map: Map<string, AdMeta> }>();
-const AD_META_TTL_MS = 30 * 60_000;
+/** Meta caps a filter list; 50 ids per request keeps every response small and
+ *  well under the "reduce the amount of data" threshold. */
+const AD_META_BATCH = 50;
 
-export async function fetchAdMeta(token: string, accountId: string): Promise<Map<string, AdMeta>> {
+export async function fetchAdMeta(token: string, accountId: string, adIds: string[]): Promise<Map<string, AdMeta>> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-  const hit = adMetaCache.get(act);
-  if (hit && Date.now() - hit.at < AD_META_TTL_MS) return hit.map;
-
   const out = new Map<string, AdMeta>();
-  const url = new URL(`https://graph.facebook.com/v26.0/${act}/ads`);
-  url.searchParams.set("fields", "id,effective_status,creative{link_url,object_story_spec,asset_feed_spec}");
-  url.searchParams.set("limit", "200");
-  url.searchParams.set("access_token", token);
+  const ids = Array.from(new Set(adIds.filter(Boolean)));
+  if (!ids.length) return out;
 
-  let next: string | null = url.toString();
-  for (let page = 0; page < 15 && next; page++) {
+  for (let i = 0; i < ids.length; i += AD_META_BATCH) {
+    const batch = ids.slice(i, i + AD_META_BATCH);
+    const url = new URL(`https://graph.facebook.com/v26.0/${act}/ads`);
+    url.searchParams.set("fields", "id,effective_status,creative{link_url,object_story_spec,asset_feed_spec}");
+    url.searchParams.set("limit", String(AD_META_BATCH));
+    // The v26 `ids=` shortcut is gone (deprecated, returns 500), and listing
+    // the account returns every ad ever created — 1,440 on the culture
+    // account, 44 seconds. Filtering the edge to the ads we already know ran
+    // is the same answer in about two.
+    url.searchParams.set("filtering", JSON.stringify([{ field: "ad.id", operator: "IN", value: batch }]));
+    url.searchParams.set("access_token", token);
+
     await beforeCall(act);
-    const res = await fetch(next, { cache: "no-store", headers: { "User-Agent": "misr-hub/1.0 (+ads-center)" } });
+    const res = await fetch(url, { cache: "no-store", headers: { "User-Agent": "misr-hub/1.0 (+ads-center)" } });
     recordUsage(act, res.headers);
     const json = (await res.json().catch(() => ({}))) as {
       data?: { id: string; effective_status?: string; creative?: CreativeShape }[];
-      paging?: { next?: string };
       error?: { message?: string };
     };
+
     // creative access can be restricted while insights still work — the sync
     // is still useful without links, so this failure is not fatal
     if (!res.ok || json.error) break;
+
     for (const ad of json.data ?? []) {
       out.set(ad.id, {
         status: ad.effective_status?.toLowerCase() ?? null,
         destUrl: creativeLink(ad.creative),
       });
     }
-    next = json.paging?.next ?? null;
   }
 
-  adMetaCache.set(act, { at: Date.now(), map: out });
   return out;
 }
 
@@ -238,9 +247,13 @@ export async function syncRange(
   const adRows = await fetchInsightsAdaptive(token, account.id, { since, until, level: "ad", monthly: true });
 
   let meta = new Map<string, AdMeta>();
-  if (adRows.length) {
+  if (adRows.length && shouldFetchAdMeta(until)) {
     try {
-      meta = await fetchAdMeta(token, account.id);
+      meta = await fetchAdMeta(
+        token,
+        account.id,
+        adRows.map((r) => r.ad_id).filter((x): x is string => !!x)
+      );
     } catch (e) {
       // links are a bonus, not a requirement — but a rate-limit block is not
       // something to swallow, the caller needs to stop
@@ -313,6 +326,20 @@ export const syncAccount = syncRange;
 // ----------------------------------------------------------------- windows
 
 const iso = (x: Date) => x.toISOString().slice(0, 10);
+
+/**
+ * Delivery status and destination URL describe an ad as it is RIGHT NOW —
+ * Meta has no history for either. Attaching today's status to a quarter from
+ * 2024 says nothing true, and the autolink they feed only matters for ads
+ * currently running.
+ *
+ * So historical jobs skip it entirely and carry null — an honest blank rather
+ * than today's status stamped onto a closed quarter.
+ */
+export function shouldFetchAdMeta(until: string, now = new Date()): boolean {
+  const monthStart = iso(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
+  return until >= monthStart;
+}
 
 /** Calendar month containing `d`, clipped to today — Meta rejects future dates. */
 export function monthWindow(d = new Date()): { since: string; until: string } {
