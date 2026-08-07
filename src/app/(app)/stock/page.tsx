@@ -46,6 +46,9 @@ interface MoveList {
 }
 interface MoveItem { list_id: string; sku: string; product_name: string | null; qty: number; shortfall: number; }
 interface Snap { snapshot_date: string; ecom_stock: number | null; sap_stock: number | null; }
+// each side is counted by its own file, so each carries its own date — a
+// single "stock updated" stamp hid a warehouse count that was a week old
+interface Freshness { side: "ecom" | "sap"; taken_at: string | null; skus: number; in_stock: number; units: number; }
 
 const STATUS_META: Record<string, { key: DictKey; style: string }> = {
   move: { key: "statusMove", style: "bg-emerald-100 text-emerald-800" },
@@ -101,7 +104,7 @@ export default function StockPage() {
   const { sort, toggle, apply } = useSort<EngineRow>();
   const [moveEdits, setMoveEdits] = useState<Record<string, string>>({});
   const [hasStockData, setHasStockData] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [freshness, setFreshness] = useState<Freshness[]>([]);
   const [moveLists, setMoveLists] = useState<MoveList[]>([]);
   const [moveItems, setMoveItems] = useState<Record<string, MoveItem[]>>({});
   const [savingList, setSavingList] = useState(false);
@@ -161,18 +164,13 @@ export default function StockPage() {
 
   useEffect(() => {
     loadMoveLists();
-    supabase
-      .from("stock_items")
-      .select("updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .then(({ data }) => setLastUpdate((data as { updated_at: string }[] | null)?.[0]?.updated_at ?? null));
+    supabase.rpc("fn_stock_freshness").then(({ data }) => setFreshness((data as Freshness[] | null) ?? []));
   }, [supabase, loadMoveLists]);
 
-  const staleDays = useMemo(() => {
-    if (!lastUpdate) return null;
-    return Math.floor((Date.now() - new Date(lastUpdate).getTime()) / 86_400_000);
-  }, [lastUpdate]);
+  const staleDaysOf = useCallback(
+    (at: string | null) => (at ? Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000) : null),
+    []
+  );
 
   const effMove = useCallback(
     (r: EngineRow) => {
@@ -422,22 +420,32 @@ export default function StockPage() {
         }
       />
 
-      {lastUpdate && (
-        <div
-          className={cn(
-            "mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",
-            staleDays != null && staleDays > 7
-              ? "bg-red-100 text-red-700"
-              : staleDays != null && staleDays > 3
-                ? "bg-amber-100 text-amber-800"
-                : "bg-emerald-100 text-emerald-800"
-          )}
-        >
-          <Clock size={12} />
-          {t("lastStockUpdate")}: {formatDate(lastUpdate)}
-          {staleDays != null && staleDays > 3 && <span>— {t("stockStaleWarn")}</span>}
-        </div>
-      )}
+      {/* one badge per side: the store and the warehouse are counted by
+          different files and are almost never as fresh as each other */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {(["ecom", "sap"] as const).map((side) => {
+          const f = freshness.find((x) => x.side === side);
+          const days = staleDaysOf(f?.taken_at ?? null);
+          return (
+            <div
+              key={side}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",
+                days == null || days > 7
+                  ? "bg-red-100 text-red-700"
+                  : days > 3
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-emerald-100 text-emerald-800"
+              )}
+            >
+              <Clock size={12} />
+              {t(side === "sap" ? "stockAsOfSap" : "stockAsOfEcom")}:{" "}
+              {f?.taken_at ? formatDate(f.taken_at) : t("stockNeverUploaded")}
+              {days != null && days > 3 && <span>— {t("stockStaleWarn")}</span>}
+            </div>
+          );
+        })}
+      </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6 mb-4">
         <KpiCard label={t("moveQty")} value={formatNumber(kpis.toMove)} sub={`${kpis.moveSkus} SKU`} accent="green" />

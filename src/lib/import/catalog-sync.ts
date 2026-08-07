@@ -111,7 +111,9 @@ export async function syncCatalogUpload(
     savedProducts += chunk.length;
   }
 
-  // 2) e-commerce stock sync
+  // 2) register the SKUs in the stock engine. The catalogue may be an old
+  // download, so its stock column only seeds books nobody has counted yet —
+  // the Data Center's e-commerce stock card owns the live number.
   const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
   let syncedStock = 0;
   let stockFailed = false;
@@ -120,11 +122,10 @@ export async function syncCatalogUpload(
       sku: b.sku,
       product_name: b.name ?? b.english_name ?? "",
       ecom_stock: String(b.stock_qty),
-      sap_stock: "",
       category: b.section ?? "",
       vendor: b.vendor ?? "",
     }));
-    const { error } = await supabase.rpc("fn_upsert_stock", { p_rows: chunk });
+    const { error } = await supabase.rpc("fn_upsert_stock_catalog", { p_rows: chunk });
     if (error) {
       stockFailed = true;
       break;

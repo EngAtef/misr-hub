@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
-import { parseStockFile, type StockRow } from "@/lib/import/parse-stock";
+import { parseStockFile, snapshotTakenAt, type StockSnapshot } from "@/lib/import/parse-stock";
 import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
 import { parseAdsFile, type ParsedAdReport } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
@@ -22,6 +22,24 @@ import { parseAbandonedAny, type AbandonedParsed } from "@/lib/import/parse-aban
 import { parseCustomListsFile, type ParsedCustomLists } from "@/lib/import/parse-custom-lists";
 
 const CHUNK_SIZE = 250;
+// a stock snapshot is one file per side; the rows go up in chunks and the
+// SKU list is settled in a single call at the end
+const STOCK_CHUNK = 1500;
+
+interface StockFreshness {
+  side: "ecom" | "sap";
+  taken_at: string | null;
+  skus: number;
+  in_stock: number;
+  units: number;
+}
+
+interface StockPreview {
+  matched?: number;
+  ecom_missing?: number;
+  sap_missing?: number;
+  sap_missing_units?: number;
+}
 
 interface UploadRecord {
   id: string;
@@ -41,7 +59,8 @@ type UploadType =
   | "products"
   | "product_sales"
   | "promos"
-  | "stock"
+  | "stock_ecom"
+  | "stock_sap"
   | "costs"
   | "ga4_pages"
   | "ga4_tx"
@@ -80,11 +99,18 @@ const TEMPLATES: Record<string, string> = {
     "id,name,description,amount,minimum_order_amount,type,uses,start_date,expiration_date,max_uses_per_user,max_usage_limit,free_delivery,active\r\n" +
     "5,DIS5,5% extra discount,5,300.00,2,188,2025-05-06 00:00:00,2025-06-11 00:00:00,,,0,1\r\n" +
     "# This is the platform Promos export. type: 1 = fixed EGP / 2 = percent / 3 = free delivery / 4 = gift.",
-  stock:
-    "Sku,product name,ecom,sap,category\r\n" +
-    "SKU001,Book A,50,120,Kids\r\n" +
-    "SKU002,Book B,0,30,Cultural\r\n" +
-    "# Or upload the raw SAP export directly (columns: Material, Material Description, Unrestricted...).",
+  stock_ecom:
+    "Sku,product name,ecom,category\r\n" +
+    "SKU001,Book A,50,Kids\r\n" +
+    "SKU002,Book B,0,Cultural\r\n" +
+    "# Or upload the platform ProductStockExport as it downloads — available stock = stock - reserved_stock.\r\n" +
+    "# Every SKU on the store must be in the file: what is missing is taken to be no longer listed.",
+  stock_sap:
+    "Sku,product name,sap\r\n" +
+    "SKU001,Book A,120\r\n" +
+    "SKU002,Book B,30\r\n" +
+    "# Or upload the raw SAP export directly (columns: Material, Material Description, Unrestricted...).\r\n" +
+    "# Every material with stock must be in the file: what is missing is taken to be zero.",
   costs:
     "SKU,cost\r\n" +
     "SKU001,45\r\n" +
@@ -146,7 +172,8 @@ interface Pending {
   products?: CatalogBook[];
   productSales?: ProductSaleRow[];
   promos?: PromoRow[];
-  stock?: StockRow[];
+  stock?: StockSnapshot;
+  stockTakenAt?: string;
   costs?: CostRow[];
   ga4?: Ga4AnyParsed;
   ads?: ParsedAdReport;
@@ -154,6 +181,10 @@ interface Pending {
   customLists?: ParsedCustomLists;
   count: number;
   extra?: string;
+  // shown in amber above the import button when the file changes more than
+  // the rows it contains, or contradicts what is already on record
+  note?: string;
+  warn?: string;
 }
 
 export default function DataCenterPage() {
@@ -201,7 +232,8 @@ export default function DataCenterPage() {
     { key: "products", icon: Package, title: t("uploadProducts"), hint: t("uploadProductsHint"), accept: ".xlsx,.xls,.csv,.html" },
     { key: "product_sales", icon: Tags, title: t("uploadProductSales"), hint: t("uploadProductSalesHint"), accept: ".xlsx,.xls,.csv" },
     { key: "promos", icon: TicketPercent, title: t("uploadPromos"), hint: t("uploadPromosHint"), accept: ".xlsx,.xls,.csv" },
-    { key: "stock", icon: Boxes, title: t("uploadStock"), hint: t("uploadSapHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "stock_ecom", icon: Boxes, title: t("uploadStockEcom"), hint: t("uploadStockEcomHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "stock_sap", icon: Warehouse, title: t("uploadStockSap"), hint: t("uploadStockSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
     { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
@@ -291,11 +323,47 @@ export default function DataCenterPage() {
         const rows = parsePromosFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "promos", fileName: file.name, promos: rows, count: rows.length });
-      } else if (activeType === "stock") {
+      } else if (activeType === "stock_ecom" || activeType === "stock_sap") {
+        const side = activeType === "stock_sap" ? "sap" : "ecom";
         const buffer = await file.arrayBuffer();
-        const rows = parseStockFile(buffer);
-        if (!rows.length) throw new Error(t("invalidFile"));
-        setPending({ type: "stock", fileName: file.name, stock: rows, count: rows.length });
+        const parsed = parseStockFile(buffer);
+        if (!parsed.rows.length) throw new Error(t("invalidFile"));
+        // the card decides which side is replaced; the file must actually
+        // carry that column, so a SAP export can't land on the store card
+        if (parsed.side !== side && parsed.side !== "both") throw new Error(t("wrongFileForCard"));
+        const rows = parsed.rows.filter((r) => (side === "sap" ? r.sap_stock !== null : r.ecom_stock !== null));
+        if (!rows.length) throw new Error(t("wrongFileForCard"));
+        const snap: StockSnapshot = { side, rows };
+
+        // this file is the whole truth for its side, so say plainly how many
+        // SKUs on record it contradicts and whether it is older than the
+        // count already stored
+        const taken = snapshotTakenAt(file.name) ?? new Date();
+        const [{ data: preview }, { data: fresh }] = await Promise.all([
+          supabase.rpc("fn_stock_snapshot_preview", { p_skus: rows.map((r) => r.sku), p_side: side }),
+          supabase.rpc("fn_stock_freshness"),
+        ]);
+        const p = (preview ?? {}) as StockPreview;
+        const missing = side === "sap" ? Number(p.sap_missing ?? 0) : Number(p.ecom_missing ?? 0);
+        const lostUnits = Number(p.sap_missing_units ?? 0);
+        const cur = ((fresh as StockFreshness[] | null) ?? []).find((r) => r.side === side);
+        setPending({
+          type: activeType,
+          fileName: file.name,
+          stock: snap,
+          stockTakenAt: taken.toISOString(),
+          count: rows.length,
+          extra: `${side === "sap" ? t("stockSideSap") : t("stockSideEcom")} · ${t("stockReplaces")}`,
+          note:
+            missing > 0
+              ? `${formatNumber(missing)} ${side === "sap" ? t("stockWillZero") : t("stockWillClear")}` +
+                (side === "sap" && lostUnits > 0 ? ` — ${formatNumber(lostUnits)} ${t("stockUnitsDropped")}` : "")
+              : undefined,
+          warn:
+            cur?.taken_at && new Date(cur.taken_at).getTime() > taken.getTime() + 60_000
+              ? `${t("stockOlderFile")} ${formatDateTime(cur.taken_at)}`
+              : undefined,
+        });
       } else if (activeType === "costs") {
         const buffer = await file.arrayBuffer();
         const rows = parseCostsFile(buffer);
@@ -469,12 +537,32 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.promos.length) * 100));
         }
         await recordUpload(pending.fileName, pending.promos.length, ok, 0);
-      } else if (pending.type === "stock" && pending.stock) {
-        const { data, error } = await supabase.rpc("fn_upsert_stock", { p_rows: pending.stock });
-        if (error) throw new Error(error.message);
-        setProcessed(Number(data ?? pending.stock.length));
+      } else if ((pending.type === "stock_ecom" || pending.type === "stock_sap") && pending.stock) {
+        // the file replaces its side outright: rows first, then every SKU it
+        // did not mention is settled against the same snapshot time
+        const snap = pending.stock;
+        const takenAt = pending.stockTakenAt ?? new Date().toISOString();
+        let ok = 0;
+        for (let i = 0; i < snap.rows.length; i += STOCK_CHUNK) {
+          const chunk = snap.rows.slice(i, i + STOCK_CHUNK);
+          const { error } = await supabase.rpc("fn_upsert_stock_side", {
+            p_rows: chunk,
+            p_side: snap.side,
+            p_taken_at: takenAt,
+          });
+          if (error) throw new Error(error.message);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / snap.rows.length) * 95));
+        }
+        const { error: finErr } = await supabase.rpc("fn_finalize_stock_side", {
+          p_skus: snap.rows.map((r) => r.sku),
+          p_side: snap.side,
+          p_taken_at: takenAt,
+        });
+        if (finErr) throw new Error(finErr.message);
         setProgress(100);
-        await recordUpload(pending.fileName, pending.stock.length, Number(data ?? pending.stock.length), 0);
+        await recordUpload(pending.fileName, snap.rows.length, ok, 0);
       } else if (pending.type === "costs" && pending.costs) {
         let ok = 0;
         for (let i = 0; i < pending.costs.length; i += 2000) {
@@ -726,6 +814,16 @@ export default function DataCenterPage() {
                 )}
               </div>
             </div>
+            {pending.note && (
+              <div className="mx-auto max-w-md rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+                {pending.note}
+              </div>
+            )}
+            {pending.warn && (
+              <div className="mx-auto max-w-md rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-700">
+                {pending.warn}
+              </div>
+            )}
             <div className="flex justify-center gap-3">
               <button className="btn-primary" onClick={startImport}>
                 {t("startImport")}

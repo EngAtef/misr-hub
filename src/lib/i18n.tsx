@@ -520,6 +520,7 @@ const dict = {
   },
   // Ads
   ads: { ar: "مركز الإعلانات", en: "Ads Center" },
+  gaps: { ar: "الفجوات", en: "GAPS" },
   adsSubtitle: { ar: "أداء إعلانات السوشيال بالإيراد الفعلي من المبيعات مقابل ما تقوله المنصة", en: "Social ad performance by ACTUAL sales revenue vs what the platform reports" },
   importAds: { ar: "استيراد تقرير إعلانات", en: "Import Ads Report" },
   adsImportHint: { ar: "اسحب ملف تقرير ميتا (Excel) هنا — أو استخدم مركز الإعلانات لرفع أكتر من ملف مرة واحدة", en: "Drop a Meta Ads Manager export (Excel) here — or use the Ads Center to upload several at once" },
@@ -691,8 +692,6 @@ const dict = {
   // Data Center hub
   uploadGa4: { ar: "تقرير GA4 شهري", en: "GA4 Monthly Report" },
   uploadGa4Hint: { ar: "ملف Pages and screens من GA4 (.csv) — يتعرف على الشهر تلقائياً", en: "GA4 Pages & screens export (.csv) — month auto-detected" },
-  uploadStock: { ar: "ملف المخزون", en: "Stock Levels File" },
-  uploadStockHint: { ar: "ملف فيه أعمدة: Sku, ecom, sap (والفئة اختياري) — Excel أو CSV", en: "File with columns: Sku, ecom, sap (category optional) — Excel or CSV" },
   uploadAdsHere: { ar: "تقرير إعلانات", en: "Ads Report" },
   uploadOrdersHint2: { ar: "ملف OrderExport من المنصة — الطلبات والعملاء معاً", en: "OrderExport file — orders and customers together" },
   chooseUploadType: { ar: "اختر نوع الملف", en: "Choose what to upload" },
@@ -731,6 +730,28 @@ const dict = {
   stockValueNote: { ar: "القيمة = التكلفة إن رُفعت، وإلا متوسط سعر البيع الأخير", en: "Value = unit cost when uploaded, otherwise recent avg selling price" },
   lastStockUpdate: { ar: "آخر تحديث للمخزون", en: "Stock updated" },
   stockStaleWarn: { ar: "بيانات المخزون قديمة — ارفع ملفاً حديثاً من مركز البيانات", en: "Stock data is stale — upload a fresh file from the Data Center" },
+  // an uploaded stock file replaces its own side of the picture in full
+  stockSideEcom: { ar: "مخزون المتجر", en: "Store stock" },
+  stockSideSap: { ar: "مخزون SAP", en: "SAP stock" },
+  stockSideBoth: { ar: "مخزون المتجر و SAP", en: "Store + SAP stock" },
+  stockReplaces: { ar: "يحل محل المسجَّل بالكامل", en: "replaces what is on record" },
+  stockWillClear: { ar: "صنف مسجَّل غير موجود في الملف — سيُعتبر غير معروض على المتجر", en: "SKUs on record are not in this file — they will read as not listed on the store" },
+  stockWillZero: { ar: "صنف مسجَّل غير موجود في الملف — سيصبح صفراً", en: "SKUs on record are not in this file — they will be written down to zero" },
+  stockOlderFile: { ar: "هذا الملف أقدم من المخزون المسجَّل بتاريخ", en: "This file is older than the stock already on record from" },
+  stockNeverUploaded: { ar: "لم يُرفع بعد", en: "never uploaded" },
+  stockUnitsDropped: { ar: "نسخة كانت مسجَّلة في SAP", en: "copies that were on record in SAP" },
+  uploadStockEcom: { ar: "مخزون المتجر الإلكتروني", en: "E-commerce Stock" },
+  uploadStockEcomHint: {
+    ar: "ملف ProductStockExport من المنصة — هو المخزون الحالي على المتجر ويحل محل المسجَّل بالكامل",
+    en: "The platform ProductStockExport — this is the stock live on the store now, and it replaces what is on record in full",
+  },
+  uploadStockSap: { ar: "مخزون SAP (المخزن)", en: "SAP Warehouse Stock" },
+  uploadStockSapHint: {
+    ar: "ملف SAP (Material / Unrestricted) — هو رصيد المخزن الحالي، وأي صنف غير موجود في الملف يصبح صفراً",
+    en: "The SAP export (Material / Unrestricted) — this is the warehouse on hand now; any material not in the file becomes zero",
+  },
+  stockAsOfEcom: { ar: "مخزون المتجر بتاريخ", en: "Store stock as of" },
+  stockAsOfSap: { ar: "مخزون SAP بتاريخ", en: "SAP stock as of" },
   allVendors: { ar: "كل الناشرين", en: "All vendors" },
   allCategories: { ar: "كل الفئات", en: "All categories" },
   vendorCol: { ar: "الناشر", en: "Vendor" },
@@ -941,7 +962,6 @@ const dict = {
   uploadGa4ItemsHint: { ar: "تقرير Ecommerce purchases Item name شهري (.csv)", en: "Monthly Ecommerce purchases (Item name) export (.csv)" },
   wrongFileForCard: { ar: "هذا الملف لا يطابق هذا النوع — اختر الكارت الصحيح", en: "This file doesn't match this upload type — pick the right card" },
   ga4SpanTooLong: { ar: "الملف يغطي أكثر من شهر — صدّر من GA4 شهراً واحداً فقط (من أول يوم لآخر يوم في الشهر)", en: "File spans more than one month — export a single month from GA4 (1st to last day)" },
-  uploadSapHint: { ar: "ملف SAP (Material / Unrestricted) أو ProductStockExport من المنصة أو ملف بأعمدة Sku و ecom و sap", en: "SAP export (Material / Unrestricted), the platform ProductStockExport, or a file with Sku, ecom, sap columns" },
   goToCatalog: { ar: "تقرير اكتمال البيانات — افتح الصفحة", en: "Catalog quality report — open page" },
   // Ads note
   adsOverlapNote: { ar: "ملاحظة: الإيراد الفعلي يُحسب لكل إعلان على حدة بالكلمة المفتاحية — الإعلانات المتشابهة قد تتقاسم نفس الطلبات فلا تجمع أرقامها معاً", en: "Note: actual revenue is matched per-ad by keyword — similar ads may share the same orders, so don't sum their rows together" },

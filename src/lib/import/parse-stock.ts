@@ -9,6 +9,26 @@ export interface StockRow {
   vendor?: string | null;
 }
 
+// Which stock is this file the truth about? An upload replaces its own
+// side wholesale and never touches the other one.
+export type StockSide = "ecom" | "sap" | "both";
+
+export interface StockSnapshot {
+  side: StockSide;
+  rows: StockRow[];
+}
+
+// The platform names its exports ProductStockExport_<user>_<unix seconds>,
+// so a file downloaded last week can be recognised as last week's count
+// rather than today's. Anything outside a sane range is ignored.
+export function snapshotTakenAt(fileName: string): Date | null {
+  const m = fileName.match(/(?:^|[_-])(1[5-9]\d{8}|2\d{9})(?:\D|$)/);
+  if (!m) return null;
+  const d = new Date(parseInt(m[1], 10) * 1000);
+  if (isNaN(d.getTime()) || d.getTime() > Date.now() + 86_400_000) return null;
+  return d;
+}
+
 function findKey(keys: string[], candidates: string[]): string | null {
   for (const c of candidates) {
     const k = keys.find((x) => x.toLowerCase().replace(/[\s_-]/g, "") === c);
@@ -31,7 +51,7 @@ function num(v: unknown): number | null {
 // current stock, sap / sap stock / warehouse, category.
 // Also auto-detects raw SAP exports (Material / Unrestricted per storage
 // location) and aggregates quantities per material.
-export function parseStockFile(data: ArrayBuffer): StockRow[] {
+export function parseStockFile(data: ArrayBuffer): StockSnapshot {
   const wb = XLSX.read(data, { type: "array", raw: false });
 
   // SAP export detection: look across sheets for Material + Unrestricted
@@ -52,19 +72,22 @@ export function parseStockFile(data: ArrayBuffer): StockRow[] {
         if (prev) prev.qty += qty;
         else agg.set(sku, { name: descKey && row[descKey] ? String(row[descKey]).trim() : null, qty });
       }
-      return Array.from(agg.entries()).map(([sku, v]) => ({
-        sku,
-        product_name: v.name,
-        ecom_stock: null,
-        sap_stock: v.qty,
-        category: null,
-      }));
+      return {
+        side: "sap",
+        rows: Array.from(agg.entries()).map(([sku, v]) => ({
+          sku,
+          product_name: v.name,
+          ecom_stock: null,
+          sap_stock: v.qty,
+          category: null,
+        })),
+      };
     }
   }
 
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: false, defval: null });
-  if (!rows.length) return [];
+  if (!rows.length) return { side: "ecom", rows: [] };
 
   const keys = Object.keys(rows[0]);
 
@@ -92,10 +115,10 @@ export function parseStockFile(data: ArrayBuffer): StockRow[] {
         vendor: brandKey && row[brandKey] ? String(row[brandKey]).trim() : null,
       });
     }
-    return out;
+    return { side: "ecom", rows: out };
   }
   const skuKey = findKey(keys, ["sku", "code", "الكود"]);
-  if (!skuKey) return [];
+  if (!skuKey) return { side: "ecom", rows: [] };
   const nameKey = findKey(keys, ["productname", "name", "product", "الاسم", "اسم"]);
   const ecomKey = findKey(keys, ["ecomstock", "ecom", "ecommercestock", "currentstock", "onlinestock", "webstock", "المتجر"]);
   const sapKey = findKey(keys, ["sapstock", "sap", "warehousestock", "warehouse", "المخزن"]);
@@ -115,5 +138,8 @@ export function parseStockFile(data: ArrayBuffer): StockRow[] {
       category: catKey && row[catKey] ? String(row[catKey]).trim() : null,
     });
   }
-  return out;
+  // a hand-made sheet may carry one column or both; only the columns that
+  // are actually there get replaced
+  const side: StockSide = ecomKey && sapKey ? "both" : sapKey ? "sap" : "ecom";
+  return { side, rows: out };
 }
