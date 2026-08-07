@@ -191,9 +191,23 @@ const S = {
   repGapsTitle: { ar: "فجوات التتبع", en: "Tracking gaps" },
   repTitle: { ar: "تقرير المصادر والإيراد الشهري", en: "Monthly Source & Revenue Report" },
   repDefs: {
-    ar: "الإيراد = قيمة المنتجات فقط (بدون الشحن)؛ الطلبات الملغاة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط",
-    en: "Revenue = products value only (delivery excluded); cancelled orders counted but revenue removed; attribution = GA4 last-click matched to order records; spend summed at ad level only",
+    ar: "الإيراد = قيمة منتجات المكتبة فقط (بدون الشحن وبدون الأضواء)؛ الطلبات الملغاة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط",
+    en: "Revenue = bookstore products value only (delivery and AL-Adwaa excluded); cancelled orders counted but revenue removed; attribution = GA4 last-click matched to order records; spend summed at ad level only",
   },
+  repOnePool: {
+    ar: "كل حسابات ميتا إعلانات للمكتبة ككل — أسماء الحسابات لا تعني فئات منتجات",
+    en: "All Meta accounts advertise the bookstore overall — account names are not product categories",
+  },
+  repAdwaaTitle: { ar: "الأضواء (خارج حسابات الإعلانات — للعلم)", en: "AL-Adwaa (outside ad metrics — for information)" },
+  repAdwaaRevenue: { ar: "إيراد الأضواء (ج.م)", en: "AL-Adwaa revenue (EGP)" },
+  repAdwaaOrders: { ar: "طلبات فيها أضواء", en: "Orders containing AL-Adwaa" },
+  repAdwaaOnly: { ar: "طلبات أضواء فقط", en: "AL-Adwaa-only orders" },
+  repAdwaaFromAds: { ar: "أضواء اشتراها زوار الإعلانات (ج.م)", en: "AL-Adwaa bought by ad visitors (EGP)" },
+  repAdwaaNote: {
+    ar: "الأضواء غير مُعلَن عنها، فقيمتها مستبعدة من كل أرقام الإعلانات (الإيراد، MER، نسبة الإنفاق). لكن جزء من زوار الإعلانات بيشتري أضواء — الرقم ده معلومة إضافية مش أداء إعلان.",
+    en: "AL-Adwaa is not advertised, so its value is excluded from every ads number (revenue, MER, spend share). But some ad visitors do buy AL-Adwaa — that figure is extra information, not ad performance.",
+  },
+  repInclAdwaa: { ar: "الإيراد شامل الأضواء", en: "Revenue incl. AL-Adwaa" },
   repSessions: { ar: "الجلسات", en: "Sessions" },
   repOrders: { ar: "الطلبات", en: "Orders" },
   repCancelled: { ar: "ملغاة", en: "Cancelled" },
@@ -366,6 +380,7 @@ interface SourceReport {
     orders: number;
     cancelled: number;
     revenue: number;
+    revenue_incl_adwaa: number;
     delivery_fees: number;
     spend: number;
     cr: number | null;
@@ -379,9 +394,17 @@ interface SourceReport {
     orders: number;
     cancelled: number;
     revenue: number;
+    adwaa_revenue: number;
     cr: number | null;
     aov: number | null;
   }[];
+  adwaa: {
+    revenue: number;
+    orders: number;
+    adwaa_only_orders: number;
+    from_ads_revenue: number;
+    from_ads_orders: number;
+  };
   campaigns: {
     orders_with_campaign: number;
     pct_of_orders: number | null;
@@ -475,7 +498,16 @@ export default function GapsPage() {
       line(tx(S.repSpendPct), t.spend_pct_of_revenue !== null ? `${t.spend_pct_of_revenue}%` : ""),
       "",
       line(tx(S.repSpendByAccount)),
+      line("", tx(S.repOnePool)),
       ...r.spend_by_account.map((a) => line(a.account, a.spend)),
+      "",
+      line(tx(S.repAdwaaTitle)),
+      line("", tx(S.repAdwaaNote)),
+      line(tx(S.repAdwaaRevenue), r.adwaa.revenue),
+      line(tx(S.repAdwaaOrders), r.adwaa.orders),
+      line(tx(S.repAdwaaOnly), r.adwaa.adwaa_only_orders),
+      line(tx(S.repAdwaaFromAds), `${r.adwaa.from_ads_revenue} (${r.adwaa.from_ads_orders} ${tx(S.uniqueOrders)})`),
+      line(tx(S.repInclAdwaa), r.totals.revenue_incl_adwaa),
       "",
       line(tx(S.repSource), tx(S.repSessions), tx(S.repOrders), tx(S.repCancelled), "CR %", tx(S.repRevenue), tx(S.repAOV)),
       ...r.rows.map((row) => line(bucketLabel(row.bucket), row.sessions, row.orders, row.cancelled, row.cr, row.revenue, row.aov)),
@@ -591,7 +623,7 @@ export default function GapsPage() {
   <div class="kpis">
     ${kpi(tx(S.repSessions), nf(t.sessions))}
     ${kpi(tx(S.repOrders), nf(t.orders), `${tx(S.repCancelled)}: ${nf(t.cancelled)}`)}
-    ${kpi(tx(S.repRevenue), nf(t.revenue))}
+    ${kpi(tx(S.repRevenue), nf(t.revenue), `${tx(S.repInclAdwaa)}: ${nf(t.revenue_incl_adwaa)}`)}
     ${kpi(tx(S.repCR), pc(t.cr))}
     ${kpi(tx(S.repAOV), nf(t.aov))}
     ${kpi(tx(S.repSpend), nf(t.spend), `${tx(S.repSpendPct)}: ${pc(t.spend_pct_of_revenue)}`)}
@@ -611,6 +643,7 @@ export default function GapsPage() {
       <h2>${tx(S.repSpendByAccount)}</h2>
       <table><thead><tr><th>${ar ? "الحساب" : "Account"}</th><th>${tx(S.repSpend)}</th></tr></thead>
       <tbody>${accountRows}<tr class="total"><td class="s">${tx(S.repTotal)}</td><td>${nf(t.spend)}</td></tr></tbody></table>
+      <p class="note">${tx(S.repOnePool)}</p>
     </div>
     <div>
       <h2>${tx(S.repCampaignBlock)}</h2>
@@ -622,6 +655,15 @@ export default function GapsPage() {
       </tbody></table>
     </div>
   </div>
+
+  <h2>${tx(S.repAdwaaTitle)}</h2>
+  <div class="kpis">
+    ${kpi(tx(S.repAdwaaRevenue), nf(r.adwaa.revenue))}
+    ${kpi(tx(S.repAdwaaOrders), nf(r.adwaa.orders), `${tx(S.repAdwaaOnly)}: ${nf(r.adwaa.adwaa_only_orders)}`)}
+    ${kpi(tx(S.repAdwaaFromAds), nf(r.adwaa.from_ads_revenue), `${nf(r.adwaa.from_ads_orders)} ${tx(S.uniqueOrders)}`)}
+    ${kpi(tx(S.repInclAdwaa), nf(t.revenue_incl_adwaa))}
+  </div>
+  <p class="note">${tx(S.repAdwaaNote)}</p>
 
   ${
     rep
