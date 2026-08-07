@@ -131,6 +131,29 @@ const S = {
     ar: "GSC بيعدّ ضغطات نتائج البحث فقط، وGA4 بيعدّ الجلسات — طبيعي GA4 يكون أعلى شوية. الرقمين قريبين = التتبع سليم.",
     en: "GSC counts search-result clicks only while GA4 counts sessions — GA4 being slightly higher is normal. Close numbers = healthy tracking.",
   },
+  currentMonth: { ar: "(جاري)", en: "(running)" },
+  dailyTitle: { ar: "يوم بيوم — الطلبات مقابل GA4", en: "Day by day — orders vs GA4" },
+  dailySub: {
+    ar: "لو يوم نزلت تغطيته فجأة، الفجوة اتفتحت في اليوم ده — اعرف إيه اللي اتغير فيه (إعلان جديد؟ مشكلة دفع؟ تحديث للموقع؟)",
+    en: "If a day's coverage suddenly drops, the gap opened that day — ask what changed (new ad? payment issue? site update?)",
+  },
+  coverage: { ar: "التغطية", en: "Coverage" },
+  ga4Purchases: { ar: "مشتريات GA4", en: "GA4 purchases" },
+  notSyncedYet: { ar: "لم يُزامن بعد", en: "not synced yet" },
+  maybePartial: { ar: "قد يكون جزئيًا", en: "may be partial" },
+  weeklyTitle: { ar: "أسبوع بأسبوع", en: "Week by week" },
+  weeklySub: {
+    ar: "شرائح ثابتة (١–٧، ٨–١٤...) عشان تطابق فترات مزامنة ميتا الأسبوعية. أرقام ميتا الأسبوعية متاحة من أغسطس ٢٠٢٦ (يوليو كان استيراد شهري واحد).",
+    en: "Fixed slices (1–7, 8–14…) matching Meta's weekly sync periods. Weekly Meta numbers exist from Aug 2026 onward (July was one monthly import).",
+  },
+  week: { ar: "الأسبوع", en: "Week" },
+  metaSpendCol: { ar: "إنفاق ميتا", en: "Meta spend" },
+  mer: { ar: "MER (إيراد ÷ إنفاق)", en: "MER (revenue ÷ spend)" },
+  daysNotSynced: { ar: "أيام غير مُزامنة", en: "days not synced" },
+  syncLagBanner: {
+    ar: "الشهر لسه شغال: الطلبات واصلة حتى {orders} لكن GA4 مُزامن حتى {ga4} بس — نسبة التتبع هتبان أقل من حقيقتها لحد ما GA4 يلحق. اعتمد على الأيام المُزامنة في الجدول اليومي.",
+    en: "Running month: orders are in through {orders} but GA4 is only synced through {ga4} — the tracking rate will look worse than reality until GA4 catches up. Trust the synced days in the daily table.",
+  },
   howToRead: { ar: "إزاي تقرأ الصفحة دي", en: "How to read this page" },
   howToReadBody: {
     ar: "١) المتجر هو الحقيقة الوحيدة — كل طلب فيه فلوس حقيقية. ٢) GA4 بيشوف الطلبات اللي البكسل نجح يتتبعها بس، وبيوزعها على المصادر بآخر ضغطة. ٣) ميتا بتحسب لنفسها أي طلب من حد شاف أو ضغط إعلان خلال أيام — علشان كده رقمها أكبر من الحقيقة دايمًا. ٤) الفجوات مش معناها بيانات مزيفة: كل معاملة في GA4 اتطابقت مع طلب حقيقي. المشكلة في اللي مش متسجّل، مش في اللي متسجّل.",
@@ -192,6 +215,31 @@ interface Report {
     unmapped_spend: number;
     unmapped_top: { ad_name: string | null; campaign_name: string | null; spend: number }[];
   };
+  daily: DailyRow[];
+  weekly: WeeklyRow[];
+}
+
+interface DailyRow {
+  day: string;
+  orders: number;
+  revenue: number;
+  ga4_purchases: number | null; // null = that day never synced
+  ga4_revenue: number | null;
+  sessions: number | null;
+}
+
+interface WeeklyRow {
+  week_no: number;
+  from: string;
+  to: string;
+  orders: number;
+  revenue: number;
+  ga4_purchases: number | null;
+  ga4_revenue: number | null;
+  unsynced_days: number;
+  meta_spend: number | null;
+  meta_purchases: number | null;
+  meta_value: number | null;
 }
 
 interface GapRow {
@@ -229,11 +277,11 @@ const BUCKET_LABELS: Record<string, Bi> = {
   other: S.bOther,
 };
 
-// last 13 full months, newest first; default = previous month
+// current month first (the one being fixed), then 13 back
 function monthOptions(): string[] {
   const now = new Date();
   const list: string[] = [];
-  for (let i = 1; i <= 13; i++) {
+  for (let i = 0; i <= 13; i++) {
     list.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 10));
   }
   return list;
@@ -478,6 +526,12 @@ export default function GapsPage() {
       ]
     : [];
 
+  // running month: GA4 syncs behind orders, so month-level rates undercount
+  const isCurrentMonth = month === months[0];
+  const ga4Through = report?.ga4.last_day ?? null;
+  const ordersThrough = report?.freshness.orders_last_date?.slice(0, 10) ?? null;
+  const syncLag = isCurrentMonth && ga4Through && ordersThrough && ga4Through < ordersThrough;
+
   const visibleUntracked = showAllUntracked ? untracked : untracked.slice(0, 12);
   const sortedBooks = [...gapRows].sort((a, b) => b.spend - a.spend);
   const visibleBooks = showAllBooks ? sortedBooks : sortedBooks.slice(0, 12);
@@ -505,9 +559,10 @@ export default function GapsPage() {
               onChange={(e) => setMonth(e.target.value)}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"
             >
-              {months.map((m) => (
+              {months.map((m, i) => (
                 <option key={m} value={m}>
                   {monthLabel(m)}
+                  {i === 0 ? ` ${tx(S.currentMonth)}` : ""}
                 </option>
               ))}
             </select>
@@ -528,6 +583,12 @@ export default function GapsPage() {
 
       {report && (
         <>
+          {syncLag && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+              {tx(S.syncLagBanner).replace("{orders}", ordersThrough ?? "—").replace("{ga4}", ga4Through ?? "—")}
+            </div>
+          )}
+
           {/* ------------------------------------------------ connected sources */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {sourceCards.map((c) => (
@@ -634,6 +695,155 @@ export default function GapsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </ChartCard>
+
+          {/* --------------------------------------------------- day by day */}
+          <ChartCard title={tx(S.dailyTitle)}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.dailySub)}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">{tx(S.date)}</th>
+                    <th className="py-2 text-end">{tx(S.orders)}</th>
+                    <th className="py-2 text-end">{tx(S.ga4Purchases)}</th>
+                    <th className="py-2 text-end">{tx(S.coverage)}</th>
+                    <th className="py-2 text-end">{tx(S.revenue)}</th>
+                    <th className="w-1/4 py-2 ps-3 text-start"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(report.daily ?? []).map((d) => {
+                    const synced = d.sessions !== null;
+                    const isLastSynced = synced && d.day === ga4Through && isCurrentMonth;
+                    const cov = synced && d.orders > 0 ? Math.min(((d.ga4_purchases ?? 0) * 100) / d.orders, 100) : null;
+                    const maxOrders = Math.max(...(report.daily ?? []).map((x) => x.orders), 1);
+                    return (
+                      <tr key={d.day} className={cn("border-b border-slate-100", !synced && "opacity-60")}>
+                        <td className="py-1.5 font-mono text-xs" dir="ltr">
+                          {d.day.slice(5)}
+                        </td>
+                        <td className="py-1.5 text-end font-semibold" dir="ltr">
+                          {formatNumber(d.orders)}
+                        </td>
+                        <td className="py-1.5 text-end" dir="ltr">
+                          {synced ? formatNumber(d.ga4_purchases) : "—"}
+                        </td>
+                        <td className="py-1.5 text-end" dir="ltr">
+                          {!synced ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                              {tx(S.notSyncedYet)}
+                            </span>
+                          ) : isLastSynced ? (
+                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                              {tx(S.maybePartial)}
+                            </span>
+                          ) : cov === null ? (
+                            "—"
+                          ) : (
+                            <span
+                              className={cn(
+                                "font-bold",
+                                cov < 70 ? "text-red-600" : cov < 90 ? "text-amber-600" : "text-emerald-600"
+                              )}
+                            >
+                              {cov.toFixed(0)}%
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 text-end text-slate-500" dir="ltr">
+                          {formatMoney(d.revenue, lang)}
+                        </td>
+                        <td className="py-1.5 ps-3">
+                          <div className="space-y-0.5">
+                            <div className="h-1.5 rounded-full bg-emerald-500/80" style={{ width: `${(d.orders * 100) / maxOrders}%` }} />
+                            <div
+                              className="h-1.5 rounded-full bg-sky-500/80"
+                              style={{ width: `${((d.ga4_purchases ?? 0) * 100) / maxOrders}%` }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 flex items-center gap-4 text-[11px] text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-4 rounded-full bg-emerald-500/80" /> {tx(S.orders)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-4 rounded-full bg-sky-500/80" /> {tx(S.ga4Purchases)}
+              </span>
+            </div>
+          </ChartCard>
+
+          {/* -------------------------------------------------- week by week */}
+          <ChartCard title={tx(S.weeklyTitle)}>
+            <p className="mb-3 text-xs text-slate-500">{tx(S.weeklySub)}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 text-start">{tx(S.week)}</th>
+                    <th className="py-2 text-end">{tx(S.orders)}</th>
+                    <th className="py-2 text-end">{tx(S.revenue)}</th>
+                    <th className="py-2 text-end">{tx(S.ga4Purchases)}</th>
+                    <th className="py-2 text-end">{tx(S.coverage)}</th>
+                    <th className="py-2 text-end">{tx(S.metaSpendCol)}</th>
+                    <th className="py-2 text-end">{tx(S.metaValue)}</th>
+                    <th className="py-2 text-end">{tx(S.mer)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(report.weekly ?? []).map((w) => {
+                    const cov = w.unsynced_days === 0 && w.orders > 0 && w.ga4_purchases !== null
+                      ? Math.min((w.ga4_purchases * 100) / w.orders, 100)
+                      : null;
+                    const mer = w.meta_spend && w.meta_spend > 0 ? w.revenue / w.meta_spend : null;
+                    return (
+                      <tr key={w.week_no} className="border-b border-slate-100">
+                        <td className="py-2 font-semibold text-slate-700" dir="ltr">
+                          W{w.week_no} · {w.from.slice(8)}–{w.to.slice(8)}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {formatNumber(w.orders)}
+                        </td>
+                        <td className="py-2 text-end font-semibold" dir="ltr">
+                          {formatMoney(w.revenue, lang)}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {w.ga4_purchases !== null ? formatNumber(w.ga4_purchases) : "—"}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {cov !== null ? (
+                            <span className={cn("font-bold", cov < 70 ? "text-red-600" : cov < 90 ? "text-amber-600" : "text-emerald-600")}>
+                              {cov.toFixed(0)}%
+                            </span>
+                          ) : w.unsynced_days > 0 ? (
+                            <span className="text-[11px] text-slate-400">
+                              {w.unsynced_days} {tx(S.daysNotSynced)}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="py-2 text-end" dir="ltr">
+                          {w.meta_spend !== null ? formatMoney(w.meta_spend, lang) : "—"}
+                        </td>
+                        <td className="py-2 text-end text-amber-700" dir="ltr">
+                          {w.meta_value !== null ? formatMoney(w.meta_value, lang) : "—"}
+                        </td>
+                        <td className="py-2 text-end font-bold" dir="ltr">
+                          {mer !== null ? mer.toFixed(2) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </ChartCard>
 
