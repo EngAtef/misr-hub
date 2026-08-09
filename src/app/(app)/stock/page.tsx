@@ -27,7 +27,7 @@ interface EngineRow {
   move_qty: number;
   shortfall: number;
   surplus: number | null;
-  status: "move" | "low_sap" | "oos_reorder" | "overstock" | "ok";
+  status: "move" | "low_sap" | "oos_reorder" | "overstock" | "relist" | "ok";
   vendor: string | null;
   cost: number | null;
   avg_price: number | null;
@@ -55,8 +55,13 @@ const STATUS_META: Record<string, { key: DictKey; style: string }> = {
   low_sap: { key: "statusLowSap", style: "bg-amber-100 text-amber-800" },
   oos_reorder: { key: "statusOos", style: "bg-red-100 text-red-700" },
   overstock: { key: "statusOverstock", style: "bg-blue-100 text-blue-800" },
+  relist: { key: "statusRelist", style: "bg-violet-100 text-violet-800" },
   ok: { key: "statusOk", style: "bg-slate-100 text-slate-600" },
 };
+
+// "All items" holds every SKU the engine knows (~4.5k); the table is not
+// virtualised, so it renders a page at a time and says so
+const ALL_TAB_CAP = 500;
 
 const ML_META: Record<string, { key: DictKey; style: string }> = {
   pending: { key: "mlPending", style: "bg-amber-100 text-amber-800" },
@@ -64,7 +69,7 @@ const ML_META: Record<string, { key: DictKey; style: string }> = {
   cancelled: { key: "mlCancelled", style: "bg-slate-100 text-slate-600" },
 };
 
-type Tab = "replenish" | "overstock" | "oos" | "forecast" | "lists";
+type Tab = "replenish" | "relist" | "overstock" | "oos" | "forecast" | "all" | "lists";
 
 const SETTINGS_KEY = "nm-stock-engine-settings";
 
@@ -83,6 +88,10 @@ export default function StockPage() {
   const [globalMin, setGlobalMin] = useState(0);
   const [bestsellerMin, setBestsellerMin] = useState(20);
   const [maxOrder, setMaxOrder] = useState(300);
+  // one copy in the warehouse is never worth a trip, so it never becomes a
+  // move line — the shortfall still shows, purchasing still needs it
+  const [minSapMove, setMinSapMove] = useState(2);
+  const [relistQty, setRelistQty] = useState(10);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +106,7 @@ export default function StockPage() {
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const f = sp.get("filter");
-    if (f === "oos" || f === "overstock" || f === "replenish" || f === "forecast" || f === "lists") setTab(f);
+    if (["oos", "overstock", "replenish", "relist", "forecast", "all", "lists"].includes(f ?? "")) setTab(f as Tab);
     const q = sp.get("q");
     if (q) setSearch(q);
   }, []);
@@ -121,6 +130,8 @@ export default function StockPage() {
         if (s.globalMin != null) setGlobalMin(s.globalMin);
         if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
         if (s.maxOrder) setMaxOrder(s.maxOrder);
+        if (s.minSapMove != null) setMinSapMove(s.minSapMove);
+        if (s.relistQty) setRelistQty(s.relistQty);
       }
     } catch {}
     setSettingsReady(true);
@@ -135,20 +146,25 @@ export default function StockPage() {
       p_bestseller_min: bestsellerMin,
       p_bestseller_units: 20,
       p_max_order: maxOrder,
+      p_min_sap_move: minSapMove,
+      p_relist_qty: relistQty,
     });
     const list = (data as EngineRow[]) ?? [];
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [supabase, windowDays, coverDays, globalMin, bestsellerMin, maxOrder]);
+  }, [supabase, windowDays, coverDays, globalMin, bestsellerMin, maxOrder, minSapMove, relistQty]);
 
   useEffect(() => {
     if (!settingsReady) return;
     load();
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ windowDays, coverDays, globalMin, bestsellerMin, maxOrder }));
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({ windowDays, coverDays, globalMin, bestsellerMin, maxOrder, minSapMove, relistQty })
+      );
     } catch {}
-  }, [settingsReady, load, windowDays, coverDays, globalMin, bestsellerMin, maxOrder]);
+  }, [settingsReady, load, windowDays, coverDays, globalMin, bestsellerMin, maxOrder, minSapMove, relistQty]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -196,17 +212,25 @@ export default function StockPage() {
     [rows]
   );
 
-  const filtered = useMemo(() => {
+  // search + vendor + category, before any tab narrows it — the same list
+  // the tab filters slice up, and what tells us a hit is hiding elsewhere
+  const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = rows;
     if (q) list = list.filter((r) => r.product_name?.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q));
     if (vendorFilter.length) list = list.filter((r) => r.vendor != null && vendorFilter.includes(r.vendor));
     if (categoryFilter.length) list = list.filter((r) => r.category != null && categoryFilter.includes(r.category));
+    return list;
+  }, [rows, search, vendorFilter, categoryFilter]);
+
+  const filtered = useMemo(() => {
+    const list = searched;
     if (tab === "replenish") return list.filter((r) => ["move", "low_sap"].includes(r.status) || (!hasStockData && r.need > 0));
+    if (tab === "relist") return list.filter((r) => r.status === "relist");
     if (tab === "overstock") return list.filter((r) => r.status === "overstock");
     if (tab === "oos") return list.filter((r) => r.status === "oos_reorder");
     return list;
-  }, [rows, tab, search, vendorFilter, categoryFilter, hasStockData]);
+  }, [searched, tab, hasStockData]);
 
   const sorted = useMemo(
     () =>
@@ -227,9 +251,14 @@ export default function StockPage() {
     [filtered, apply, tab, effMove, unitValue]
   );
 
+  // "All items" would otherwise paint ~4,500 rows at once
+  const capped = tab === "all" && sorted.length > ALL_TAB_CAP;
+  const visible = useMemo(() => (capped ? sorted.slice(0, ALL_TAB_CAP) : sorted), [sorted, capped]);
+
   const kpis = useMemo(() => {
     const moveRows = rows.filter((r) => ["move", "low_sap"].includes(r.status));
     const overRows = rows.filter((r) => r.status === "overstock");
+    const relistRows = rows.filter((r) => r.status === "relist");
     return {
       toMove: moveRows.reduce((s, r) => s + effMove(r), 0),
       moveSkus: moveRows.length,
@@ -238,18 +267,35 @@ export default function StockPage() {
       overstock: overRows.length,
       moveValue: moveRows.reduce((s, r) => s + effMove(r) * unitValue(r), 0),
       overstockValue: overRows.reduce((s, r) => s + (r.surplus ?? 0) * unitValue(r), 0),
+      relist: relistRows.length,
+      relistUnits: relistRows.reduce((s, r) => s + (r.sap_stock ?? 0), 0),
     };
   }, [rows, effMove, unitValue]);
 
+  // The move list is built from what is on screen, so a vendor filter, a
+  // search or the relist tab each save their own list. Any quantity above
+  // zero counts, engine-proposed or typed in by hand — that is how a book
+  // the engine scores at zero still gets moved. What the warehouse cannot
+  // serve is dropped and reported, never saved silently.
+  const listCandidates = useMemo(
+    () => filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) >= minSapMove),
+    [filtered, effMove, minSapMove]
+  );
+
   async function saveMoveList() {
-    const items = rows
-      .filter((r) => ["move", "low_sap"].includes(r.status))
-      .filter((r) => effMove(r) > 0)
-      .map((r) => ({ sku: r.sku, product_name: r.product_name, qty: effMove(r), shortfall: Math.round(r.shortfall ?? 0) }));
+    const skipped = filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) < minSapMove).length;
+    const items = listCandidates.map((r) => ({
+      sku: r.sku,
+      product_name: r.product_name,
+      qty: effMove(r),
+      shortfall: Math.round(r.shortfall ?? 0),
+    }));
     if (!items.length) {
       alert(t("moveListEmpty"));
       return;
     }
+    const note = skipped ? `\n${skipped} ${t("moveListSapSkipped")}` : "";
+    if (!confirm(`${t("moveListConfirmQ")} ${items.length} ${t("moveListConfirmEnd")}${note}`)) return;
     setSavingList(true);
     try {
       const { data: num, error: numErr } = await supabase.rpc("fn_next_move_list_number");
@@ -311,7 +357,7 @@ export default function StockPage() {
     const list = sorted
       .filter((r) => (tab === "replenish" ? effMove(r) > 0 || r.shortfall > 0 : true))
       .map((r) =>
-        tab === "replenish"
+        tab === "replenish" || tab === "relist" || tab === "all"
           ? { Sku: r.sku, "product name": r.product_name, restock: effMove(r) + r.shortfall }
           : tab === "overstock"
             ? { Sku: r.sku, "product name": r.product_name, "E-com now": r.ecom_stock, "Expected demand": r.forecast, Surplus: r.surplus }
@@ -380,16 +426,38 @@ export default function StockPage() {
       }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oosRows.length ? oosRows : [{ Sku: "none" }]), "Out of stock");
 
+    // stock the warehouse is holding for a book the store shows as sold out
+    const relistRows = rows
+      .filter((r) => r.status === "relist")
+      .map((r) => ({
+        Sku: r.sku,
+        "product name": r.product_name,
+        Category: r.category ?? "",
+        Vendor: r.vendor ?? "",
+        "E-com now": r.ecom_stock ?? 0,
+        "SAP avail": r.sap_stock ?? 0,
+        "Lifetime units": r.lifetime_units ?? 0,
+        "Last sale": r.last_order_date ? r.last_order_date.slice(0, 10) : "",
+        "Move qty": effMove(r),
+        "Move value": Math.round(effMove(r) * unitValue(r)) || "",
+      }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(relistRows.length ? relistRows : [{ Sku: "none" }]), "Not on store");
+
     XLSX.writeFile(wb, `Stock_replenishment_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   const TABS: { key: Tab; labelKey: DictKey; count?: number }[] = [
     { key: "replenish", labelKey: "stockTabReplenish", count: kpis.moveSkus },
+    { key: "relist", labelKey: "stockTabRelist", count: kpis.relist },
     { key: "overstock", labelKey: "stockTabOverstock", count: kpis.overstock },
     { key: "oos", labelKey: "stockTabOos", count: kpis.oos },
     { key: "forecast", labelKey: "forecast" },
+    { key: "all", labelKey: "stockTabAll", count: rows.length },
     { key: "lists", labelKey: "stockTabLists", count: moveLists.filter((l) => l.status === "pending").length },
   ];
+
+  // a table tab that carries an editable move qty and can be saved as a list
+  const isMoveTab = tab === "replenish" || tab === "relist" || tab === "all";
 
   const Th = ({ labelKey, k }: { labelKey: DictKey; k: string }) => (
     <SortTh label={t(labelKey)} k={k} sort={sort} onToggle={toggle} />
@@ -402,10 +470,11 @@ export default function StockPage() {
         subtitle={t("stockSubtitle")}
         actions={
           <div className="flex flex-wrap gap-2">
-            {tab === "replenish" && (
-              <button className="btn-primary" onClick={saveMoveList} disabled={savingList}>
+            {isMoveTab && (
+              <button className="btn-primary" onClick={saveMoveList} disabled={savingList || !listCandidates.length}>
                 <ClipboardCheck size={16} />
                 {t("confirmMoveList")}
+                {listCandidates.length > 0 && <span className="opacity-70"> ({listCandidates.length})</span>}
               </button>
             )}
             <button className="btn-secondary" onClick={exportWorkbook}>
@@ -447,9 +516,15 @@ export default function StockPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6 mb-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7 mb-4">
         <KpiCard label={t("moveQty")} value={formatNumber(kpis.toMove)} sub={`${kpis.moveSkus} SKU`} accent="green" />
         <KpiCard label={t("moveValue")} value={formatMoney(kpis.moveValue, lang)} accent="green" />
+        <KpiCard
+          label={t("relistKpi")}
+          value={formatNumber(kpis.relist)}
+          sub={`${formatNumber(kpis.relistUnits)} ${t("relistUnitsSub")}`}
+          accent="amber"
+        />
         <KpiCard label={t("shortfall")} value={formatNumber(kpis.shortfall)} accent="amber" />
         <KpiCard label={t("stockTabOos")} value={formatNumber(kpis.oos)} accent="red" />
         <KpiCard label={t("stockTabOverstock")} value={formatNumber(kpis.overstock)} accent="slate" />
@@ -477,6 +552,21 @@ export default function StockPage() {
           <Ctl label={t("maxOrder")}>
             <select className="input !w-auto" value={maxOrder} onChange={(e) => setMaxOrder(Number(e.target.value))}>
               {[100, 150, 200, 300, 500].map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </Ctl>
+          <Ctl label={t("minSapMove")}>
+            <select
+              className="input !w-auto"
+              title={t("minSapMoveHint")}
+              value={minSapMove}
+              onChange={(e) => setMinSapMove(Number(e.target.value))}
+            >
+              {[1, 2, 3, 5, 10].map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </Ctl>
+          <Ctl label={t("relistQtyCtl")}>
+            <select className="input !w-auto" value={relistQty} onChange={(e) => setRelistQty(Number(e.target.value))}>
+              {[5, 10, 15, 20, 30].map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </Ctl>
           {vendors.length > 0 && (
@@ -603,10 +693,33 @@ export default function StockPage() {
       ) : loading ? (
         <Spinner />
       ) : sorted.length === 0 ? (
-        <EmptyState message={t("noResults")} />
+        <div className="space-y-3">
+          <EmptyState message={t("noResults")} />
+          {/* the book is on record, just not in this tab — the old page left
+              the search looking like the SKU did not exist at all */}
+          {searched.length > 0 && (search.trim() !== "" || vendorFilter.length > 0 || categoryFilter.length > 0) && (
+            <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-slate-600">
+              <span>
+                {t("searchOtherTabs")} <b>{formatNumber(searched.length)}</b> {t("searchOtherTabsEnd")}
+              </span>
+              <button className="btn-secondary !py-1.5 !px-3 !text-xs" onClick={() => setTab("all")}>
+                {t("showInAllItems")}
+              </button>
+            </div>
+          )}
+        </div>
       ) : (
         <>
-          <div className="mb-2 text-xs text-slate-400">{t("stockValueNote")}</div>
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+            <span>{t("stockValueNote")}</span>
+            {capped && <span className="text-amber-600 font-semibold">{t("stockRowsCapped")}</span>}
+          </div>
+          {tab === "relist" && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg bg-violet-50 border border-violet-200 px-4 py-3 text-sm text-violet-900">
+              <Info size={16} className="shrink-0 mt-0.5" />
+              {t("relistNote")}
+            </div>
+          )}
           <div className="card overflow-x-auto">
             <table className="table-base">
               <thead>
@@ -624,6 +737,25 @@ export default function StockPage() {
                       <Th labelKey="moveQty" k="move" />
                       <Th labelKey="shortfall" k="shortfall" />
                       <Th labelKey="stockValueCol" k="value" />
+                    </>
+                  )}
+                  {tab === "relist" && (
+                    <>
+                      <Th labelKey="ecomStock" k="ecom" />
+                      <Th labelKey="sapStock" k="sap" />
+                      <Th labelKey="ltUnitsShort" k="lifetime" />
+                      <Th labelKey="lastSale" k="lastsale" />
+                      <Th labelKey="moveQty" k="move" />
+                      <Th labelKey="stockValueCol" k="value" />
+                    </>
+                  )}
+                  {tab === "all" && (
+                    <>
+                      <Th labelKey="ecomStock" k="ecom" />
+                      <Th labelKey="sapStock" k="sap" />
+                      <Th labelKey="daysOfCover" k="cover" />
+                      <Th labelKey="moveQty" k="move" />
+                      <Th labelKey="shortfall" k="shortfall" />
                     </>
                   )}
                   {tab === "overstock" && (
@@ -649,8 +781,19 @@ export default function StockPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((r) => {
+                {visible.map((r) => {
                   const meta = STATUS_META[r.status];
+                  const qtyInput = (
+                    <input
+                      type="number"
+                      min={0}
+                      max={r.sap_stock ?? undefined}
+                      className="input !py-1 !w-20 text-xs font-bold text-brand-700"
+                      dir="ltr"
+                      value={moveEdits[r.sku] ?? String(r.move_qty)}
+                      onChange={(e) => setMoveEdits((p) => ({ ...p, [r.sku]: e.target.value }))}
+                    />
+                  );
                   return (
                     <tr key={r.sku}>
                       <td className="!whitespace-normal max-w-xs font-medium">
@@ -669,18 +812,35 @@ export default function StockPage() {
                             {r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}
                           </td>
                           <td className={coverClass(r.cover_days)}>{r.cover_days != null ? formatNumber(r.cover_days) : "—"}</td>
-                          <td>
-                            <input
-                              type="number"
-                              min={0}
-                              className="input !py-1 !w-20 text-xs font-bold text-brand-700"
-                              dir="ltr"
-                              value={moveEdits[r.sku] ?? String(r.move_qty)}
-                              onChange={(e) => setMoveEdits((p) => ({ ...p, [r.sku]: e.target.value }))}
-                            />
-                          </td>
+                          <td>{qtyInput}</td>
                           <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                           <td className="text-slate-500">{unitValue(r) ? formatMoney(effMove(r) * unitValue(r), lang) : "—"}</td>
+                        </>
+                      )}
+                      {tab === "relist" && (
+                        <>
+                          <td className="font-semibold text-red-600">{formatNumber(r.ecom_stock ?? 0)}</td>
+                          <td className="font-semibold text-violet-700">{r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}</td>
+                          <td className="font-semibold text-slate-700">{formatNumber(r.lifetime_units ?? 0)}</td>
+                          <td className="whitespace-nowrap text-xs text-slate-500">
+                            {r.last_order_date ? formatDate(r.last_order_date) : <span className="text-slate-400">{t("neverSoldLbl")}</span>}
+                          </td>
+                          <td>{qtyInput}</td>
+                          <td className="text-slate-500">{unitValue(r) ? formatMoney(effMove(r) * unitValue(r), lang) : "—"}</td>
+                        </>
+                      )}
+                      {tab === "all" && (
+                        <>
+                          <td className={cn(r.ecom_stock === 0 && "font-semibold text-red-600")}>
+                            {r.ecom_stock != null ? formatNumber(r.ecom_stock) : "—"}
+                          </td>
+                          <td>{r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}</td>
+                          <td className={coverClass(r.cover_days)}>{r.cover_days != null ? formatNumber(r.cover_days) : "—"}</td>
+                          {/* editable wherever SAP has copies to give, so a
+                              book the engine scores at zero can still be
+                              added to a list by hand */}
+                          <td>{(r.sap_stock ?? 0) >= minSapMove ? qtyInput : <span className="text-slate-400">—</span>}</td>
+                          <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                         </>
                       )}
                       {tab === "overstock" && (
