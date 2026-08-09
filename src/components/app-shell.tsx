@@ -42,6 +42,7 @@ import {
   ShieldCheck,
   ShoppingBasket,
   Crosshair,
+  UsersRound,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -89,6 +90,7 @@ const NAV: NavItem[] = [
   // Sales & customers — the demand side
   { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/segments", labelKey: "segments", icon: UsersRound, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/returns", labelKey: "returns", icon: Undo2, roles: ["admin", "manager", "viewer"], group: "sales" },
