@@ -43,6 +43,7 @@ import {
   ShoppingBasket,
   Crosshair,
   UsersRound,
+  Radar,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -107,6 +108,7 @@ const NAV: NavItem[] = [
   { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"], group: "marketing" },
   { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"], group: "marketing" },
   { href: "/gaps", labelKey: "gaps", icon: Crosshair, roles: ["admin", "manager", "viewer"], group: "marketing" },
+  { href: "/audiences", labelKey: "audiences", icon: Radar, roles: ["admin", "manager", "viewer"], group: "marketing" },
   { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"], group: "marketing" },
   { href: "/marketing", labelKey: "marketing", icon: Wand2, roles: ["admin", "manager", "viewer"], group: "marketing" },
 
