@@ -17,6 +17,8 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
+import { CustomerDrawer } from "@/components/customer-drawer";
+import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 const SMS_PRICE_EGP = 0.285;
@@ -176,6 +178,7 @@ export default function SegmentsPage() {
 
   const [builderDef, setBuilderDef] = useState<SegDef>({});
   const [reloadKey, setReloadKey] = useState(0);
+  const [drawerId, setDrawerId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.rpc("fn_segment_options").then(({ data }) => {
@@ -416,11 +419,16 @@ export default function SegmentsPage() {
                       <th>{t("orders")}</th>
                       <th>{t("totalSpent")}</th>
                       <th>{t("lastOrder")}</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {sample.map((r) => (
-                      <tr key={r.master_id}>
+                      <tr
+                        key={r.master_id}
+                        className="cursor-pointer hover:bg-slate-50"
+                        onClick={() => setDrawerId(r.master_id)}
+                      >
                         <td className="font-medium">{r.name ?? r.master_id}</td>
                         <td dir="ltr" className="text-slate-600">{r.phone ?? "—"}</td>
                         <td>{r.city ?? "—"}</td>
@@ -428,6 +436,9 @@ export default function SegmentsPage() {
                         <td>{formatNumber(r.orders)}</td>
                         <td>{formatMoney(r.total_spent, lang)}</td>
                         <td className="text-xs text-slate-500" dir="ltr">{formatDate(r.last_order_at)}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <ContactActions phone={r.phone} name={r.name} waReason="general" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -441,6 +452,12 @@ export default function SegmentsPage() {
       </div>
 
       <OptOutManager count={optOutCount} onChanged={() => setReloadKey((k) => k + 1)} />
+
+      <CustomerDrawer
+        customerId={drawerId}
+        onClose={() => setDrawerId(null)}
+        onChanged={() => setReloadKey((k) => k + 1)}
+      />
     </div>
   );
 }
