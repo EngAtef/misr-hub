@@ -1697,6 +1697,7 @@ const dict = {
   segNotBoughtFilter: { ar: "ولم يشتروا…", en: "But never bought…" },
   segKindSku: { ar: "منتج محدد (SKU)", en: "Specific product (SKU)" },
   segKindCategory: { ar: "فئة", en: "Category" },
+  segKindSection: { ar: "القسم الرئيسي", en: "Main section" },
   segKindList: { ar: "قائمة مخصصة", en: "Custom list" },
   segKindNone: { ar: "بدون", en: "None" },
   segSkuPlaceholder: { ar: "ابحث عن كتاب بالاسم أو الكود…", en: "Search a book by name or SKU…" },

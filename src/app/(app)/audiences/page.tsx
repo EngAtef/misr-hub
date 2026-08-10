@@ -24,7 +24,7 @@ import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@
 // ------------------------------------------------------------ definitions
 
 interface BoughtDef {
-  kind: "sku" | "category" | "list";
+  kind: "sku" | "category" | "section" | "list";
   values: string[];
   from?: string;
   to?: string;
@@ -72,6 +72,7 @@ interface AudRow {
 
 interface Options {
   cities: string[];
+  sections: string[];
   categories: string[];
   lists: { id: string; name: string; slug: string | null; items: number }[];
 }
@@ -88,12 +89,12 @@ export default function AudiencesPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
 
-  const [options, setOptions] = useState<Options>({ cities: [], categories: [], lists: [] });
+  const [options, setOptions] = useState<Options>({ cities: [], sections: [], categories: [], lists: [] });
   const [totals, setTotals] = useState<AudCount | null>(null);
   const [totalsIns, setTotalsIns] = useState<AudInsights | null>(null);
 
   // builder state
-  const [kind, setKind] = useState<"any" | "sku" | "category" | "list">("any");
+  const [kind, setKind] = useState<"any" | "sku" | "category" | "section" | "list">("any");
   const [values, setValues] = useState<string[]>([]);
   const [skuNames, setSkuNames] = useState<Record<string, string>>({});
   const [window_, setWindow] = useState<0 | 90 | 180 | 365>(0);
@@ -156,7 +157,7 @@ export default function AudiencesPage() {
 
   function builderLabel(): string {
     if (kind === "sku") return values.map((v) => skuNames[v] ?? v).join(", ") || t("audBuilder");
-    if (kind === "category") return values.join(", ") || t("audBuilder");
+    if (kind === "category" || kind === "section") return values.join(", ") || t("audBuilder");
     if (kind === "list") {
       const names = options.lists.filter((l) => values.includes(l.id)).map((l) => l.name);
       return names.join(", ") || t("audBuilder");
@@ -276,6 +277,7 @@ export default function AudiencesPage() {
               {([
                 ["any", t("audKindAny")],
                 ["sku", t("segKindSku")],
+                ["section", t("segKindSection")],
                 ["category", t("segKindCategory")],
                 ["list", t("segKindList")],
               ] as const).map(([k, label]) => (
@@ -299,6 +301,9 @@ export default function AudiencesPage() {
 
             {kind === "category" && (
               <MultiSelect options={options.categories} values={values} onChange={setValues} placeholder={t("segKindCategory")} />
+            )}
+            {kind === "section" && (
+              <MultiSelect options={options.sections} values={values} onChange={setValues} placeholder={t("segKindSection")} />
             )}
             {kind === "list" && (
               <MultiSelect

@@ -26,7 +26,7 @@ const SMS_PRICE_EGP = 0.285;
 // ------------------------------------------------------------ definitions
 
 interface BoughtDef {
-  kind: "sku" | "category" | "list";
+  kind: "sku" | "category" | "section" | "list";
   values: string[];
   from?: string;
   to?: string;
@@ -83,6 +83,7 @@ interface SavedSegment {
 
 interface Options {
   cities: string[];
+  sections: string[];
   categories: string[];
   lists: { id: string; name: string; slug: string | null; items: number }[];
 }
@@ -160,7 +161,7 @@ export default function SegmentsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
 
-  const [options, setOptions] = useState<Options>({ cities: [], categories: [], lists: [] });
+  const [options, setOptions] = useState<Options>({ cities: [], sections: [], categories: [], lists: [] });
   const [totals, setTotals] = useState<SegCount | null>(null);
   const [cardCounts, setCardCounts] = useState<Record<string, SegCount>>({});
   const [saved, setSaved] = useState<SavedSegment[]>([]);
@@ -739,6 +740,7 @@ function BoughtEditor({
         <select className="input !w-auto !py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="none">{t("segKindNone")}</option>
           <option value="sku">{t("segKindSku")}</option>
+          <option value="section">{t("segKindSection")}</option>
           <option value="category">{t("segKindCategory")}</option>
           <option value="list">{t("segKindList")}</option>
         </select>
@@ -753,6 +755,10 @@ function BoughtEditor({
 
       {kind === "category" && (
         <MultiSelect options={options.categories} values={value?.values ?? []} onChange={setValues} placeholder={t("segKindCategory")} />
+      )}
+
+      {kind === "section" && (
+        <MultiSelect options={options.sections} values={value?.values ?? []} onChange={setValues} placeholder={t("segKindSection")} />
       )}
 
       {kind === "list" && (
