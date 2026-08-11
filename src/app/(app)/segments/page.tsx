@@ -47,6 +47,8 @@ interface SegDef {
   max_orders?: number;
   min_spent?: number;
   max_spent?: number;
+  last_status?: string;
+  history?: string;
   active_in?: { from?: string; to?: string };
   bought?: BoughtDef;
   not_bought?: BoughtDef;
@@ -635,6 +637,25 @@ function SegmentBuilder({
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
+          </select>
+        </Field>
+
+        <Field label={t("segLastStatus")}>
+          <select className="input" value={def.last_status ?? ""} onChange={(e) => set("last_status", e.target.value || undefined)}>
+            <option value="">{t("segStatusAny")}</option>
+            <option value="delivered">{t("segStDelivered")}</option>
+            <option value="canceled">{t("segStCanceled")}</option>
+            <option value="returned">{t("segStReturned")}</option>
+            <option value="in_progress">{t("segStInProgress")}</option>
+          </select>
+        </Field>
+
+        <Field label={t("segHistory")}>
+          <select className="input" value={def.history ?? ""} onChange={(e) => set("history", e.target.value || undefined)}>
+            <option value="">{t("segStatusAny")}</option>
+            <option value="clean">{t("segHistClean")}</option>
+            <option value="has_canceled">{t("segHistHasCanceled")}</option>
+            <option value="all_canceled">{t("segHistAllCanceled")}</option>
           </select>
         </Field>
       </div>
