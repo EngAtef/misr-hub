@@ -12,6 +12,7 @@ import {
   Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, UserX, Trophy, Gem,
   Cake, ShoppingBag, CalendarClock, Save, Download, Copy, Ban, Calculator,
   RefreshCw, Trash2, FolderOpen, Search, X, Filter, Users2, Phone, CheckCircle2,
+  ShieldCheck, Send, History,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -49,6 +50,7 @@ interface SegDef {
   max_spent?: number;
   last_status?: string;
   history?: string;
+  no_sms_days?: number;
   active_in?: { from?: string; to?: string };
   bought?: BoughtDef;
   not_bought?: BoughtDef;
@@ -59,7 +61,23 @@ interface SegCount {
   with_phone: number;
   reachable: number;
   opted_out: number;
+  recently_sent: number;
   exportable: number;
+}
+
+interface CampaignRow {
+  campaign: string;
+  sent_on: string;
+  recipients: number;
+  segment_name: string | null;
+}
+
+// the frequency cap is a page-level setting layered onto every definition
+// (cards, builder, saved) right before it hits the engine — one knob, not
+// something to remember per segment
+function withCap(def: SegDef, capDays: number): SegDef {
+  if (!capDays) return def;
+  return { ...def, no_sms_days: capDays };
 }
 
 interface ExportRow {
@@ -183,6 +201,19 @@ export default function SegmentsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [drawerId, setDrawerId] = useState<string | null>(null);
 
+  // frequency cap (days) — remembered per browser, default 14
+  const [capDays, setCapDays] = useState<number>(14);
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("nmSmsCapDays"));
+    if (!Number.isNaN(saved) && localStorage.getItem("nmSmsCapDays") !== null) setCapDays(saved);
+  }, []);
+  function changeCap(days: number) {
+    setCapDays(days);
+    localStorage.setItem("nmSmsCapDays", String(days));
+  }
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
+
   useEffect(() => {
     supabase.rpc("fn_segment_options").then(({ data }) => {
       const o = data as Options | null;
@@ -198,16 +229,18 @@ export default function SegmentsPage() {
       .from("sms_opt_outs")
       .select("phone_norm", { count: "exact", head: true })
       .then(({ count }) => setOptOutCount(count ?? 0));
+    supabase.rpc("fn_sms_campaigns", { p_limit: 30 }).then(({ data }) => setCampaigns((data as CampaignRow[]) ?? []));
   }, [supabase, reloadKey]);
 
-  // count the prebuilt cards in small batches so we don't fire 17 RPCs at once
+  // count the prebuilt cards in small batches so we don't fire 17 RPCs at once.
+  // Re-runs when the cap changes: the card numbers must be the numbers you'd export.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       for (let i = 0; i < PREBUILT.length; i += 4) {
         const chunk = PREBUILT.slice(i, i + 4);
         const results = await Promise.all(
-          chunk.map((p) => supabase.rpc("fn_segment_count", { p_def: p.def() }))
+          chunk.map((p) => supabase.rpc("fn_segment_count", { p_def: withCap(p.def(), capDays) }))
         );
         if (cancelled) return;
         setCardCounts((prev) => {
@@ -223,18 +256,22 @@ export default function SegmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [supabase, capDays, reloadKey]);
 
+  // activeDef is the RAW definition; the cap is layered on at query time so
+  // changing the cap re-evaluates the same segment without rebuilding it
   const openPreview = useCallback(
-    async (label: string, def: SegDef) => {
+    async (label: string, def: SegDef, savedId: string | null = null) => {
       setActiveLabel(label);
       setActiveDef(def);
+      setActiveSavedId(savedId);
       setPreviewLoading(true);
       setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+      const capped = withCap(def, capDays);
       const [c, s] = await Promise.all([
-        supabase.rpc("fn_segment_count", { p_def: def }),
+        supabase.rpc("fn_segment_count", { p_def: capped }),
         supabase.rpc("fn_segment_export", {
-          p_def: def,
+          p_def: capped,
           p_reachable_only: reachableOnly,
           p_exclude_opt_outs: excludeOptOuts,
           p_limit: 50,
@@ -244,24 +281,49 @@ export default function SegmentsPage() {
       setSample((s.data as ExportRow[]) ?? []);
       setPreviewLoading(false);
     },
-    [supabase, reachableOnly, excludeOptOuts]
+    [supabase, reachableOnly, excludeOptOuts, capDays]
   );
 
-  // re-run the sample when the export toggles flip
+  // re-run the sample when the export toggles or the cap flip
   useEffect(() => {
-    if (activeDef) void openPreview(activeLabel, activeDef);
+    if (activeDef) void openPreview(activeLabel, activeDef, activeSavedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reachableOnly, excludeOptOuts]);
+  }, [reachableOnly, excludeOptOuts, capDays]);
 
   async function fetchFull(): Promise<ExportRow[]> {
     if (!activeDef) return [];
     const { data } = await supabase.rpc("fn_segment_export", {
-      p_def: activeDef,
+      p_def: withCap(activeDef, capDays),
       p_reachable_only: reachableOnly,
       p_exclude_opt_outs: excludeOptOuts,
       p_limit: 50000,
     });
     return (data as ExportRow[]) ?? [];
+  }
+
+  // log the send: everyone currently exportable under this (capped) definition
+  const [marking, setMarking] = useState(false);
+  const [markedN, setMarkedN] = useState(0);
+  const [campaignName, setCampaignName] = useState("");
+  async function markSent() {
+    if (!activeDef || !activeCount) return;
+    const n = activeCount.exportable;
+    if (!confirm(t("segMarkSentConfirm").replace("{n}", formatNumber(n)))) return;
+    setMarking(true);
+    const { data, error } = await supabase.rpc("fn_sms_mark_sent", {
+      p_def: withCap(activeDef, capDays),
+      p_campaign: campaignName.trim() || activeLabel,
+      p_segment_id: activeSavedId,
+    });
+    setMarking(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    setMarkedN(Number(data) || 0);
+    setCampaignName("");
+    setReloadKey((k) => k + 1);
+    setTimeout(() => setMarkedN(0), 5000);
   }
 
   async function exportCsv() {
@@ -291,6 +353,26 @@ export default function SegmentsPage() {
         <Kpi icon={Phone} color="border-s-emerald-500" label={t("segReachable")} value={totals ? formatNumber(totals.reachable) : "…"} sub={totals ? `${((totals.reachable / Math.max(totals.people, 1)) * 100).toFixed(1)}%` : undefined} />
         <Kpi icon={Ban} color="border-s-red-500" label={t("segOptedOut")} value={formatNumber(optOutCount)} />
         <Kpi icon={CheckCircle2} color="border-s-violet-500" label={t("segExportable")} value={totals ? formatNumber(totals.exportable) : "…"} />
+      </div>
+
+      {/* frequency cap — one knob applied to every card, builder and saved segment */}
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+        <div className="rounded-lg bg-white p-1.5 text-amber-600">
+          <ShieldCheck size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold text-amber-900">{t("segFreqCap")}</div>
+          <div className="text-xs text-amber-800">{t("segFreqCapHint")}</div>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-amber-900">
+          {t("segNoSms")}
+          <select className="input !w-auto !py-1.5" value={capDays} onChange={(e) => changeCap(Number(e.target.value))}>
+            <option value={0}>{t("segNoSmsAny")}</option>
+            {[3, 7, 14, 21, 30, 45, 60, 90].map((d) => (
+              <option key={d} value={d}>{d} {t("segDays")}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* prebuilt cards */}
@@ -360,8 +442,9 @@ export default function SegmentsPage() {
         saved={saved}
         onLoad={(s) => {
           setBuilderDef(s.definition ?? {});
-          void openPreview(s.name, s.definition ?? {});
+          void openPreview(s.name, s.definition ?? {}, s.id);
         }}
+        capDays={capDays}
         onChanged={() => setReloadKey((k) => k + 1)}
       />
 
@@ -399,14 +482,37 @@ export default function SegmentsPage() {
             </div>
 
             {activeCount && (
-              <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+              <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
                 <MiniStat label={t("segPeopleCol")} value={formatNumber(activeCount.people)} />
                 <MiniStat label={t("phone")} value={formatNumber(activeCount.with_phone)} />
                 <MiniStat label={t("segReachableCol")} value={formatNumber(activeCount.reachable)} tone="text-emerald-700" />
                 <MiniStat label={t("segOptedOut")} value={formatNumber(activeCount.opted_out)} tone="text-red-600" />
+                <MiniStat label={t("segRecentlySent")} value={formatNumber(activeCount.recently_sent)} tone="text-amber-700" />
                 <MiniStat label={t("segExportable")} value={formatNumber(activeCount.exportable)} tone="text-brand-700" />
               </div>
             )}
+
+            {/* mark as sent — the write side of the frequency cap */}
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+              <Send size={15} className="text-emerald-700" />
+              <span className="text-xs text-emerald-900">{t("segMarkSentHint")}</span>
+              <div className="ms-auto flex items-center gap-2">
+                <input
+                  className="input !w-48 !py-1 text-xs"
+                  placeholder={t("segCampaignName")}
+                  value={campaignName}
+                  onChange={(e) => setCampaignName(e.target.value)}
+                />
+                <button
+                  className="btn-primary !py-1 text-xs"
+                  onClick={markSent}
+                  disabled={marking || previewLoading || !activeCount || activeCount.exportable === 0}
+                >
+                  <CheckCircle2 size={14} />
+                  {markedN ? t("segMarkedSent").replace("{n}", formatNumber(markedN)) : t("segMarkSent")}
+                </button>
+              </div>
+            </div>
 
             {previewLoading ? (
               <Spinner />
@@ -453,6 +559,8 @@ export default function SegmentsPage() {
           </div>
         )}
       </div>
+
+      <SendLog rows={campaigns} />
 
       <OptOutManager count={optOutCount} onChanged={() => setReloadKey((k) => k + 1)} />
 
@@ -835,10 +943,12 @@ function SavedSegments({
   saved,
   onLoad,
   onChanged,
+  capDays,
 }: {
   saved: SavedSegment[];
   onLoad: (s: SavedSegment) => void;
   onChanged: () => void;
+  capDays: number;
 }) {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
@@ -846,7 +956,7 @@ function SavedSegments({
 
   async function recount(s: SavedSegment) {
     setBusy(s.id);
-    const { data } = await supabase.rpc("fn_segment_count", { p_def: s.definition });
+    const { data } = await supabase.rpc("fn_segment_count", { p_def: withCap(s.definition, capDays) });
     const c = data as SegCount | null;
     if (c) {
       await supabase
@@ -860,7 +970,7 @@ function SavedSegments({
 
   async function exportSaved(s: SavedSegment) {
     setBusy(s.id);
-    const { data } = await supabase.rpc("fn_segment_export", { p_def: s.definition, p_limit: 50000 });
+    const { data } = await supabase.rpc("fn_segment_export", { p_def: withCap(s.definition, capDays), p_limit: 50000 });
     const rows = (data as ExportRow[]) ?? [];
     if (rows.length) {
       downloadCsv(`segment-${s.name.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
@@ -925,6 +1035,51 @@ function SavedSegments({
                       </button>
                     </div>
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ send log
+
+function SendLog({ rows }: { rows: CampaignRow[] }) {
+  const { t } = useLang();
+  return (
+    <div className="card mt-8 p-5">
+      <div className="mb-3 flex items-start gap-3">
+        <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
+          <History size={20} />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold">{t("segSendLog")}</h2>
+          <p className="text-xs text-slate-500">{t("segSendLogHint")}</p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="py-4 text-center text-sm text-slate-500">{t("segNoSends")}</div>
+      ) : (
+        <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>{t("segSentOn")}</th>
+                <th>{t("segCampaignName")}</th>
+                <th>{t("segSegmentName")}</th>
+                <th>{t("segRecipients")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={`${r.sent_on}-${r.campaign}-${i}`}>
+                  <td className="text-xs text-slate-500" dir="ltr">{formatDate(r.sent_on)}</td>
+                  <td className="font-medium">{r.campaign}</td>
+                  <td className="text-xs text-slate-500">{r.segment_name ?? "—"}</td>
+                  <td className="font-semibold">{formatNumber(r.recipients)}</td>
                 </tr>
               ))}
             </tbody>
