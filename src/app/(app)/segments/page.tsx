@@ -154,20 +154,15 @@ const GROUP_ORDER: DictKey[] = ["segGroupLifecycle", "segGroupRegistration", "se
 
 // -------------------------------------------------------- SMS part maths
 
-// GSM-7 basic set; anything outside (Arabic included) forces UCS-2: 70 chars
-// for one part, 67 per part after that. Extended GSM chars cost 2.
-const GSM7 =
-  /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà^{}\\[~\]|€]*$/;
-const GSM7_EXT = /[\^{}\\[~\]|€]/g;
+// The vendor bills per 70-character part, full stop — Arabic or Latin. So
+// no encoding detection: 70 chars = 1 SMS, 71–140 = 2, and so on. Count in
+// code points (Array.from) so an emoji is one character, not two.
+const SMS_PART_CHARS = 70;
 
-function smsParts(text: string): { chars: number; parts: number; unicode: boolean } {
-  if (!text) return { chars: 0, parts: 0, unicode: false };
-  const unicode = !GSM7.test(text);
-  const chars = unicode ? text.length : text.length + (text.match(GSM7_EXT)?.length ?? 0);
-  const single = unicode ? 70 : 160;
-  const multi = unicode ? 67 : 153;
-  const parts = chars <= single ? 1 : Math.ceil(chars / multi);
-  return { chars, parts, unicode };
+function smsParts(text: string): { chars: number; parts: number } {
+  const chars = Array.from(text).length;
+  if (!chars) return { chars: 0, parts: 0 };
+  return { chars, parts: Math.ceil(chars / SMS_PART_CHARS) };
 }
 
 function normPhone(raw: string): string | null {
@@ -1094,8 +1089,11 @@ function SendLog({ rows }: { rows: CampaignRow[] }) {
 function SmsCalculator({ recipients }: { recipients: number }) {
   const { t, lang } = useLang();
   const [message, setMessage] = useState("");
-  const { chars, parts, unicode } = smsParts(message);
+  const { chars, parts } = smsParts(message);
   const total = parts * recipients * SMS_PRICE_EGP;
+  // how many characters are left before the NEXT part starts
+  const remaining = chars === 0 ? SMS_PART_CHARS : parts * SMS_PART_CHARS - chars;
+  const over = parts > 1;
 
   return (
     <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50/50 p-4">
@@ -1105,16 +1103,18 @@ function SmsCalculator({ recipients }: { recipients: number }) {
       </div>
       <p className="mb-3 text-xs text-slate-500">{t("segSmsCalcHint")}</p>
       <textarea
-        className="input min-h-20 w-full"
+        className={cn("input min-h-20 w-full", over && "!border-red-400 focus:!ring-red-300")}
         dir="auto"
         placeholder={t("segSmsMessage")}
         value={message}
         onChange={(e) => setMessage(e.target.value)}
       />
-      <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-6">
+      <div className={cn("mt-1 text-xs font-semibold", over ? "text-red-600" : "text-slate-500")} dir="ltr">
+        {chars} / {SMS_PART_CHARS} · {over ? t("segSmsOver").replace("{n}", String(parts)) : t("segSmsRemaining").replace("{n}", String(remaining))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
         <MiniStat label={t("segSmsChars")} value={formatNumber(chars)} />
-        <MiniStat label={t("segSmsEncoding")} value={unicode ? "Unicode (70)" : "GSM-7 (160)"} />
-        <MiniStat label={t("segSmsParts")} value={formatNumber(parts)} tone={parts > 1 ? "text-red-600" : "text-emerald-700"} />
+        <MiniStat label={t("segSmsParts")} value={formatNumber(parts)} tone={over ? "text-red-600" : "text-emerald-700"} />
         <MiniStat label={t("segSmsRecipients")} value={formatNumber(recipients)} />
         <MiniStat label={t("segSmsPerSms")} value={formatMoney(SMS_PRICE_EGP * parts, lang)} />
         <MiniStat label={t("segSmsTotal")} value={formatMoney(total, lang)} tone="text-brand-700" />
