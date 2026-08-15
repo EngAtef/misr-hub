@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { GitCompareArrows } from "lucide-react";
 import { useLang } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 export interface DateRange {
   from: string | null; // ISO date
@@ -13,22 +13,45 @@ export interface DateRange {
 type Preset = "7d" | "30d" | "90d" | "month" | "all" | "custom";
 export type ComparePreset = "off" | "prev" | "year" | "custom";
 
+// These are calendar days in the reader's own timezone, so they must be
+// written from local parts. toISOString() converts to UTC first, and in
+// Cairo (UTC+3) local midnight on the 1st is still the last day of the
+// previous month there — "this month" used to start on 31 July.
+const isoLocal = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const shiftDays = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d;
+};
+
 export function presetToRange(preset: Preset): DateRange {
   const now = new Date();
-  const end = new Date(now.getTime() + 24 * 3600 * 1000);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  // `to` is the exclusive upper bound, so tomorrow means "through today"
+  const end = isoLocal(shiftDays(1));
   switch (preset) {
     case "7d":
-      return { from: iso(new Date(now.getTime() - 7 * 24 * 3600 * 1000)), to: iso(end) };
+      return { from: isoLocal(shiftDays(-7)), to: end };
     case "30d":
-      return { from: iso(new Date(now.getTime() - 30 * 24 * 3600 * 1000)), to: iso(end) };
+      return { from: isoLocal(shiftDays(-30)), to: end };
     case "90d":
-      return { from: iso(new Date(now.getTime() - 90 * 24 * 3600 * 1000)), to: iso(end) };
+      return { from: isoLocal(shiftDays(-90)), to: end };
     case "month":
-      return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(end) };
+      return { from: isoLocal(new Date(now.getFullYear(), now.getMonth(), 1)), to: end };
     default:
       return { from: null, to: null };
   }
+}
+
+// The inclusive last day, for display only — `to` itself is tomorrow.
+export function displayRange(range: DateRange): string | null {
+  if (!range.from || !range.to) return null;
+  const last = new Date(range.to + "T00:00:00");
+  last.setDate(last.getDate() - 1);
+  const end = isoLocal(last);
+  if (end < range.from) return formatDate(range.from);
+  return `${formatDate(range.from)} → ${formatDate(end)}`;
 }
 
 // Same length, immediately before the main period.
@@ -53,7 +76,9 @@ export function samePeriodLastYear(range: DateRange): DateRange | null {
   return { from: shift(range.from), to: shift(range.to) };
 }
 
-export function useDateRange(initial: Preset = "all") {
+// Month-to-date everywhere by default: the question is almost always "how is
+// this month going", and a rolling 30 days silently mixes in the last one.
+export function useDateRange(initial: Preset = "month") {
   const [preset, setPreset] = useState<Preset>(initial);
   const [range, setRange] = useState<DateRange>(presetToRange(initial));
   const [comparePreset, setComparePreset] = useState<ComparePreset>("off");
@@ -94,14 +119,16 @@ export function DateRangeFilter({
   compare?: DateRange | null;
 }) {
   const { t } = useLang();
+  // this month leads — it is the default
   const presets: { key: Preset; label: string }[] = [
+    { key: "month", label: t("thisMonth") },
     { key: "7d", label: t("last7") },
     { key: "30d", label: t("last30") },
     { key: "90d", label: t("last90") },
-    { key: "month", label: t("thisMonth") },
     { key: "all", label: t("allTime") },
     { key: "custom", label: t("custom") },
   ];
+  const shown = preset === "custom" ? null : displayRange(range);
   const compareOptions: { key: ComparePreset; label: string }[] = [
     { key: "prev", label: t("comparePrev") },
     { key: "year", label: t("compareYear") },
@@ -149,6 +176,11 @@ export function DateRangeFilter({
               onChange={(e) => setRange({ ...range, to: e.target.value || null })}
             />
           </div>
+        )}
+        {shown && (
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500" dir="ltr">
+            {shown}
+          </span>
         )}
         {canCompare && (
           <button

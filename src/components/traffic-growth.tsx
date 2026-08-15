@@ -370,10 +370,22 @@ const CITY_AR: Record<string, string[]> = {
   arish: ["العريش", "شمال سيناء"],
 };
 
+// local parts, not toISOString — see the note in date-range.tsx
+const isoLocal = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const isoDaysAgo = (days: number) => {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
+};
+
+// 0 is the month-to-date option, the default everywhere
+const MTD = 0;
+const rangeStart = (days: number) => {
+  if (days !== MTD) return isoDaysAgo(days - 1);
+  const now = new Date();
+  return isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
 };
 
 function RangePicker({
@@ -386,7 +398,7 @@ function RangePicker({
   options: number[];
 }) {
   const { t } = useLang();
-  const labels: Record<number, string> = { 7: t("last7"), 30: t("last30"), 60: t("last60"), 90: t("last90") };
+  const labels: Record<number, string> = { 0: t("thisMonth"), 7: t("last7"), 30: t("last30"), 60: t("last60"), 90: t("last90") };
   return (
     <div className="flex gap-1">
       {options.map((d) => (
@@ -483,7 +495,7 @@ interface CampaignRow {
 export function ChannelsReport() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(MTD);
   const [channels, setChannels] = useState<ChannelRow[] | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [quality, setQuality] = useState<Record<string, unknown>[]>([]);
@@ -494,7 +506,7 @@ export function ChannelsReport() {
     let cancelled = false;
     setChannels(null);
     setError(null);
-    const p_from = isoDaysAgo(days - 1);
+    const p_from = rangeStart(days);
     const p_to = isoDaysAgo(0);
     supabase.rpc("fn_channel_summary", { p_from, p_to }).then(({ data, error }) => {
       if (cancelled) return;
@@ -568,7 +580,7 @@ export function ChannelsReport() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{t("channelsHint")}</p>
-        <RangePicker value={days} onChange={setDays} options={[7, 30, 90]} />
+        <RangePicker value={days} onChange={setDays} options={[MTD, 7, 30, 90]} />
       </div>
 
       {totals && (
@@ -771,14 +783,14 @@ interface FunnelTotals {
 export function HealthReport() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const [days, setDays] = useState(60);
+  const [days, setDays] = useState(MTD);
   const [rows, setRows] = useState<DailyRow[] | null>(null);
   const [funnelExtra, setFunnelExtra] = useState<FunnelTotals | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setRows(null);
-    const p_from = isoDaysAgo(days - 1);
+    const p_from = rangeStart(days);
     const p_to = isoDaysAgo(0);
     supabase.rpc("fn_tracking_daily", { p_from, p_to }).then(({ data }) => {
       if (!cancelled) setRows((data as DailyRow[]) ?? []);
@@ -829,7 +841,7 @@ export function HealthReport() {
         <p className="text-xs text-slate-500">{t("healthHint")}</p>
         <div className="flex items-center gap-2">
           <ExportButton name="tracking-daily" rows={rows} />
-          <RangePicker value={days} onChange={setDays} options={[30, 60, 90]} />
+          <RangePicker value={days} onChange={setDays} options={[MTD, 30, 60, 90]} />
         </div>
       </div>
 

@@ -66,7 +66,7 @@ const SCOPES = [
 export default function ProductsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [scope, setScope] = useState<string>("all");

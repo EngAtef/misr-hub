@@ -129,7 +129,7 @@ function CsvButton({ rows, name }: { rows: Record<string, unknown>[] | null | un
 export default function ReportsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
 
   const deps = [range.from, range.to];
   const rp = rangeParams(range);

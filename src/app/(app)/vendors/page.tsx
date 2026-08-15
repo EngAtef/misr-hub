@@ -49,7 +49,7 @@ interface ExportLine {
 export default function VendorsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
 
   const [grp, setGrp] = useState<VendorGroup>("adwaa");
   const [exporting, setExporting] = useState(false);

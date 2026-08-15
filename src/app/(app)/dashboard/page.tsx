@@ -132,7 +132,7 @@ export default function DashboardPage() {
     customCompare,
     setCustomCompare,
     compare,
-  } = useDateRange("30d");
+  } = useDateRange("month");
   const params = rangeParams(range);
   const deps = [range.from, range.to];
   const money = (n: number) => formatMoney(n, lang);

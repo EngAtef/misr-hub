@@ -126,7 +126,7 @@ export default function AbandonedPage() {
   const role = useMyRole();
   const canEdit = role === "admin" || role === "manager";
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange } = useDateRange("all");
+  const { preset, setPreset, range, setRange } = useDateRange("month");
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [segments, setSegments] = useState<SegmentRow[]>([]);

@@ -24,7 +24,7 @@ const TABS: { key: Tab; labelKey: DictKey }[] = [
 export default function AnalyticsPage() {
   const { t } = useLang();
   const [tab, setTab] = useState<Tab>("sales");
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
 
   return (
     <div>

@@ -17,7 +17,7 @@ const PAGE_SIZE = 25;
 export default function OrdersPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const [compareTotal, setCompareTotal] = useState<number | null>(null);
 
   const [search, setSearch] = useState("");

@@ -31,7 +31,7 @@ type Tab = "quality" | "free" | "sameday" | "cancel";
 export default function DeliveryPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const [tab, setTab] = useState<Tab>("quality");
 
   // ?tab= deep link from the Overview alert feed

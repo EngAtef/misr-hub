@@ -47,7 +47,7 @@ const CATEGORY_META = {
 
 export default function InsightsPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("90d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const params = rangeParams(range);
   const deps = [range.from, range.to];
 

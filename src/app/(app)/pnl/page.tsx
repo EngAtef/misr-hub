@@ -16,7 +16,7 @@ interface MonthRow { month: string; revenue: number; cogs: number; ad_spend: num
 
 export default function PnlPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const [margin, setMargin] = useState(30);
   const params = rangeParams(range);
   const deps = [range.from, range.to, margin];

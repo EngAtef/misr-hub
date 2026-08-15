@@ -44,7 +44,7 @@ import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 export default function OverviewPage() {
   const { t, lang } = useLang();
-  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("30d");
+  const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
   const params = rangeParams(range);
   const deps = [range.from, range.to];
 
