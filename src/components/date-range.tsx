@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GitCompareArrows } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { cn, formatDate } from "@/lib/utils";
@@ -10,7 +10,7 @@ export interface DateRange {
   to: string | null;
 }
 
-type Preset = "7d" | "30d" | "90d" | "month" | "all" | "custom";
+type Preset = "7d" | "30d" | "90d" | "month" | "lastMonth" | "all" | "custom";
 export type ComparePreset = "off" | "prev" | "year" | "custom";
 
 // These are calendar days in the reader's own timezone, so they must be
@@ -39,6 +39,12 @@ export function presetToRange(preset: Preset): DateRange {
       return { from: isoLocal(shiftDays(-90)), to: end };
     case "month":
       return { from: isoLocal(new Date(now.getFullYear(), now.getMonth(), 1)), to: end };
+    case "lastMonth":
+      // ends where this month begins — the bound is exclusive
+      return {
+        from: isoLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        to: isoLocal(new Date(now.getFullYear(), now.getMonth(), 1)),
+      };
     default:
       return { from: null, to: null };
   }
@@ -84,6 +90,17 @@ export function useDateRange(initial: Preset = "month") {
   const [comparePreset, setComparePreset] = useState<ComparePreset>("off");
   const [customCompare, setCustomCompare] = useState<DateRange>({ from: null, to: null });
 
+  // On the 1st, month-to-date is a single day and every report reads as
+  // broken, so the page opens on the month that just closed instead. Only
+  // the opening default — picking "This month" by hand still means today.
+  // It runs after mount, not in the initial state, because the server
+  // prerenders in UTC and would disagree with Cairo about which day it is.
+  useEffect(() => {
+    if (initial !== "month" || new Date().getDate() !== 1) return;
+    setPreset("lastMonth");
+    setRange(presetToRange("lastMonth"));
+  }, [initial]);
+
   // The resolved comparison period (null = compare off / not resolvable).
   // "prev" and "year" follow the main range automatically.
   const compare = useMemo<DateRange | null>(() => {
@@ -122,6 +139,7 @@ export function DateRangeFilter({
   // this month leads — it is the default
   const presets: { key: Preset; label: string }[] = [
     { key: "month", label: t("thisMonth") },
+    { key: "lastMonth", label: t("lastMonth") },
     { key: "7d", label: t("last7") },
     { key: "30d", label: t("last30") },
     { key: "90d", label: t("last90") },

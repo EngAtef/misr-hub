@@ -380,12 +380,24 @@ const isoDaysAgo = (days: number) => {
   return isoLocal(d);
 };
 
-// 0 is the month-to-date option, the default everywhere
+// 0 is month-to-date, the default everywhere; -1 is the month that just
+// closed, which is what the 1st opens on (see the note in date-range.tsx)
 const MTD = 0;
+const LAST_MONTH = -1;
+
 const rangeStart = (days: number) => {
-  if (days !== MTD) return isoDaysAgo(days - 1);
   const now = new Date();
-  return isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+  if (days === MTD) return isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+  if (days === LAST_MONTH) return isoLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  return isoDaysAgo(days - 1);
+};
+
+// inclusive, unlike the exclusive bound date-range.tsx carries
+const rangeEnd = (days: number) => {
+  if (days !== LAST_MONTH) return isoDaysAgo(0);
+  const now = new Date();
+  // day 0 of this month is the last day of the previous one
+  return isoLocal(new Date(now.getFullYear(), now.getMonth(), 0));
 };
 
 function RangePicker({
@@ -398,7 +410,7 @@ function RangePicker({
   options: number[];
 }) {
   const { t } = useLang();
-  const labels: Record<number, string> = { 0: t("thisMonth"), 7: t("last7"), 30: t("last30"), 60: t("last60"), 90: t("last90") };
+  const labels: Record<number, string> = { 0: t("thisMonth"), [-1]: t("lastMonth"), 7: t("last7"), 30: t("last30"), 60: t("last60"), 90: t("last90") };
   return (
     <div className="flex gap-1">
       {options.map((d) => (
@@ -496,6 +508,11 @@ export function ChannelsReport() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [days, setDays] = useState(MTD);
+  // the 1st opens on the month that just closed, set after mount so the
+  // UTC prerender and the local browser agree on first paint
+  useEffect(() => {
+    if (new Date().getDate() === 1) setDays(LAST_MONTH);
+  }, []);
   const [channels, setChannels] = useState<ChannelRow[] | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [quality, setQuality] = useState<Record<string, unknown>[]>([]);
@@ -507,7 +524,7 @@ export function ChannelsReport() {
     setChannels(null);
     setError(null);
     const p_from = rangeStart(days);
-    const p_to = isoDaysAgo(0);
+    const p_to = rangeEnd(days);
     supabase.rpc("fn_channel_summary", { p_from, p_to }).then(({ data, error }) => {
       if (cancelled) return;
       if (error) setError(error.message);
@@ -580,7 +597,7 @@ export function ChannelsReport() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{t("channelsHint")}</p>
-        <RangePicker value={days} onChange={setDays} options={[MTD, 7, 30, 90]} />
+        <RangePicker value={days} onChange={setDays} options={[MTD, LAST_MONTH, 7, 30, 90]} />
       </div>
 
       {totals && (
@@ -784,6 +801,11 @@ export function HealthReport() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [days, setDays] = useState(MTD);
+  // the 1st opens on the month that just closed, set after mount so the
+  // UTC prerender and the local browser agree on first paint
+  useEffect(() => {
+    if (new Date().getDate() === 1) setDays(LAST_MONTH);
+  }, []);
   const [rows, setRows] = useState<DailyRow[] | null>(null);
   const [funnelExtra, setFunnelExtra] = useState<FunnelTotals | null>(null);
 
@@ -791,7 +813,7 @@ export function HealthReport() {
     let cancelled = false;
     setRows(null);
     const p_from = rangeStart(days);
-    const p_to = isoDaysAgo(0);
+    const p_to = rangeEnd(days);
     supabase.rpc("fn_tracking_daily", { p_from, p_to }).then(({ data }) => {
       if (!cancelled) setRows((data as DailyRow[]) ?? []);
     });
@@ -841,7 +863,7 @@ export function HealthReport() {
         <p className="text-xs text-slate-500">{t("healthHint")}</p>
         <div className="flex items-center gap-2">
           <ExportButton name="tracking-daily" rows={rows} />
-          <RangePicker value={days} onChange={setDays} options={[MTD, 30, 60, 90]} />
+          <RangePicker value={days} onChange={setDays} options={[MTD, LAST_MONTH, 30, 60, 90]} />
         </div>
       </div>
 

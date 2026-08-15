@@ -75,6 +75,7 @@ const dict = {
   last30: { ar: "آخر 30 يوم", en: "Last 30 days" },
   last90: { ar: "آخر 90 يوم", en: "Last 90 days" },
   thisMonth: { ar: "هذا الشهر", en: "This month" },
+  lastMonth: { ar: "الشهر الماضي", en: "Last month" },
   allTime: { ar: "كل الفترات", en: "All time" },
   custom: { ar: "مخصص", en: "Custom" },
   from: { ar: "من", en: "From" },
