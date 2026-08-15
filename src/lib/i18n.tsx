@@ -1343,6 +1343,13 @@ const dict = {
   restore: { ar: "استرجاع", en: "Restore" },
   deleteForever: { ar: "حذف نهائي", en: "Delete forever" },
   deleteForeverConfirm: { ar: "لا يمكن التراجع عن الحذف النهائي. متابعة؟", en: "Permanent deletion cannot be undone. Continue?" },
+  deleteSelected: { ar: "حذف المحدد نهائياً", en: "Delete selected" },
+  deleteSelectedConfirm: {
+    ar: "سيتم حذف {n} عنصر نهائياً ولا يمكن التراجع. متابعة؟",
+    en: "{n} items will be permanently deleted and cannot be recovered. Continue?",
+  },
+  deletingProgress: { ar: "جارٍ الحذف {done} من {total}", en: "Deleting {done} of {total}" },
+  deletedSomeFailed: { ar: "تم حذف {ok}، وتعذّر حذف {fail}", en: "{ok} deleted, {fail} could not be deleted" },
   trashEmpty: { ar: "سلة المحذوفات فارغة", en: "Trash is empty" },
   restored: { ar: "تم الاسترجاع", en: "Restored" },
   sectionCampaigns: { ar: "الحملات", en: "Campaigns" },

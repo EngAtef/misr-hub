@@ -669,6 +669,8 @@ function TrashTab() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
 
   const autoPurged = useRef(false);
 
@@ -723,6 +725,8 @@ function TrashTab() {
       }
     }
     setRows(list);
+    // ids are gone or renumbered after a purge — never carry a stale tick over
+    setSelected(new Set());
     setLoading(false);
   }, [supabase, purgeRow]);
 
@@ -767,6 +771,67 @@ function TrashTab() {
     setBusyId(null);
   }
 
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  const allSelected = rows.length > 0 && selected.size === rows.length;
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+  }
+
+  // Only flipbooks own files, and clearing a book's page folder can take
+  // several storage calls, so those are purged one at a time — a failure
+  // there leaves that row in place and counted, without taking the rest of
+  // the batch down. Everything else is just a row, so it goes in bulk.
+  async function deleteSelected() {
+    const targets = rows.filter((r) => selected.has(r.id));
+    if (!targets.length) return;
+    if (!confirm(t("deleteSelectedConfirm").replace("{n}", String(targets.length)))) return;
+    setError("");
+    setBulk({ done: 0, total: targets.length });
+    let ok = 0;
+    let firstErr = "";
+
+    const withFiles = targets.filter((r) => r.table_name === "flipbooks");
+    const plain = targets.filter((r) => r.table_name !== "flipbooks");
+
+    // chunked so a big selection can't build a URL the API will reject
+    for (let i = 0; i < plain.length; i += 100) {
+      const chunk = plain.slice(i, i + 100);
+      const { error: err } = await supabase
+        .from("trash")
+        .delete()
+        .in("id", chunk.map((r) => r.id));
+      if (err) firstErr ||= err.message;
+      else ok += chunk.length;
+      setBulk({ done: Math.min(i + chunk.length, plain.length), total: targets.length });
+    }
+
+    for (let i = 0; i < withFiles.length; i++) {
+      const err = await purgeRow(withFiles[i]);
+      if (err) firstErr ||= err;
+      else ok++;
+      setBulk({ done: plain.length + i + 1, total: targets.length });
+    }
+
+    const failed = targets.length - ok;
+    if (failed) {
+      setError(
+        `${t("deletedSomeFailed").replace("{ok}", String(ok)).replace("{fail}", String(failed))} — ${firstErr}`
+      );
+    }
+    await load();
+    setBulk(null);
+  }
+
+  const working = busyId !== null || bulk !== null;
+
   if (loading) return <Spinner />;
 
   return (
@@ -775,6 +840,24 @@ function TrashTab() {
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       )}
       <p className="mb-3 text-xs text-slate-400">{t("trashAutoPurgeNote")}</p>
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm">
+          <span className="font-semibold text-red-800">
+            {bulk
+              ? t("deletingProgress").replace("{done}", String(bulk.done)).replace("{total}", String(bulk.total))
+              : t("selectedCount").replace("{n}", String(selected.size))}
+          </span>
+          <div className="flex items-center gap-2">
+            <button className={dangerBtn} disabled={working} onClick={deleteSelected}>
+              <Trash2 size={14} />
+              {t("deleteSelected")}
+            </button>
+            <button className="btn-secondary !py-1.5" disabled={working} onClick={() => setSelected(new Set())}>
+              {t("clear")}
+            </button>
+          </div>
+        </div>
+      )}
       {rows.length === 0 ? (
         <EmptyState message={t("trashEmpty")} />
       ) : (
@@ -782,6 +865,19 @@ function TrashTab() {
           <table className="table-base">
             <thead>
               <tr>
+                <th className="w-10">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-red-600 align-middle"
+                    aria-label={t("selectAll")}
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selected.size > 0 && !allSelected;
+                    }}
+                    disabled={working}
+                    onChange={toggleAll}
+                  />
+                </th>
                 <th>{t("deletedItem")}</th>
                 <th>{t("deletedFrom")}</th>
                 <th>{t("deletedBy")}</th>
@@ -793,7 +889,17 @@ function TrashTab() {
               {rows.map((r) => {
                 const sectionKey = SECTION_LABELS[r.table_name];
                 return (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={selected.has(r.id) ? "bg-red-50/60" : undefined}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-red-600 align-middle"
+                        aria-label={r.label ?? String(r.id)}
+                        checked={selected.has(r.id)}
+                        disabled={working}
+                        onChange={() => toggle(r.id)}
+                      />
+                    </td>
                     <td className="font-semibold !whitespace-normal max-w-md">{r.label ?? "—"}</td>
                     <td>
                       <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
@@ -813,14 +919,14 @@ function TrashTab() {
                         ) : (
                           <button
                             className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={busyId !== null}
+                            disabled={working}
                             onClick={() => restore(r)}
                           >
                             <RotateCcw size={14} />
                             {t("restore")}
                           </button>
                         )}
-                        <button className={dangerBtn} disabled={busyId !== null} onClick={() => deleteForever(r)}>
+                        <button className={dangerBtn} disabled={working} onClick={() => deleteForever(r)}>
                           <Trash2 size={14} />
                           {t("deleteForever")}
                         </button>
