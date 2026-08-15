@@ -86,9 +86,11 @@ const dict = {
   vsPrevPeriod: { ar: "مقارنة بالفترة السابقة", en: "vs previous" },
   vsLastYear: { ar: "مقارنة بالعام السابق", en: "vs last year" },
   partialPeriod: { ar: "غير مكتملة", en: "partial" },
+  ordersPlaced: { ar: "طلبات تم إنشاؤها", en: "Orders placed" },
+  ordersDelivered: { ar: "طلبات مسلّمة", en: "Orders delivered" },
   comparisonsNote: {
-    ar: "السنة المالية من يوليو إلى يونيو. الإيراد الفعلي = الأصناف المسلّمة بدون الأضواء + رسوم الشحن — نفس أساس الهدف. الفترة الجارية غير مكتملة، لذا مقارنتها بفترة كاملة تقلّل من قيمتها.",
-    en: "Financial year runs July–June. Actual revenue is delivered lines excluding Al-Adwaa plus delivery fees — the same basis the target was set on. The period in progress is incomplete, so comparing it against a full one understates it.",
+    ar: "السنة المالية من يوليو إلى يونيو. الإيراد الفعلي = الأصناف المسلّمة بدون الأضواء + رسوم الشحن — نفس أساس الهدف؛ الفاتورة المختلطة يُستبعد منها صنف الأضواء فقط ويبقى الباقي بالشحن. «طلبات تم إنشاؤها» تشمل كل الحالات وهي مقام معدل التحويل في الخطة، و«طلبات مسلّمة» هي الجزء الذي تحقق منه الإيراد. الفترة الجارية غير مكتملة، لذا مقارنتها بفترة كاملة تقلّل من قيمتها.",
+    en: "Financial year runs July–June. Actual revenue is delivered lines excluding Al-Adwaa plus delivery fees — the same basis the target was set on; a mixed invoice drops only its Al-Adwaa item and keeps the rest with its delivery. Orders placed counts every status and is the plan's conversion denominator; orders delivered is the subset that produced the revenue. The period in progress is incomplete, so comparing it against a full one understates it.",
   },
   allTime: { ar: "كل الفترات", en: "All time" },
   custom: { ar: "مخصص", en: "Custom" },

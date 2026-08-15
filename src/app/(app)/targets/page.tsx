@@ -17,6 +17,7 @@ interface TargetRow {
   cultural_target: number;
   actual_revenue: number;
   actual_orders: number;
+  orders_placed: number;
   progress_pct: number;
   aov: number;
   conv_rate: number;
@@ -54,6 +55,8 @@ interface Bucket {
   label: string;
   target: number;
   actual: number;
+  placed: number;
+  delivered: number;
   partial: boolean;
   future: boolean;
 }
@@ -90,6 +93,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
         label: bucketLabel(gran, fy, slot, iso, lang),
         target: 0,
         actual: 0,
+        placed: 0,
+        delivered: 0,
         partial: false,
         future: true,
       };
@@ -97,6 +102,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
     }
     b.target += Number(r.total_target) || 0;
     b.actual += Number(r.actual_revenue) || 0;
+    b.placed += Number(r.orders_placed) || 0;
+    b.delivered += Number(r.actual_orders) || 0;
     const mk = iso.slice(0, 7);
     // the month in progress makes its whole bucket incomplete, and a bucket
     // still entirely ahead of us has nothing to compare rather than -100%
@@ -319,6 +326,8 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
               <th className="text-end">{t("monthlyTarget")}</th>
               <th className="text-end">{t("achieved")}</th>
               <th className="text-end">%</th>
+              <th className="text-end">{t("ordersPlaced")}</th>
+              <th className="text-end">{t("ordersDelivered")}</th>
               <th className="text-end">{t("vsPrevPeriod")}</th>
               <th className="text-end">{t("vsLastYear")}</th>
             </tr>
@@ -353,6 +362,10 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
                         {pct.toFixed(1)}%
                       </span>
                     )}
+                  </td>
+                  <td className="text-end">{b.future ? <span className="text-slate-300">—</span> : formatNumber(b.placed)}</td>
+                  <td className="text-end text-slate-500">
+                    {b.future ? <span className="text-slate-300">—</span> : formatNumber(b.delivered)}
                   </td>
                   <td className="text-end">{pctCell(delta(b.actual, prev?.actual), b.future || !prev)}</td>
                   <td className="text-end">{pctCell(delta(b.actual, lastYear?.actual), b.future || !lastYear)}</td>
