@@ -27,6 +27,90 @@ function monthName(iso: string, lang: "ar" | "en") {
   return d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", { month: "long", year: "numeric" });
 }
 
+// The financial year runs July → June, which is why Q1 is Jul–Sep here and
+// why a plain calendar year would split every comparison down the middle.
+const FY_START = 7;
+
+function fyOf(iso: string) {
+  const y = Number(iso.slice(0, 4));
+  return Number(iso.slice(5, 7)) >= FY_START ? y : y - 1;
+}
+
+function fyLabel(fy: number) {
+  return `FY${String(fy).slice(2)}/${String(fy + 1).slice(2)}`;
+}
+
+// 0 = July … 11 = June
+function fyIndex(iso: string) {
+  return (Number(iso.slice(5, 7)) - FY_START + 12) % 12;
+}
+
+type Gran = "month" | "quarter" | "half" | "year";
+
+interface Bucket {
+  fy: number;
+  slot: number;
+  key: string;
+  label: string;
+  target: number;
+  actual: number;
+  partial: boolean;
+  future: boolean;
+}
+
+function slotOf(gran: Gran, fi: number) {
+  if (gran === "month") return fi;
+  if (gran === "quarter") return Math.floor(fi / 3);
+  if (gran === "half") return Math.floor(fi / 6);
+  return 0;
+}
+
+function bucketLabel(gran: Gran, fy: number, slot: number, iso: string, lang: "ar" | "en") {
+  if (gran === "month") return monthName(iso, lang);
+  if (gran === "quarter") return `Q${slot + 1} ${fyLabel(fy)}`;
+  if (gran === "half") return `H${slot + 1} ${fyLabel(fy)}`;
+  return fyLabel(fy);
+}
+
+function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[] {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const map = new Map<string, Bucket>();
+  for (const r of rows) {
+    const iso = r.period_month.slice(0, 10);
+    const fy = fyOf(iso);
+    const slot = slotOf(gran, fyIndex(iso));
+    const key = `${fy}:${slot}`;
+    let b = map.get(key);
+    if (!b) {
+      b = {
+        fy,
+        slot,
+        key,
+        label: bucketLabel(gran, fy, slot, iso, lang),
+        target: 0,
+        actual: 0,
+        partial: false,
+        future: true,
+      };
+      map.set(key, b);
+    }
+    b.target += Number(r.total_target) || 0;
+    b.actual += Number(r.actual_revenue) || 0;
+    const mk = iso.slice(0, 7);
+    // the month in progress makes its whole bucket incomplete, and a bucket
+    // still entirely ahead of us has nothing to compare rather than -100%
+    if (mk === curKey) b.partial = true;
+    if (mk <= curKey) b.future = false;
+  }
+  return [...map.values()].sort((a, b) => a.fy - b.fy || a.slot - b.slot);
+}
+
+function delta(now: number, then: number | undefined): number | null {
+  if (then === undefined || then <= 0) return null;
+  return ((now - then) / then) * 100;
+}
+
 export default function TargetsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
@@ -52,11 +136,27 @@ export default function TargetsPage() {
     load();
   }, [load]);
 
-  const annual = useMemo(() => {
-    const target = rows.reduce((s, r) => s + r.total_target, 0);
-    const actual = rows.reduce((s, r) => s + r.actual_revenue, 0);
-    return { target, actual, pct: target > 0 ? (actual / target) * 100 : 0 };
+  // Every financial year present, newest first; the page opens on the one we
+  // are living in. Before this there was a single hardcoded year and the
+  // annual card summed every row it could find.
+  const years = useMemo(() => {
+    const set = new Set(rows.map((r) => fyOf(r.period_month.slice(0, 10))));
+    return [...set].sort((a, b) => b - a);
   }, [rows]);
+
+  const [fy, setFy] = useState<number | null>(null);
+  const activeFy = fy ?? (years.includes(fyOf(new Date().toISOString().slice(0, 10))) ? fyOf(new Date().toISOString().slice(0, 10)) : years[0]);
+
+  const yearRows = useMemo(
+    () => rows.filter((r) => fyOf(r.period_month.slice(0, 10)) === activeFy),
+    [rows, activeFy]
+  );
+
+  const annual = useMemo(() => {
+    const target = yearRows.reduce((s, r) => s + Number(r.total_target), 0);
+    const actual = yearRows.reduce((s, r) => s + Number(r.actual_revenue), 0);
+    return { target, actual, pct: target > 0 ? (actual / target) * 100 : 0 };
+  }, [yearRows]);
 
   if (loading) return <div><PageHeader title={t("targets")} /><Spinner /></div>;
 
@@ -83,9 +183,28 @@ export default function TargetsPage() {
     <div>
       <PageHeader title={t("targets")} subtitle={t("targetsSubtitle")} actions={addButton} />
 
+      {years.length > 1 && (
+        <div className="mb-4 flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 w-fit">
+          {years.map((y) => (
+            <button
+              key={y}
+              onClick={() => setFy(y)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                y === activeFy ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              {fyLabel(y)}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="card p-5 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="font-bold text-slate-700">{t("targetYear")} (Jul 2025 – Jun 2026)</h3>
+          <h3 className="font-bold text-slate-700">
+            {t("targetYear")} — {fyLabel(activeFy)} (Jul {activeFy} – Jun {activeFy + 1})
+          </h3>
           <span className={cn("text-sm font-bold", annual.pct >= 70 ? "text-emerald-600" : annual.pct >= 40 ? "text-amber-600" : "text-red-600")}>
             {annual.pct.toFixed(1)}%
           </span>
@@ -98,7 +217,7 @@ export default function TargetsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
-        {rows.map((r) => {
+        {yearRows.map((r) => {
           const status = r.progress_pct >= 70 ? "onTrack" : r.progress_pct >= 40 ? "behind" : "behind";
           return (
             <div
@@ -127,6 +246,8 @@ export default function TargetsPage() {
         })}
       </div>
 
+      <Comparisons rows={rows} />
+
       {selected && <StepsToAchieve row={selected} />}
       {editing && (
         <TargetModal
@@ -138,6 +259,110 @@ export default function TargetsPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// One table, four granularities: month-on-month, quarter-on-quarter,
+// half-on-half and year-on-year all read the same way — this period against
+// the one before it, and against the same period a year earlier.
+function Comparisons({ rows }: { rows: TargetRow[] }) {
+  const { t, lang } = useLang();
+  const [gran, setGran] = useState<Gran>("month");
+
+  const buckets = useMemo(() => buildBuckets(rows, gran, lang), [rows, gran, lang]);
+  const byKey = useMemo(() => new Map(buckets.map((b) => [b.key, b])), [buckets]);
+
+  const options: { key: Gran; label: string }[] = [
+    { key: "month", label: t("granMonth") },
+    { key: "quarter", label: t("granQuarter") },
+    { key: "half", label: t("granHalf") },
+    { key: "year", label: t("granYear") },
+  ];
+
+  const pctCell = (v: number | null, muted: boolean) => {
+    if (muted) return <span className="text-slate-300">—</span>;
+    if (v === null) return <span className="text-slate-400">—</span>;
+    return (
+      <span className={cn("font-semibold", v >= 0 ? "text-emerald-600" : "text-red-600")} dir="ltr">
+        {v >= 0 ? "+" : ""}
+        {v.toFixed(1)}%
+      </span>
+    );
+  };
+
+  return (
+    <div className="mb-8">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold text-slate-700">{t("comparisons")}</h3>
+        <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
+          {options.map((o) => (
+            <button
+              key={o.key}
+              onClick={() => setGran(o.key)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                gran === o.key ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="card overflow-x-auto">
+        <table className="table-base">
+          <thead>
+            <tr>
+              <th>{t("periodLbl")}</th>
+              <th className="text-end">{t("monthlyTarget")}</th>
+              <th className="text-end">{t("achieved")}</th>
+              <th className="text-end">%</th>
+              <th className="text-end">{t("vsPrevPeriod")}</th>
+              <th className="text-end">{t("vsLastYear")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {buckets.map((b, i) => {
+              const prev = i > 0 ? buckets[i - 1] : undefined;
+              const lastYear = byKey.get(`${b.fy - 1}:${b.slot}`);
+              const pct = b.target > 0 ? (b.actual / b.target) * 100 : 0;
+              return (
+                <tr key={b.key} className={b.partial ? "bg-amber-50/50" : undefined}>
+                  <td className="font-semibold">
+                    {b.label}
+                    {b.partial && (
+                      <span className="ms-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                        {t("partialPeriod")}
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-end">{formatMoney(b.target, lang)}</td>
+                  <td className="text-end font-semibold">{b.future ? "—" : formatMoney(b.actual, lang)}</td>
+                  <td className="text-end">
+                    {b.future ? (
+                      <span className="text-slate-300">—</span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          pct >= 70 ? "text-emerald-600" : pct >= 40 ? "text-amber-600" : "text-red-600"
+                        )}
+                      >
+                        {pct.toFixed(1)}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-end">{pctCell(delta(b.actual, prev?.actual), b.future || !prev)}</td>
+                  <td className="text-end">{pctCell(delta(b.actual, lastYear?.actual), b.future || !lastYear)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-400">{t("comparisonsNote")}</p>
     </div>
   );
 }
