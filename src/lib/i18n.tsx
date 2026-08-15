@@ -164,7 +164,9 @@ const dict = {
   rows: { ar: "الصفوف", en: "Rows" },
   date: { ar: "التاريخ", en: "Date" },
   duplicateNote: { ar: "الطلبات المكررة يتم تحديثها تلقائياً بأحدث البيانات", en: "Existing orders are automatically updated with the latest data" },
-  invalidFile: { ar: "ملف غير صالح — لم يتم العثور على عمود Order number", en: "Invalid file — 'Order number' column not found" },
+  // generic: shown by every upload card, so it must not name one card's column
+  invalidFile: { ar: "ملف غير صالح — لم يتم العثور على الأعمدة المتوقعة لهذا النوع", en: "Invalid file — the columns this upload expects weren't found" },
+  invalidOrdersFile: { ar: "ملف غير صالح — لم يتم العثور على عمود Order number", en: "Invalid file — 'Order number' column not found" },
   // Reports
   reportType: { ar: "نوع التقرير", en: "Report Type" },
   generateReport: { ar: "إنشاء التقرير", en: "Generate Report" },

@@ -294,7 +294,7 @@ export default function DataCenterPage() {
     try {
       if (activeType === "orders") {
         const buffer = await file.arrayBuffer();
-        if (!hasOrderNumberColumn(buffer)) throw new Error(t("invalidFile"));
+        if (!hasOrderNumberColumn(buffer)) throw new Error(t("invalidOrdersFile"));
         const result = parseOrdersWorkbook(buffer);
         setPending({ type: "orders", fileName: file.name, orders: result.orders, count: result.orders.length });
       } else if (activeType === "customers") {

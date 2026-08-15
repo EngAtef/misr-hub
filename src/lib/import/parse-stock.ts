@@ -21,12 +21,24 @@ export interface StockSnapshot {
 // The platform names its exports ProductStockExport_<user>_<unix seconds>,
 // so a file downloaded last week can be recognised as last week's count
 // rather than today's. Anything outside a sane range is ignored.
+// SAP files are named by hand instead — Stock13.08.2026.XLSX — so a count
+// pulled on Wednesday and uploaded on Friday isn't recorded as Friday's.
 export function snapshotTakenAt(fileName: string): Date | null {
   const m = fileName.match(/(?:^|[_-])(1[5-9]\d{8}|2\d{9})(?:\D|$)/);
-  if (!m) return null;
-  const d = new Date(parseInt(m[1], 10) * 1000);
-  if (isNaN(d.getTime()) || d.getTime() > Date.now() + 86_400_000) return null;
-  return d;
+  if (m) {
+    const d = new Date(parseInt(m[1], 10) * 1000);
+    if (isNaN(d.getTime()) || d.getTime() > Date.now() + 86_400_000) return null;
+    return d;
+  }
+  const iso = fileName.match(/(20\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
+  // day-first otherwise, the local convention
+  const dm = iso ? null : fileName.match(/(\d{1,2})[.\-/](\d{1,2})[.\-/](20\d{2})/);
+  if (iso || dm) {
+    const [year, month, day] = iso ? [iso[1], iso[2], iso[3]] : [dm![3], dm![2], dm![1]];
+    const d = new Date(Date.UTC(+year, +month - 1, +day, 12));
+    if (!isNaN(d.getTime()) && +month <= 12 && +day <= 31 && d.getTime() <= Date.now() + 86_400_000) return d;
+  }
+  return null;
 }
 
 function findKey(keys: string[], candidates: string[]): string | null {
@@ -54,35 +66,54 @@ function num(v: unknown): number | null {
 export function parseStockFile(data: ArrayBuffer): StockSnapshot {
   const wb = XLSX.read(data, { type: "array", raw: false });
 
-  // SAP export detection: look across sheets for Material + Unrestricted
+  // SAP export detection: a Material column is the giveaway. The quantity
+  // column is named "Unrestricted" in the per-storage-location export, but
+  // the pivoted one puts the storage location code itself in the header
+  // ("0004"), so anything that isn't the material or its description counts
+  // as a quantity column and a row may carry several locations to add up.
+  // A trailing grand-total row has no material and drops out on its own.
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { raw: false, defval: null });
     if (!rows.length) continue;
-    const keys = Object.keys(rows[0]).map((k) => k.toLowerCase());
-    if (keys.some((k) => k === "material") && keys.some((k) => k.includes("unrestricted"))) {
-      const matKey = Object.keys(rows[0]).find((k) => k.toLowerCase() === "material")!;
-      const descKey = Object.keys(rows[0]).find((k) => k.toLowerCase().includes("description"));
-      const qtyKey = Object.keys(rows[0]).find((k) => k.toLowerCase().includes("unrestricted"))!;
-      const agg = new Map<string, { name: string | null; qty: number }>();
-      for (const row of rows) {
-        const sku = row[matKey] ? String(row[matKey]).trim() : "";
-        if (!sku) continue;
-        const qty = num(row[qtyKey]) ?? 0;
-        const prev = agg.get(sku);
-        if (prev) prev.qty += qty;
-        else agg.set(sku, { name: descKey && row[descKey] ? String(row[descKey]).trim() : null, qty });
+    const keys = Object.keys(rows[0]);
+    const matKey = keys.find((k) => k.toLowerCase().trim() === "material");
+    if (!matKey) continue;
+    const descKey = keys.find((k) => k.toLowerCase().includes("description"));
+    const unrestricted = keys.filter((k) => k.toLowerCase().includes("unrestricted"));
+    const qtyKeys = unrestricted.length
+      ? unrestricted
+      : keys.filter((k) => k !== matKey && k !== descKey && !/total|sum|إجمالي/i.test(k));
+    if (!qtyKeys.length) continue;
+
+    const agg = new Map<string, { name: string | null; qty: number }>();
+    let sawQty = false;
+    for (const row of rows) {
+      const sku = row[matKey] ? String(row[matKey]).trim() : "";
+      if (!sku) continue;
+      let qty = 0;
+      for (const k of qtyKeys) {
+        const n = num(row[k]);
+        if (n !== null) {
+          qty += n;
+          sawQty = true;
+        }
       }
-      return {
-        side: "sap",
-        rows: Array.from(agg.entries()).map(([sku, v]) => ({
-          sku,
-          product_name: v.name,
-          ecom_stock: null,
-          sap_stock: v.qty,
-          category: null,
-        })),
-      };
+      const prev = agg.get(sku);
+      if (prev) prev.qty += qty;
+      else agg.set(sku, { name: descKey && row[descKey] ? String(row[descKey]).trim() : null, qty });
     }
+    if (!agg.size || !sawQty) continue;
+
+    return {
+      side: "sap",
+      rows: Array.from(agg.entries()).map(([sku, v]) => ({
+        sku,
+        product_name: v.name,
+        ecom_stock: null,
+        sap_stock: v.qty,
+        category: null,
+      })),
+    };
   }
 
   const sheet = wb.Sheets[wb.SheetNames[0]];
