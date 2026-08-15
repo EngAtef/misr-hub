@@ -10,6 +10,7 @@ import { ProductDrawer } from "@/components/product-drawer";
 import { rangeParams } from "@/lib/use-analytics";
 import { PageHeader, Spinner, EmptyState, SortTh, Pagination, DeltaBadge, type SortState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { rpcAll } from "@/lib/rpc-all";
 
 // One row per catalog SKU — sales figures are LEFT-joined, so books with
 // no stock and books that never sold are present with zeros.
@@ -206,7 +207,7 @@ export default function ProductsPage() {
 
   async function exportView() {
     setExporting(true);
-    const { data } = await supabase.rpc("fn_catalog_products", {
+    const data = await rpcAll<CatalogRow>(supabase, "fn_catalog_products", {
       ...rangeParams(range),
       p_search: search || null,
       p_scope: scope,
@@ -215,7 +216,7 @@ export default function ProductsPage() {
       p_limit: 50000,
       p_offset: 0,
     });
-    const list = ((data as CatalogRow[]) ?? []).map((r) => ({
+    const list = data.map((r) => ({
       sku: r.sku,
       product_name: r.product_name,
       category: r.category,

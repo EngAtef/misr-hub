@@ -21,6 +21,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { rpcAll } from "@/lib/rpc-all";
 
 const SMS_PRICE_EGP = 0.285;
 
@@ -292,13 +293,12 @@ export default function SegmentsPage() {
 
   async function fetchFull(): Promise<ExportRow[]> {
     if (!activeDef) return [];
-    const { data } = await supabase.rpc("fn_segment_export", {
+    return rpcAll<ExportRow>(supabase, "fn_segment_export", {
       p_def: withCap(activeDef, capDays),
       p_reachable_only: reachableOnly,
       p_exclude_opt_outs: excludeOptOuts,
-      p_limit: 50000,
+      p_limit: 100000,
     });
-    return (data as ExportRow[]) ?? [];
   }
 
   // log the send: everyone currently exportable under this (capped) definition
@@ -970,8 +970,7 @@ function SavedSegments({
 
   async function exportSaved(s: SavedSegment) {
     setBusy(s.id);
-    const { data } = await supabase.rpc("fn_segment_export", { p_def: withCap(s.definition, capDays), p_limit: 50000 });
-    const rows = (data as ExportRow[]) ?? [];
+    const rows = await rpcAll<ExportRow>(supabase, "fn_segment_export", { p_def: withCap(s.definition, capDays), p_limit: 100000 });
     if (rows.length) {
       downloadCsv(`segment-${s.name.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
     }

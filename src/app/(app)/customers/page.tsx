@@ -9,6 +9,7 @@ import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@
 import { ContactActions } from "@/components/contact-actions";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { CustomerBrowser } from "@/components/customer-browser";
+import { rpcAll } from "@/lib/rpc-all";
 
 interface WinbackRow {
   customer_id: string;
@@ -386,8 +387,7 @@ function MarketingAudiences({ neverPurchased, onOpenCustomer }: { neverPurchased
 
   async function exportWinback() {
     setExportingWinback(true);
-    const { data } = await supabase.rpc("fn_never_purchased", { p_limit: 25000 });
-    const rows = (data as WinbackRow[]) ?? [];
+    const rows = await rpcAll<WinbackRow>(supabase, "fn_never_purchased", { p_limit: 50000 });
     if (rows.length) {
       downloadCsv(`never-purchased-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
     }
@@ -618,12 +618,12 @@ function LifetimeInsights({ onOpenCustomer }: { onOpenCustomer: (id: string) => 
         supabase.rpc("fn_top_lifetime_customers", { p_limit: 100 }),
         supabase.rpc("fn_lifetime_city_stats", { p_limit: 40 }),
         supabase.rpc("fn_stuck_last_orders", { p_limit: 2000 }),
-        supabase.rpc("fn_churned_vips", { p_months: 6, p_min_delivered: 2, p_limit: 5000 }),
+        rpcAll<ChurnedRow>(supabase, "fn_churned_vips", { p_months: 6, p_min_delivered: 2, p_limit: 20000 }),
       ]);
       setVips((v.data as TopCustomer[]) ?? []);
       setCities((c.data as CityStat[]) ?? []);
       setStuck((st.data as StuckRow[]) ?? []);
-      setChurned((ch.data as ChurnedRow[]) ?? []);
+      setChurned(ch);
       setLoading(false);
     })();
   }, [supabase]);

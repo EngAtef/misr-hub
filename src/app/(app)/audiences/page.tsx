@@ -20,6 +20,7 @@ import { PageHeader, Spinner } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { rpcAll } from "@/lib/rpc-all";
 
 // ------------------------------------------------------------ definitions
 
@@ -167,8 +168,7 @@ export default function AudiencesPage() {
 
   async function fetchFull(): Promise<AudRow[]> {
     if (!activeDef) return [];
-    const { data } = await supabase.rpc("fn_audience_export", { p_def: activeDef, p_limit: 100000 });
-    return (data as AudRow[]) ?? [];
+    return rpcAll<AudRow>(supabase, "fn_audience_export", { p_def: activeDef, p_limit: 100000 });
   }
 
   function slugify(s: string): string {
