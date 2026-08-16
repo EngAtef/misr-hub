@@ -825,6 +825,12 @@ const dict = {
   },
   advancedSettings: { ar: "إعدادات متقدمة", en: "Advanced settings" },
   statusInactive: { ar: "موقوف على المتجر", en: "Inactive on store" },
+  stockTabInactive: { ar: "موقوف على المتجر", en: "Inactive" },
+  inactiveReason: { ar: "سبب الإيقاف (من المتجر)", en: "Reason (store)" },
+  inactiveNote: {
+    ar: "أصناف أوقفها المتجر — السبب كما كتبه فريق المتجر في ملف التصدير. «مكرر» و«اصدار قديم» و«منتهي» لن تعود؛ «اغلاق سعر» و«مغلق لحين الاعلان» و«مؤقت» ستعود. المحرك لا يقترح نقل أي منها. ما يهم هنا هو النسخ المحتجزة في المخزن خلفها:",
+    en: "Products the store has switched off — the reason is the store team's own note from the export. \"Duplicate\", \"old edition\" and \"expired\" never come back; \"price closed\", \"closed until announced\" and \"temporary\" do. The engine proposes no move for any of them. What matters here is the warehouse stock held behind them:",
+  },
   surgeHint: {
     ar: "يبيع هذا الأسبوع أسرع من معدل الشهر، فحُسبت الكمية على إيقاع الأسبوع. مبيعات آخر 7 أيام:",
     en: "Selling faster this week than the monthly rate, so the quantity is sized on this week's pace. Sold in the last 7 days:",

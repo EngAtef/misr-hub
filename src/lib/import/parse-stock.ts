@@ -10,6 +10,9 @@ export interface StockRow {
   // the store's own on/off switch: 616 of 3,774 SKUs are 0 (duplicates,
   // "listed under another code", closed editions) and must never be moved
   ecom_active?: boolean | null;
+  // why it is off — "مكرر" (duplicate) never comes back, "اغلاق سعر"
+  // (price closed) does
+  ecom_note?: string | null;
 }
 
 // Which stock is this file the truth about? An upload replaces its own
@@ -148,6 +151,8 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
       const stock = num(row["stock"]);
       const reserved = num(row["reserved_stock"]) ?? 0;
       const active = num(row["active"]);
+      const noteRaw = row["deactivation_notes"] ?? row["main_deactivation_notes"];
+      const note = noteRaw ? String(noteRaw).trim() : "";
       out.push({
         sku,
         product_name: nameKey && row[nameKey] ? String(row[nameKey]).trim() : null,
@@ -156,6 +161,8 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
         category: catKey && row[catKey] ? String(row[catKey]).trim() : null,
         vendor: brandKey && row[brandKey] ? String(row[brandKey]).trim() : null,
         ecom_active: active === null ? null : active !== 0,
+        // "..." and "....." are the store's own placeholders, not reasons
+        ecom_note: active === 0 && note && !/^\.+$/.test(note) ? note : null,
       });
     }
     return { side: "ecom", rows: out };

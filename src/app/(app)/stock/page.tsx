@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock, ChevronDown } from "lucide-react";
+import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
@@ -51,6 +51,8 @@ interface EngineRow {
   surge: boolean;
   // the store's own switch: an inactive SKU is nobody's move
   is_active: boolean;
+  // and the store's own reason, when the export carried one
+  ecom_note: string | null;
 }
 
 interface MoveList {
@@ -89,7 +91,7 @@ const ML_META: Record<string, { key: DictKey; style: string }> = {
   cancelled: { key: "mlCancelled", style: "bg-slate-100 text-slate-600" },
 };
 
-type Tab = "replenish" | "relist" | "overstock" | "oos" | "forecast" | "all" | "lists";
+type Tab = "replenish" | "relist" | "overstock" | "oos" | "inactive" | "forecast" | "all" | "lists";
 
 // The "In warehouse, not on store" tab holds two different problems: a
 // book the store used to carry and now reads zero on (relist it), and a
@@ -97,16 +99,40 @@ type Tab = "replenish" | "relist" | "overstock" | "oos" | "forecast" | "all" | "
 // They want different decisions, so the tab can be split.
 type WnsGroup = "all" | "relist" | "never_listed";
 
-// Who the shelf floor applies to. "listed" is the rule as asked for —
-// every book the store carries holds at least the minimum — and the other
-// two exist because the old engine only floored books that had sold, and
-// that answer should stay reachable.
-type MinScope = "listed" | "sold_ever" | "selling";
+// The engine's tuning knobs, fixed. They were on the page for a week and
+// the verdict was "too many options" — three settings decide what the
+// page asks for, the rest are how it asks, and those have one right
+// answer for this business:
+const ENGINE = {
+  // the floor applies to any listed book that has sold at least once — a
+  // never-sold listing is not automatically worth twenty copies
+  minScope: "sold_ever",
+  // a bestseller (20+ in the window) is floored at 50, not 20
+  bestsellerMin: 50,
+  bestsellerUnits: 20,
+  // no single move line above this
+  maxOrder: 100,
+  // one copy in SAP is never worth a trip
+  minSapMove: 2,
+  // a book at zero on the store comes back with at least this many
+  relistQty: 10,
+  // ads are out of the picture for now; the engine keeps the join
+  adDays: 0,
+  // the store's 99,996 "print on demand" marker
+  unlimitedAt: 5000,
+  // a surplus below this is not worth a report line
+  overstockMin: 20,
+  // a top-up smaller than this onto a shelf already holding that many is
+  // a trip for nothing
+  minMoveLine: 5,
+  // this week's pace beats the month's once 5 copies sold in it
+  recentDays: 7,
+  surgeMin: 5,
+} as const;
 
-// bumped from "nm-stock-engine-settings": the saved blob carries
-// globalMin: 0 from before the shelf floor existed, and restoring it
-// would silently undo the new default
-const SETTINGS_KEY = "nm-stock-engine-settings-v2";
+// bumped again: the v2 blob carries the knobs above as user settings and
+// would fight the constants
+const SETTINGS_KEY = "nm-stock-engine-settings-v3";
 
 function coverClass(days: number | null): string {
   if (days == null) return "";
@@ -118,26 +144,11 @@ function coverClass(days: number | null): string {
 export default function StockPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
+  // the three that decide what the page asks for
   const [windowDays, setWindowDays] = useState(30);
-  const [coverDays, setCoverDays] = useState(45);
-  // no book the store carries sits below this
+  const [coverDays, setCoverDays] = useState(15);
+  // no listed book that has sold sits below this on the store
   const [globalMin, setGlobalMin] = useState(20);
-  const [minScope, setMinScope] = useState<MinScope>("listed");
-  const [bestsellerMin, setBestsellerMin] = useState(20);
-  const [maxOrder, setMaxOrder] = useState(300);
-  // one copy in the warehouse is never worth a trip, so it never becomes a
-  // move line — the shortfall still shows, purchasing still needs it
-  const [minSapMove, setMinSapMove] = useState(2);
-  const [relistQty, setRelistQty] = useState(10);
-  // stock sitting behind a live campaign is there on purpose — off (0)
-  // until asked for; the engine keeps the join
-  const [adDays, setAdDays] = useState(0);
-  // a top-up smaller than this onto a shelf that already holds that many
-  // is a warehouse trip for nothing
-  const [minMoveLine, setMinMoveLine] = useState(5);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [unlimitedAt, setUnlimitedAt] = useState(5000);
-  const [overstockMin, setOverstockMin] = useState(20);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,7 +166,7 @@ export default function StockPage() {
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const f = sp.get("filter");
-    if (["oos", "overstock", "replenish", "relist", "forecast", "all", "lists"].includes(f ?? "")) setTab(f as Tab);
+    if (["oos", "overstock", "replenish", "relist", "inactive", "forecast", "all", "lists"].includes(f ?? "")) setTab(f as Tab);
     const q = sp.get("q");
     if (q) setSearch(q);
   }, []);
@@ -177,15 +188,6 @@ export default function StockPage() {
         if (s.windowDays) setWindowDays(s.windowDays);
         if (s.coverDays) setCoverDays(s.coverDays);
         if (s.globalMin != null) setGlobalMin(s.globalMin);
-        if (s.minScope) setMinScope(s.minScope);
-        if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
-        if (s.maxOrder) setMaxOrder(s.maxOrder);
-        if (s.minSapMove != null) setMinSapMove(s.minSapMove);
-        if (s.relistQty) setRelistQty(s.relistQty);
-        if (s.adDays != null) setAdDays(s.adDays);
-        if (s.minMoveLine != null) setMinMoveLine(s.minMoveLine);
-        if (s.unlimitedAt) setUnlimitedAt(s.unlimitedAt);
-        if (s.overstockMin != null) setOverstockMin(s.overstockMin);
       }
     } catch {}
     setSettingsReady(true);
@@ -203,43 +205,33 @@ export default function StockPage() {
       p_window_days: windowDays,
       p_coverage_days: coverDays,
       p_global_min: globalMin,
-      p_bestseller_min: bestsellerMin,
-      p_bestseller_units: 20,
-      p_max_order: maxOrder,
-      p_min_sap_move: minSapMove,
-      p_relist_qty: relistQty,
-      p_ad_days: adDays,
-      p_unlimited_at: unlimitedAt,
-      p_overstock_min: overstockMin,
-      p_min_scope: minScope,
-      p_min_move_line: minMoveLine,
+      p_bestseller_min: ENGINE.bestsellerMin,
+      p_bestseller_units: ENGINE.bestsellerUnits,
+      p_max_order: ENGINE.maxOrder,
+      p_min_sap_move: ENGINE.minSapMove,
+      p_relist_qty: ENGINE.relistQty,
+      p_ad_days: ENGINE.adDays,
+      p_unlimited_at: ENGINE.unlimitedAt,
+      p_overstock_min: ENGINE.overstockMin,
+      p_min_scope: ENGINE.minScope,
+      p_min_move_line: ENGINE.minMoveLine,
+      p_recent_days: ENGINE.recentDays,
+      p_surge_min: ENGINE.surgeMin,
     });
     if (error) console.error("fn_stock_engine_json", error);
     const list = (data as EngineRow[] | null) ?? [];
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [
-    supabase, windowDays, coverDays, globalMin, bestsellerMin, maxOrder,
-    minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minScope, minMoveLine,
-  ]);
+  }, [supabase, windowDays, coverDays, globalMin]);
 
   useEffect(() => {
     if (!settingsReady) return;
     load();
     try {
-      localStorage.setItem(
-        SETTINGS_KEY,
-        JSON.stringify({
-          windowDays, coverDays, globalMin, minScope, bestsellerMin, maxOrder,
-          minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minMoveLine,
-        })
-      );
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ windowDays, coverDays, globalMin }));
     } catch {}
-  }, [
-    settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin,
-    maxOrder, minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minMoveLine,
-  ]);
+  }, [settingsReady, load, windowDays, coverDays, globalMin]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -310,6 +302,7 @@ export default function StockPage() {
       );
     if (tab === "overstock") return list.filter((r) => r.status === "overstock");
     if (tab === "oos") return list.filter((r) => r.status === "oos_reorder");
+    if (tab === "inactive") return list.filter((r) => r.status === "inactive");
     return list;
   }, [searched, tab, hasStockData, wnsGroup]);
 
@@ -329,7 +322,13 @@ export default function StockPage() {
         lastsale: (r) => r.last_order_date,
         expected: (r) => r.expected,
         adspend: (r) => r.ad_spend,
-        value: (r) => unitValue(r) * (tab === "overstock" ? (r.surplus ?? 0) : effMove(r)),
+        value: (r) =>
+          unitValue(r) *
+          (tab === "overstock"
+            ? (r.surplus ?? 0)
+            : tab === "inactive"
+              ? (r.sap_stock ?? 0) + (r.ecom_stock ?? 0)
+              : effMove(r)),
       }),
     [filtered, apply, tab, effMove, unitValue]
   );
@@ -346,7 +345,12 @@ export default function StockPage() {
     const overRows = rows.filter((r) => r.status === "overstock");
     const relistRows = rows.filter((r) => r.status === "relist");
     const neverListedRows = rows.filter((r) => r.status === "never_listed");
+    const inactiveRows = rows.filter((r) => r.status === "inactive");
     return {
+      inactive: inactiveRows.length,
+      // warehouse copies sitting behind switched-off listings — the number
+      // that decides whether the tab is housekeeping or money
+      inactiveSap: inactiveRows.reduce((s, r) => s + (r.sap_stock ?? 0), 0),
       toMove: moveRows.reduce((s, r) => s + effMove(r), 0),
       moveSkus: moveRows.length,
       shortfall: rows.reduce((s, r) => s + (r.shortfall ?? 0), 0),
@@ -367,12 +371,12 @@ export default function StockPage() {
   // the engine scores at zero still gets moved. What the warehouse cannot
   // serve is dropped and reported, never saved silently.
   const listCandidates = useMemo(
-    () => filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) >= minSapMove),
-    [filtered, effMove, minSapMove]
+    () => filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) >= ENGINE.minSapMove),
+    [filtered, effMove]
   );
 
   async function saveMoveList() {
-    const skipped = filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) < minSapMove).length;
+    const skipped = filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) < ENGINE.minSapMove).length;
     const items = listCandidates.map((r) => ({
       sku: r.sku,
       product_name: r.product_name,
@@ -479,6 +483,13 @@ export default function StockPage() {
           ...common(r),
           "Expected demand (cover)": r.expected,
           Action: r.units > 0 ? "Selling now - reorder from publisher" : "Sold before, out everywhere - reorder",
+        }));
+      if (which === "inactive")
+        return sorted.map((r) => ({
+          ...common(r),
+          "Reason (store)": r.ecom_note ?? "",
+          "Copies held (SAP + store)": (r.sap_stock ?? 0) + (r.ecom_stock ?? 0),
+          "Held value": Math.round(((r.sap_stock ?? 0) + (r.ecom_stock ?? 0)) * unitValue(r)) || "",
         }));
       if (which === "relist")
         return sorted.map((r) => ({
@@ -629,6 +640,7 @@ export default function StockPage() {
     { key: "relist", labelKey: "stockTabRelist", count: kpis.relist + kpis.neverListed },
     { key: "overstock", labelKey: "stockTabOverstock", count: kpis.overstock },
     { key: "oos", labelKey: "stockTabOos", count: kpis.oos },
+    { key: "inactive", labelKey: "stockTabInactive", count: kpis.inactive },
     { key: "forecast", labelKey: "forecast" },
     { key: "all", labelKey: "stockTabAll", count: rows.length },
     { key: "lists", labelKey: "stockTabLists", count: moveLists.filter((l) => l.status === "pending").length },
@@ -743,8 +755,8 @@ export default function StockPage() {
 
       {tab !== "lists" && tab !== "forecast" && (
         <div className="card p-4 mb-4 flex flex-wrap items-end gap-3">
-          {/* the four settings that decide what the page asks for; the
-              rest are tuning and live behind Advanced */}
+          {/* the three settings that decide what the page asks for; how it
+              asks is fixed in ENGINE above */}
           <Ctl label={t("windowDays")}>
             <select className="input !w-auto" value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value))}>
               {[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d}</option>)}
@@ -765,16 +777,6 @@ export default function StockPage() {
               value={globalMin}
               onChange={(e) => setGlobalMin(Number(e.target.value) || 0)}
             />
-          </Ctl>
-          <Ctl label={t("minMoveLineCtl")} hint={t("minMoveLineHint")}>
-            <select
-              className="input !w-auto"
-              title={t("minMoveLineHint")}
-              value={minMoveLine}
-              onChange={(e) => setMinMoveLine(Number(e.target.value))}
-            >
-              {[1, 3, 5, 8, 10].map((d) => <option key={d} value={d}>{d === 1 ? "—" : d}</option>)}
-            </select>
           </Ctl>
           {vendors.length > 0 && (
             <Ctl label={t("vendorCol")}>
@@ -807,96 +809,6 @@ export default function StockPage() {
           <div className="flex-1 min-w-[180px]">
             <SearchBox placeholder={t("searchProducts")} value={search} onChange={setSearch} />
           </div>
-
-          <div className="basis-full">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-brand-700"
-              onClick={() => setShowAdvanced((v) => !v)}
-            >
-              <ChevronDown size={14} className={cn("transition", showAdvanced && "rotate-180")} />
-              {t("advancedSettings")}
-            </button>
-          </div>
-
-          {showAdvanced && (
-            <div className="basis-full flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <Ctl label={t("minScopeCtl")} hint={t("minScopeHint")}>
-                <select
-                  className="input !w-auto"
-                  title={t("minScopeHint")}
-                  value={minScope}
-                  onChange={(e) => setMinScope(e.target.value as MinScope)}
-                >
-                  <option value="listed">{t("minScopeListed")}</option>
-                  <option value="sold_ever">{t("minScopeSoldEver")}</option>
-                  <option value="selling">{t("minScopeSelling")}</option>
-                </select>
-              </Ctl>
-              <Ctl label={t("bestsellerMin")}>
-                <input type="number" min={0} className="input !w-20" dir="ltr" value={bestsellerMin} onChange={(e) => setBestsellerMin(Number(e.target.value) || 0)} />
-              </Ctl>
-              <Ctl label={t("maxOrder")}>
-                <select className="input !w-auto" value={maxOrder} onChange={(e) => setMaxOrder(Number(e.target.value))}>
-                  {[100, 150, 200, 300, 500].map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Ctl>
-              <Ctl label={t("minSapMove")}>
-                <select
-                  className="input !w-auto"
-                  title={t("minSapMoveHint")}
-                  value={minSapMove}
-                  onChange={(e) => setMinSapMove(Number(e.target.value))}
-                >
-                  {[1, 2, 3, 5, 10].map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Ctl>
-              <Ctl label={t("relistQtyCtl")} hint={t("relistQtyHint")}>
-                <select
-                  className="input !w-auto"
-                  title={t("relistQtyHint")}
-                  value={relistQty}
-                  onChange={(e) => setRelistQty(Number(e.target.value))}
-                >
-                  {[5, 10, 15, 20, 30].map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Ctl>
-              <Ctl label={t("overstockMinCtl")} hint={t("overstockMinHint")}>
-                <select
-                  className="input !w-auto"
-                  title={t("overstockMinHint")}
-                  value={overstockMin}
-                  onChange={(e) => setOverstockMin(Number(e.target.value))}
-                >
-                  {[5, 10, 20, 50, 100].map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Ctl>
-              <Ctl label={t("unlimitedAt")} hint={t("unlimitedAtHint")}>
-                <select
-                  className="input !w-auto"
-                  title={t("unlimitedAtHint")}
-                  value={unlimitedAt}
-                  onChange={(e) => setUnlimitedAt(Number(e.target.value))}
-                >
-                  {[1000, 5000, 10000, 99996, 1000000].map((d) => (
-                    <option key={d} value={d}>{d === 1000000 ? "—" : formatNumber(d)}</option>
-                  ))}
-                </select>
-              </Ctl>
-              {/* off by default — ads are out of the picture until asked
-                  for again; the engine still knows how */}
-              <Ctl label={t("adDaysCtl")} hint={t("adDaysHint")}>
-                <select
-                  className="input !w-auto"
-                  title={t("adDaysHint")}
-                  value={adDays}
-                  onChange={(e) => setAdDays(Number(e.target.value))}
-                >
-                  {[0, 7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d === 0 ? "—" : d}</option>)}
-                </select>
-              </Ctl>
-            </div>
-          )}
         </div>
       )}
 
@@ -1075,6 +987,17 @@ export default function StockPage() {
               {t("overstockNote")}
             </div>
           )}
+          {tab === "inactive" && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg bg-slate-100 border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <Info size={16} className="shrink-0 mt-0.5" />
+              <span>
+                {t("inactiveNote")}{" "}
+                <b>
+                  {formatNumber(kpis.inactive)} SKU · {formatNumber(kpis.inactiveSap)} {t("relistUnitsSub")}
+                </b>
+              </span>
+            </div>
+          )}
           <div className="card overflow-x-auto">
             <table className="table-base">
               <thead>
@@ -1129,6 +1052,16 @@ export default function StockPage() {
                       <th>{t("ecomStock")}</th>
                       <th>{t("sapStock")}</th>
                       <th>{t("forecastQty")}</th>
+                      <Th labelKey="ltUnits" k="lifetime" />
+                      <Th labelKey="lastSale" k="lastsale" />
+                    </>
+                  )}
+                  {tab === "inactive" && (
+                    <>
+                      <th>{t("inactiveReason")}</th>
+                      <Th labelKey="ecomStock" k="ecom" />
+                      <Th labelKey="sapStock" k="sap" />
+                      <Th labelKey="stockValueCol" k="value" />
                       <Th labelKey="ltUnits" k="lifetime" />
                       <Th labelKey="lastSale" k="lastsale" />
                     </>
@@ -1230,7 +1163,7 @@ export default function StockPage() {
                           {/* editable wherever SAP has copies to give, so a
                               book the engine scores at zero can still be
                               added to a list by hand */}
-                          <td>{(r.sap_stock ?? 0) >= minSapMove ? qtyInput : <span className="text-slate-400">—</span>}</td>
+                          <td>{(r.sap_stock ?? 0) >= ENGINE.minSapMove ? qtyInput : <span className="text-slate-400">—</span>}</td>
                           <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                         </>
                       )}
@@ -1249,6 +1182,27 @@ export default function StockPage() {
                           <td>{r.ecom_stock != null ? formatNumber(r.ecom_stock) : "—"}</td>
                           <td>{r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}</td>
                           <td>{formatNumber(r.forecast)}</td>
+                          <td className="font-semibold text-slate-700">{formatNumber(r.lifetime_units ?? 0)}</td>
+                          <td className="whitespace-nowrap text-xs text-slate-500">
+                            {r.last_order_date ? formatDate(r.last_order_date) : <span className="text-slate-400">{t("neverSoldLbl")}</span>}
+                          </td>
+                        </>
+                      )}
+                      {tab === "inactive" && (
+                        <>
+                          {/* the store's own word for why — "duplicate" and
+                              "old edition" never come back, "price closed"
+                              does; that is the whole decision */}
+                          <td className="!whitespace-normal max-w-[220px] text-xs text-slate-600" dir="auto">
+                            {r.ecom_note ?? <span className="text-slate-400">—</span>}
+                          </td>
+                          <td>{r.ecom_stock != null ? formatNumber(r.ecom_stock) : "—"}</td>
+                          <td className={cn("font-semibold", (r.sap_stock ?? 0) > 0 && "text-amber-700")}>
+                            {r.sap_stock != null ? formatNumber(r.sap_stock) : "—"}
+                          </td>
+                          <td className="text-slate-500">
+                            {unitValue(r) ? formatMoney(((r.sap_stock ?? 0) + (r.ecom_stock ?? 0)) * unitValue(r), lang) : "—"}
+                          </td>
                           <td className="font-semibold text-slate-700">{formatNumber(r.lifetime_units ?? 0)}</td>
                           <td className="whitespace-nowrap text-xs text-slate-500">
                             {r.last_order_date ? formatDate(r.last_order_date) : <span className="text-slate-400">{t("neverSoldLbl")}</span>}
