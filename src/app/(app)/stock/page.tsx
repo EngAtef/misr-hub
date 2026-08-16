@@ -103,12 +103,12 @@ type WnsGroup = "all" | "relist" | "never_listed";
 // the verdict was "too many options" — three settings decide what the
 // page asks for, the rest are how it asks, and those have one right
 // answer for this business:
+// Who the shelf floor applies to — back on the page by request, with the
+// bestseller floor: those two are policy, the rest is plumbing.
+type MinScope = "listed" | "sold_ever" | "selling";
+
 const ENGINE = {
-  // the floor applies to any listed book that has sold at least once — a
-  // never-sold listing is not automatically worth twenty copies
-  minScope: "sold_ever",
-  // a bestseller (20+ in the window) is floored at 50, not 20
-  bestsellerMin: 50,
+  // a bestseller is one that sold this many in the window
   bestsellerUnits: 20,
   // no single move line above this
   maxOrder: 100,
@@ -144,11 +144,14 @@ function coverClass(days: number | null): string {
 export default function StockPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  // the three that decide what the page asks for
+  // the settings that decide what the page asks for
   const [windowDays, setWindowDays] = useState(30);
   const [coverDays, setCoverDays] = useState(15);
   // no listed book that has sold sits below this on the store
   const [globalMin, setGlobalMin] = useState(20);
+  const [minScope, setMinScope] = useState<MinScope>("sold_ever");
+  // a bestseller is floored here instead
+  const [bestsellerMin, setBestsellerMin] = useState(50);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -188,6 +191,8 @@ export default function StockPage() {
         if (s.windowDays) setWindowDays(s.windowDays);
         if (s.coverDays) setCoverDays(s.coverDays);
         if (s.globalMin != null) setGlobalMin(s.globalMin);
+        if (s.minScope) setMinScope(s.minScope);
+        if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
       }
     } catch {}
     setSettingsReady(true);
@@ -205,7 +210,7 @@ export default function StockPage() {
       p_window_days: windowDays,
       p_coverage_days: coverDays,
       p_global_min: globalMin,
-      p_bestseller_min: ENGINE.bestsellerMin,
+      p_bestseller_min: bestsellerMin,
       p_bestseller_units: ENGINE.bestsellerUnits,
       p_max_order: ENGINE.maxOrder,
       p_min_sap_move: ENGINE.minSapMove,
@@ -213,7 +218,7 @@ export default function StockPage() {
       p_ad_days: ENGINE.adDays,
       p_unlimited_at: ENGINE.unlimitedAt,
       p_overstock_min: ENGINE.overstockMin,
-      p_min_scope: ENGINE.minScope,
+      p_min_scope: minScope,
       p_min_move_line: ENGINE.minMoveLine,
       p_recent_days: ENGINE.recentDays,
       p_surge_min: ENGINE.surgeMin,
@@ -223,15 +228,15 @@ export default function StockPage() {
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [supabase, windowDays, coverDays, globalMin]);
+  }, [supabase, windowDays, coverDays, globalMin, minScope, bestsellerMin]);
 
   useEffect(() => {
     if (!settingsReady) return;
     load();
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ windowDays, coverDays, globalMin }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin }));
     } catch {}
-  }, [settingsReady, load, windowDays, coverDays, globalMin]);
+  }, [settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -371,12 +376,13 @@ export default function StockPage() {
   // the engine scores at zero still gets moved. What the warehouse cannot
   // serve is dropped and reported, never saved silently.
   const listCandidates = useMemo(
-    () => filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) >= ENGINE.minSapMove),
+    // a switched-off book cannot be moved from any tab, typed qty or not
+    () => filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) >= ENGINE.minSapMove),
     [filtered, effMove]
   );
 
   async function saveMoveList() {
-    const skipped = filtered.filter((r) => effMove(r) > 0 && (r.sap_stock ?? 0) < ENGINE.minSapMove).length;
+    const skipped = filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) < ENGINE.minSapMove).length;
     const items = listCandidates.map((r) => ({
       sku: r.sku,
       product_name: r.product_name,
@@ -778,6 +784,29 @@ export default function StockPage() {
               onChange={(e) => setGlobalMin(Number(e.target.value) || 0)}
             />
           </Ctl>
+          <Ctl label={t("minScopeCtl")} hint={t("minScopeHint")}>
+            <select
+              className="input !w-auto"
+              title={t("minScopeHint")}
+              value={minScope}
+              onChange={(e) => setMinScope(e.target.value as MinScope)}
+            >
+              <option value="listed">{t("minScopeListed")}</option>
+              <option value="sold_ever">{t("minScopeSoldEver")}</option>
+              <option value="selling">{t("minScopeSelling")}</option>
+            </select>
+          </Ctl>
+          <Ctl label={t("bestsellerMin")} hint={t("bestsellerMinHint")}>
+            <input
+              type="number"
+              min={0}
+              className="input !w-20"
+              dir="ltr"
+              title={t("bestsellerMinHint")}
+              value={bestsellerMin}
+              onChange={(e) => setBestsellerMin(Number(e.target.value) || 0)}
+            />
+          </Ctl>
           {vendors.length > 0 && (
             <Ctl label={t("vendorCol")}>
               <MultiSelect
@@ -1163,7 +1192,9 @@ export default function StockPage() {
                           {/* editable wherever SAP has copies to give, so a
                               book the engine scores at zero can still be
                               added to a list by hand */}
-                          <td>{(r.sap_stock ?? 0) >= ENGINE.minSapMove ? qtyInput : <span className="text-slate-400">—</span>}</td>
+                          <td>
+                            {r.is_active !== false && (r.sap_stock ?? 0) >= ENGINE.minSapMove ? qtyInput : <span className="text-slate-400">—</span>}
+                          </td>
                           <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                         </>
                       )}

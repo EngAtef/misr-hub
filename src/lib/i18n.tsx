@@ -839,6 +839,10 @@ const dict = {
   minScopeSoldEver: { ar: "ما سبق بيعه ولو مرة", en: "Sold at least once" },
   minScopeSelling: { ar: "ما يبيع خلال النافذة فقط", en: "Selling in the window only" },
   bestsellerMin: { ar: "حد أدنى للأكثر مبيعاً", en: "Bestseller min" },
+  bestsellerMinHint: {
+    ar: "كتاب باع 20 نسخة أو أكثر خلال نافذة المبيعات يُعامل كالأكثر مبيعاً ويُرفع حده الأدنى على المتجر إلى هذا الرقم بدلاً من الحد العام",
+    en: "A book that sold 20+ copies in the sales window counts as a bestseller and is floored at this number on the store instead of the general minimum",
+  },
   exportMoveList: { ar: "تصدير ملف كامل (Excel)", en: "Export Full Workbook (Excel)" },
   windowDays: { ar: "نافذة المبيعات (يوم)", en: "Sales window (days)" },
   stockUploadNote: { ar: "ارفع ملف المخزون (متجر + SAP) من مركز البيانات لتفعيل النقل والعجز والفائض", en: "Upload a stock file (e-com + SAP) from the Data Center to activate move/shortfall/overstock" },

@@ -150,8 +150,19 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
       seen.add(sku);
       const stock = num(row["stock"]);
       const reserved = num(row["reserved_stock"]) ?? 0;
-      const active = num(row["active"]);
-      const noteRaw = row["deactivation_notes"] ?? row["main_deactivation_notes"];
+      // two switches: the variant's own and its parent product's. A parent
+      // switched off takes every variant with it, whatever the variant
+      // says — 34 SKUs read active=1 under a main_active=0 parent
+      const variantActive = num(row["active"]);
+      const mainActive = num(row["main_active"]);
+      const active =
+        variantActive === null && mainActive === null
+          ? null
+          : (variantActive ?? 1) !== 0 && (mainActive ?? 1) !== 0 ? 1 : 0;
+      const noteRaw =
+        (variantActive === 0 ? row["deactivation_notes"] : null) ??
+        row["main_deactivation_notes"] ??
+        row["deactivation_notes"];
       const note = noteRaw ? String(noteRaw).trim() : "";
       out.push({
         sku,
