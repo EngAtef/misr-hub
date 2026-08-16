@@ -59,6 +59,12 @@ function num(v: unknown): number | null {
   return isNaN(n) ? null : Math.round(n);
 }
 
+// A pivoted SAP export puts its footer label in the Material column
+// itself, so "Grand Total" arrived as a SKU holding 964,235 units — half
+// of everything the app thought was in the warehouse. A total is never a
+// material; drop the row rather than trust it.
+const TOTAL_ROW = /^(grand\s*total|overall\s*result|total|sum|result|الإجمالي|إجمالي|المجموع)$/i;
+
 // Accepts flexible column names: Sku, product name, ecom / e-com stock /
 // current stock, sap / sap stock / warehouse, category.
 // Also auto-detects raw SAP exports (Material / Unrestricted per storage
@@ -71,7 +77,8 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
   // the pivoted one puts the storage location code itself in the header
   // ("0004"), so anything that isn't the material or its description counts
   // as a quantity column and a row may carry several locations to add up.
-  // A trailing grand-total row has no material and drops out on its own.
+  // A trailing total row either has no material or carries its own label
+  // there; both are dropped.
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { raw: false, defval: null });
     if (!rows.length) continue;
@@ -89,7 +96,7 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
     let sawQty = false;
     for (const row of rows) {
       const sku = row[matKey] ? String(row[matKey]).trim() : "";
-      if (!sku) continue;
+      if (!sku || TOTAL_ROW.test(sku)) continue;
       let qty = 0;
       for (const k of qtyKeys) {
         const n = num(row[k]);
@@ -159,7 +166,7 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
   const seen = new Set<string>();
   for (const row of rows) {
     const sku = row[skuKey] ? String(row[skuKey]).trim() : "";
-    if (!sku || seen.has(sku)) continue;
+    if (!sku || seen.has(sku) || TOTAL_ROW.test(sku)) continue;
     seen.add(sku);
     out.push({
       sku,
