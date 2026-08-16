@@ -818,6 +818,12 @@ const dict = {
     ar: "«كل المعروض» يطبق الحد على أي كتاب له سجل على المتجر. الكتب غير المعروضة (لا يوجد لها سجل على المتجر) والكتب ذات الرصيد «غير المحدود» لا يطالها الحد إطلاقاً.",
     en: "\"Every listed book\" applies the floor to any SKU the store carries. Books with no store record at all, and books reading the unlimited marker, are never floored.",
   },
+  minMoveLineCtl: { ar: "أقل كمية تستحق النقل", en: "Min worth moving" },
+  minMoveLineHint: {
+    ar: "لا يُقترح نقل أقل من هذا العدد لكتاب رصيده على المتجر عند هذا العدد أو أكثر — نقل نسختين إلى رف عليه 15 رحلة بلا فائدة. الكتاب الذي رصيده أقل من ذلك يأخذ كل ما في SAP. العجز يبقى كما هو ليُطلب من الناشر.",
+    en: "No move smaller than this is proposed for a book the store already holds at least this many of — two copies onto a shelf of 15 is a trip for nothing. A book below that takes whatever SAP has. Shortfall is unchanged so purchasing still sees it.",
+  },
+  advancedSettings: { ar: "إعدادات متقدمة", en: "Advanced settings" },
   minScopeListed: { ar: "كل المعروض على المتجر", en: "Every listed book" },
   minScopeSoldEver: { ar: "ما سبق بيعه ولو مرة", en: "Sold at least once" },
   minScopeSelling: { ar: "ما يبيع خلال النافذة فقط", en: "Selling in the window only" },

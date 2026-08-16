@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock } from "lucide-react";
+import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/components/ui";
@@ -122,8 +122,13 @@ export default function StockPage() {
   // move line — the shortfall still shows, purchasing still needs it
   const [minSapMove, setMinSapMove] = useState(2);
   const [relistQty, setRelistQty] = useState(10);
-  // stock sitting behind a live campaign is there on purpose
-  const [adDays, setAdDays] = useState(30);
+  // stock sitting behind a live campaign is there on purpose — off (0)
+  // until asked for; the engine keeps the join
+  const [adDays, setAdDays] = useState(0);
+  // a top-up smaller than this onto a shelf that already holds that many
+  // is a warehouse trip for nothing
+  const [minMoveLine, setMinMoveLine] = useState(5);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [unlimitedAt, setUnlimitedAt] = useState(5000);
   const [overstockMin, setOverstockMin] = useState(20);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -171,6 +176,7 @@ export default function StockPage() {
         if (s.minSapMove != null) setMinSapMove(s.minSapMove);
         if (s.relistQty) setRelistQty(s.relistQty);
         if (s.adDays != null) setAdDays(s.adDays);
+        if (s.minMoveLine != null) setMinMoveLine(s.minMoveLine);
         if (s.unlimitedAt) setUnlimitedAt(s.unlimitedAt);
         if (s.overstockMin != null) setOverstockMin(s.overstockMin);
       }
@@ -199,6 +205,7 @@ export default function StockPage() {
       p_unlimited_at: unlimitedAt,
       p_overstock_min: overstockMin,
       p_min_scope: minScope,
+      p_min_move_line: minMoveLine,
     });
     if (error) console.error("fn_stock_engine_json", error);
     const list = (data as EngineRow[] | null) ?? [];
@@ -207,7 +214,7 @@ export default function StockPage() {
     setLoading(false);
   }, [
     supabase, windowDays, coverDays, globalMin, bestsellerMin, maxOrder,
-    minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minScope,
+    minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minScope, minMoveLine,
   ]);
 
   useEffect(() => {
@@ -218,13 +225,13 @@ export default function StockPage() {
         SETTINGS_KEY,
         JSON.stringify({
           windowDays, coverDays, globalMin, minScope, bestsellerMin, maxOrder,
-          minSapMove, relistQty, adDays, unlimitedAt, overstockMin,
+          minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minMoveLine,
         })
       );
     } catch {}
   }, [
     settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin,
-    maxOrder, minSapMove, relistQty, adDays, unlimitedAt, overstockMin,
+    maxOrder, minSapMove, relistQty, adDays, unlimitedAt, overstockMin, minMoveLine,
   ]);
 
   const loadMoveLists = useCallback(async () => {
@@ -726,6 +733,8 @@ export default function StockPage() {
 
       {tab !== "lists" && tab !== "forecast" && (
         <div className="card p-4 mb-4 flex flex-wrap items-end gap-3">
+          {/* the four settings that decide what the page asks for; the
+              rest are tuning and live behind Advanced */}
           <Ctl label={t("windowDays")}>
             <select className="input !w-auto" value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value))}>
               {[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d}</option>)}
@@ -747,76 +756,14 @@ export default function StockPage() {
               onChange={(e) => setGlobalMin(Number(e.target.value) || 0)}
             />
           </Ctl>
-          <Ctl label={t("minScopeCtl")} hint={t("minScopeHint")}>
+          <Ctl label={t("minMoveLineCtl")} hint={t("minMoveLineHint")}>
             <select
               className="input !w-auto"
-              title={t("minScopeHint")}
-              value={minScope}
-              onChange={(e) => setMinScope(e.target.value as MinScope)}
+              title={t("minMoveLineHint")}
+              value={minMoveLine}
+              onChange={(e) => setMinMoveLine(Number(e.target.value))}
             >
-              <option value="listed">{t("minScopeListed")}</option>
-              <option value="sold_ever">{t("minScopeSoldEver")}</option>
-              <option value="selling">{t("minScopeSelling")}</option>
-            </select>
-          </Ctl>
-          <Ctl label={t("bestsellerMin")}>
-            <input type="number" min={0} className="input !w-20" dir="ltr" value={bestsellerMin} onChange={(e) => setBestsellerMin(Number(e.target.value) || 0)} />
-          </Ctl>
-          <Ctl label={t("maxOrder")}>
-            <select className="input !w-auto" value={maxOrder} onChange={(e) => setMaxOrder(Number(e.target.value))}>
-              {[100, 150, 200, 300, 500].map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </Ctl>
-          <Ctl label={t("minSapMove")}>
-            <select
-              className="input !w-auto"
-              title={t("minSapMoveHint")}
-              value={minSapMove}
-              onChange={(e) => setMinSapMove(Number(e.target.value))}
-            >
-              {[1, 2, 3, 5, 10].map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </Ctl>
-          <Ctl label={t("relistQtyCtl")} hint={t("relistQtyHint")}>
-            <select
-              className="input !w-auto"
-              title={t("relistQtyHint")}
-              value={relistQty}
-              onChange={(e) => setRelistQty(Number(e.target.value))}
-            >
-              {[5, 10, 15, 20, 30].map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </Ctl>
-          <Ctl label={t("adDaysCtl")} hint={t("adDaysHint")}>
-            <select
-              className="input !w-auto"
-              title={t("adDaysHint")}
-              value={adDays}
-              onChange={(e) => setAdDays(Number(e.target.value))}
-            >
-              {[0, 7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d === 0 ? "—" : d}</option>)}
-            </select>
-          </Ctl>
-          <Ctl label={t("overstockMinCtl")} hint={t("overstockMinHint")}>
-            <select
-              className="input !w-auto"
-              title={t("overstockMinHint")}
-              value={overstockMin}
-              onChange={(e) => setOverstockMin(Number(e.target.value))}
-            >
-              {[5, 10, 20, 50, 100].map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </Ctl>
-          <Ctl label={t("unlimitedAt")} hint={t("unlimitedAtHint")}>
-            <select
-              className="input !w-auto"
-              title={t("unlimitedAtHint")}
-              value={unlimitedAt}
-              onChange={(e) => setUnlimitedAt(Number(e.target.value))}
-            >
-              {[1000, 5000, 10000, 99996, 1000000].map((d) => (
-                <option key={d} value={d}>{d === 1000000 ? "—" : formatNumber(d)}</option>
-              ))}
+              {[1, 3, 5, 8, 10].map((d) => <option key={d} value={d}>{d === 1 ? "—" : d}</option>)}
             </select>
           </Ctl>
           {vendors.length > 0 && (
@@ -850,6 +797,96 @@ export default function StockPage() {
           <div className="flex-1 min-w-[180px]">
             <SearchBox placeholder={t("searchProducts")} value={search} onChange={setSearch} />
           </div>
+
+          <div className="basis-full">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-brand-700"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              <ChevronDown size={14} className={cn("transition", showAdvanced && "rotate-180")} />
+              {t("advancedSettings")}
+            </button>
+          </div>
+
+          {showAdvanced && (
+            <div className="basis-full flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+              <Ctl label={t("minScopeCtl")} hint={t("minScopeHint")}>
+                <select
+                  className="input !w-auto"
+                  title={t("minScopeHint")}
+                  value={minScope}
+                  onChange={(e) => setMinScope(e.target.value as MinScope)}
+                >
+                  <option value="listed">{t("minScopeListed")}</option>
+                  <option value="sold_ever">{t("minScopeSoldEver")}</option>
+                  <option value="selling">{t("minScopeSelling")}</option>
+                </select>
+              </Ctl>
+              <Ctl label={t("bestsellerMin")}>
+                <input type="number" min={0} className="input !w-20" dir="ltr" value={bestsellerMin} onChange={(e) => setBestsellerMin(Number(e.target.value) || 0)} />
+              </Ctl>
+              <Ctl label={t("maxOrder")}>
+                <select className="input !w-auto" value={maxOrder} onChange={(e) => setMaxOrder(Number(e.target.value))}>
+                  {[100, 150, 200, 300, 500].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </Ctl>
+              <Ctl label={t("minSapMove")}>
+                <select
+                  className="input !w-auto"
+                  title={t("minSapMoveHint")}
+                  value={minSapMove}
+                  onChange={(e) => setMinSapMove(Number(e.target.value))}
+                >
+                  {[1, 2, 3, 5, 10].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </Ctl>
+              <Ctl label={t("relistQtyCtl")} hint={t("relistQtyHint")}>
+                <select
+                  className="input !w-auto"
+                  title={t("relistQtyHint")}
+                  value={relistQty}
+                  onChange={(e) => setRelistQty(Number(e.target.value))}
+                >
+                  {[5, 10, 15, 20, 30].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </Ctl>
+              <Ctl label={t("overstockMinCtl")} hint={t("overstockMinHint")}>
+                <select
+                  className="input !w-auto"
+                  title={t("overstockMinHint")}
+                  value={overstockMin}
+                  onChange={(e) => setOverstockMin(Number(e.target.value))}
+                >
+                  {[5, 10, 20, 50, 100].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </Ctl>
+              <Ctl label={t("unlimitedAt")} hint={t("unlimitedAtHint")}>
+                <select
+                  className="input !w-auto"
+                  title={t("unlimitedAtHint")}
+                  value={unlimitedAt}
+                  onChange={(e) => setUnlimitedAt(Number(e.target.value))}
+                >
+                  {[1000, 5000, 10000, 99996, 1000000].map((d) => (
+                    <option key={d} value={d}>{d === 1000000 ? "—" : formatNumber(d)}</option>
+                  ))}
+                </select>
+              </Ctl>
+              {/* off by default — ads are out of the picture until asked
+                  for again; the engine still knows how */}
+              <Ctl label={t("adDaysCtl")} hint={t("adDaysHint")}>
+                <select
+                  className="input !w-auto"
+                  title={t("adDaysHint")}
+                  value={adDays}
+                  onChange={(e) => setAdDays(Number(e.target.value))}
+                >
+                  {[0, 7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d === 0 ? "—" : d}</option>)}
+                </select>
+              </Ctl>
+            </div>
+          )}
         </div>
       )}
 
