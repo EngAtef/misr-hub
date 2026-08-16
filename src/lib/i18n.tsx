@@ -824,6 +824,11 @@ const dict = {
     en: "No move smaller than this is proposed for a book the store already holds at least this many of — two copies onto a shelf of 15 is a trip for nothing. A book below that takes whatever SAP has. Shortfall is unchanged so purchasing still sees it.",
   },
   advancedSettings: { ar: "إعدادات متقدمة", en: "Advanced settings" },
+  statusInactive: { ar: "موقوف على المتجر", en: "Inactive on store" },
+  surgeHint: {
+    ar: "يبيع هذا الأسبوع أسرع من معدل الشهر، فحُسبت الكمية على إيقاع الأسبوع. مبيعات آخر 7 أيام:",
+    en: "Selling faster this week than the monthly rate, so the quantity is sized on this week's pace. Sold in the last 7 days:",
+  },
   minScopeListed: { ar: "كل المعروض على المتجر", en: "Every listed book" },
   minScopeSoldEver: { ar: "ما سبق بيعه ولو مرة", en: "Sold at least once" },
   minScopeSelling: { ar: "ما يبيع خلال النافذة فقط", en: "Selling in the window only" },

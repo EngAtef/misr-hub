@@ -27,7 +27,7 @@ interface EngineRow {
   move_qty: number;
   shortfall: number;
   surplus: number | null;
-  status: "move" | "low_sap" | "oos_reorder" | "overstock" | "relist" | "never_listed" | "ok";
+  status: "move" | "low_sap" | "oos_reorder" | "overstock" | "relist" | "never_listed" | "inactive" | "ok";
   vendor: string | null;
   cost: number | null;
   avg_price: number | null;
@@ -45,6 +45,12 @@ interface EngineRow {
   // 99,996 on the store is the platform saying "print on demand"
   is_unlimited: boolean;
   never_sold: boolean;
+  // sold faster in the last week than over the window, so the week set
+  // the velocity — the back-to-school signal Mai's list caught by eye
+  recent_units: number;
+  surge: boolean;
+  // the store's own switch: an inactive SKU is nobody's move
+  is_active: boolean;
 }
 
 interface MoveList {
@@ -68,6 +74,7 @@ const STATUS_META: Record<string, { key: DictKey; style: string }> = {
   overstock: { key: "statusOverstock", style: "bg-blue-100 text-blue-800" },
   relist: { key: "statusRelist", style: "bg-violet-100 text-violet-800" },
   never_listed: { key: "statusNeverListed", style: "bg-teal-100 text-teal-800" },
+  inactive: { key: "statusInactive", style: "bg-slate-200 text-slate-500 line-through" },
   ok: { key: "statusOk", style: "bg-slate-100 text-slate-600" },
 };
 
@@ -447,7 +454,10 @@ export default function StockPage() {
         Category: r.category ?? "",
         Vendor: r.vendor ?? "",
         "Units sold (window)": r.units,
+        "Units sold (last 7d)": r.recent_units ?? 0,
         "Sales/day": r.velocity,
+        Surge: r.surge ? "yes" : "",
+        Active: r.is_active === false ? "no" : "yes",
         "Lifetime units": r.lifetime_units ?? 0,
         "Lifetime sales/day": r.hist_velocity ?? 0,
         "Last sale": r.last_order_date ? r.last_order_date.slice(0, 10) : "",
@@ -1149,7 +1159,17 @@ export default function StockPage() {
                       </td>
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>
                       <td className="font-semibold">{formatNumber(r.units)}</td>
-                      <td>{formatNumber(r.velocity)}</td>
+                      <td className="whitespace-nowrap">
+                        {formatNumber(r.velocity)}
+                        {r.surge && (
+                          <span
+                            className="ms-1 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700"
+                            title={`${t("surgeHint")} ${formatNumber(r.recent_units)}`}
+                          >
+                            ↑7d
+                          </span>
+                        )}
+                      </td>
                       {tab === "replenish" && (
                         <>
                           <td>{formatNumber(r.target)}</td>

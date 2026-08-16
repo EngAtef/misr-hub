@@ -7,6 +7,9 @@ export interface StockRow {
   sap_stock: number | null;
   category: string | null;
   vendor?: string | null;
+  // the store's own on/off switch: 616 of 3,774 SKUs are 0 (duplicates,
+  // "listed under another code", closed editions) and must never be moved
+  ecom_active?: boolean | null;
 }
 
 // Which stock is this file the truth about? An upload replaces its own
@@ -144,6 +147,7 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
       seen.add(sku);
       const stock = num(row["stock"]);
       const reserved = num(row["reserved_stock"]) ?? 0;
+      const active = num(row["active"]);
       out.push({
         sku,
         product_name: nameKey && row[nameKey] ? String(row[nameKey]).trim() : null,
@@ -151,6 +155,7 @@ export function parseStockFile(data: ArrayBuffer): StockSnapshot {
         sap_stock: null,
         category: catKey && row[catKey] ? String(row[catKey]).trim() : null,
         vendor: brandKey && row[brandKey] ? String(row[brandKey]).trim() : null,
+        ecom_active: active === null ? null : active !== 0,
       });
     }
     return { side: "ecom", rows: out };
