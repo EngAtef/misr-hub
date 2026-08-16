@@ -745,10 +745,10 @@ const dict = {
   relistKpi: { ar: "بالمخزن وغير معروض", en: "In warehouse, not on store" },
   relistUnitsSub: { ar: "نسخة في SAP", en: "copies in SAP" },
   ltUnitsShort: { ar: "إجمالي المبيع", en: "Lifetime sold" },
-  minSapMove: { ar: "أقل رصيد SAP للنقل", en: "Min SAP to move" },
+  minSapMove: { ar: "تجاهل رصيد SAP الأقل من", en: "Ignore SAP below" },
   minSapMoveHint: {
-    ar: "أقل من هذا الرصيد في المخزن لا يستحق النقل ولا يدخل قائمة النقل",
-    en: "Below this warehouse quantity nothing is moved and nothing enters the move list",
+    ar: "كتاب رصيده في المخزن أقل من هذا الرقم يُتجاهل: لا يُقترح له نقل ولا يدخل قائمة النقل، لأن الرحلة لا تستحق. يبقى عجزه ظاهراً ليُطلب من الناشر.",
+    en: "A book with fewer than this many copies in the warehouse is ignored: no move is proposed and it never enters a move list, because the trip is not worth it. Its shortfall stays visible so purchasing can reorder.",
   },
   relistQtyCtl: { ar: "كمية إعادة العرض", en: "Relist qty" },
   relistQtyHint: {

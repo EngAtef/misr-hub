@@ -99,21 +99,19 @@ type Tab = "replenish" | "relist" | "overstock" | "oos" | "inactive" | "forecast
 // They want different decisions, so the tab can be split.
 type WnsGroup = "all" | "relist" | "never_listed";
 
-// The engine's tuning knobs, fixed. They were on the page for a week and
-// the verdict was "too many options" — three settings decide what the
-// page asks for, the rest are how it asks, and those have one right
-// answer for this business:
-// Who the shelf floor applies to — back on the page by request, with the
-// bestseller floor: those two are policy, the rest is plumbing.
+// Who the shelf floor applies to.
 type MinScope = "listed" | "sold_ever" | "selling";
 
+// The engine's tuning knobs, fixed. They were all on the page for a week
+// and the verdict was "too many options": what stays as a control is
+// policy — window, cover, the floor and who it applies to, the bestseller
+// floor, and the SAP quantity below which a trip is not worth making —
+// and the rest is plumbing with one right answer for this business:
 const ENGINE = {
   // a bestseller is one that sold this many in the window
   bestsellerUnits: 20,
   // no single move line above this
   maxOrder: 100,
-  // one copy in SAP is never worth a trip
-  minSapMove: 2,
   // a book at zero on the store comes back with at least this many
   relistQty: 10,
   // ads are out of the picture for now; the engine keeps the join
@@ -152,6 +150,9 @@ export default function StockPage() {
   const [minScope, setMinScope] = useState<MinScope>("sold_ever");
   // a bestseller is floored here instead
   const [bestsellerMin, setBestsellerMin] = useState(50);
+  // SAP below this is not worth a warehouse trip: no move line, no entry in
+  // a move list — the shortfall still shows because purchasing still needs it
+  const [minSapMove, setMinSapMove] = useState(2);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +194,7 @@ export default function StockPage() {
         if (s.globalMin != null) setGlobalMin(s.globalMin);
         if (s.minScope) setMinScope(s.minScope);
         if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
+        if (s.minSapMove != null) setMinSapMove(s.minSapMove);
       }
     } catch {}
     setSettingsReady(true);
@@ -213,7 +215,7 @@ export default function StockPage() {
       p_bestseller_min: bestsellerMin,
       p_bestseller_units: ENGINE.bestsellerUnits,
       p_max_order: ENGINE.maxOrder,
-      p_min_sap_move: ENGINE.minSapMove,
+      p_min_sap_move: minSapMove,
       p_relist_qty: ENGINE.relistQty,
       p_ad_days: ENGINE.adDays,
       p_unlimited_at: ENGINE.unlimitedAt,
@@ -228,15 +230,18 @@ export default function StockPage() {
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [supabase, windowDays, coverDays, globalMin, minScope, bestsellerMin]);
+  }, [supabase, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove]);
 
   useEffect(() => {
     if (!settingsReady) return;
     load();
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin }));
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove })
+      );
     } catch {}
-  }, [settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin]);
+  }, [settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -377,12 +382,12 @@ export default function StockPage() {
   // serve is dropped and reported, never saved silently.
   const listCandidates = useMemo(
     // a switched-off book cannot be moved from any tab, typed qty or not
-    () => filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) >= ENGINE.minSapMove),
-    [filtered, effMove]
+    () => filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) >= minSapMove),
+    [filtered, effMove, minSapMove]
   );
 
   async function saveMoveList() {
-    const skipped = filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) < ENGINE.minSapMove).length;
+    const skipped = filtered.filter((r) => r.is_active !== false && effMove(r) > 0 && (r.sap_stock ?? 0) < minSapMove).length;
     const items = listCandidates.map((r) => ({
       sku: r.sku,
       product_name: r.product_name,
@@ -807,6 +812,16 @@ export default function StockPage() {
               onChange={(e) => setBestsellerMin(Number(e.target.value) || 0)}
             />
           </Ctl>
+          <Ctl label={t("minSapMove")} hint={t("minSapMoveHint")}>
+            <select
+              className="input !w-auto"
+              title={t("minSapMoveHint")}
+              value={minSapMove}
+              onChange={(e) => setMinSapMove(Number(e.target.value))}
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </Ctl>
           {vendors.length > 0 && (
             <Ctl label={t("vendorCol")}>
               <MultiSelect
@@ -1193,7 +1208,7 @@ export default function StockPage() {
                               book the engine scores at zero can still be
                               added to a list by hand */}
                           <td>
-                            {r.is_active !== false && (r.sap_stock ?? 0) >= ENGINE.minSapMove ? qtyInput : <span className="text-slate-400">—</span>}
+                            {r.is_active !== false && (r.sap_stock ?? 0) >= minSapMove ? qtyInput : <span className="text-slate-400">—</span>}
                           </td>
                           <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                         </>
