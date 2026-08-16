@@ -576,7 +576,11 @@ const dict = {
   saveStock: { ar: "حفظ المخزون", en: "Save stock" },
   prioStockout: { ar: "نفد غالباً — كان يبيع وتوقف", en: "Likely out of stock" },
   exportForTeam: { ar: "تصدير قائمة الفريق", en: "Export for Team" },
-  maxOrder: { ar: "أقصى كمية للطلب", en: "Max order qty" },
+  maxOrder: { ar: "أقصى كمية نقل للصنف", en: "Max move per SKU" },
+  maxOrderHint: {
+    ar: "لا يقترح المحرك نقل أكثر من هذا العدد للصنف الواحد في المرة، مهما كان رصيد SAP كبيراً",
+    en: "The engine never proposes moving more than this many copies of one SKU at a time, however deep SAP is",
+  },
   prioUrgent: { ar: "عاجل", en: "Urgent" },
   prioHigh: { ar: "مرتفع", en: "High" },
   prioRising: { ar: "متصاعد", en: "Rising" },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Download, Info, FileSpreadsheet, ClipboardCheck, Check, Trash2, X, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -110,8 +110,6 @@ type MinScope = "listed" | "sold_ever" | "selling";
 const ENGINE = {
   // a bestseller is one that sold this many in the window
   bestsellerUnits: 20,
-  // no single move line above this
-  maxOrder: 100,
   // a book at zero on the store comes back with at least this many
   relistQty: 10,
   // ads are out of the picture for now; the engine keeps the join
@@ -131,6 +129,17 @@ const ENGINE = {
 // bumped again: the v2 blob carries the knobs above as user settings and
 // would fight the constants
 const SETTINGS_KEY = "nm-stock-engine-settings-v3";
+
+// a typed number settles before it is sent — the input stays live, the
+// engine sees the final value once
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return v;
+}
 
 function coverClass(days: number | null): string {
   if (days == null) return "";
@@ -153,6 +162,8 @@ export default function StockPage() {
   // SAP below this is not worth a warehouse trip: no move line, no entry in
   // a move list — the shortfall still shows because purchasing still needs it
   const [minSapMove, setMinSapMove] = useState(2);
+  // no single move line above this, however deep SAP is
+  const [maxOrder, setMaxOrder] = useState(100);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,10 +206,18 @@ export default function StockPage() {
         if (s.minScope) setMinScope(s.minScope);
         if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
         if (s.minSapMove != null) setMinSapMove(s.minSapMove);
+        if (s.maxOrder) setMaxOrder(s.maxOrder);
       }
     } catch {}
     setSettingsReady(true);
   }, []);
+
+  // The three typed numbers fire the engine on every keystroke otherwise:
+  // "150" is three engine runs. Debounce what goes to the server; the
+  // inputs themselves stay live.
+  const debouncedMin = useDebounced(globalMin, 500);
+  const debouncedBestseller = useDebounced(bestsellerMin, 500);
+  const debouncedMaxOrder = useDebounced(maxOrder, 500);
 
   // fn_stock_engine_json, not fn_stock_engine: PostgREST truncates every
   // table-returning response at 1,000 rows without saying so, and the
@@ -206,15 +225,19 @@ export default function StockPage() {
   // rows with need = 0, which is what relist and overstock are made of.
   // One jsonb value is one row, so the cap never applies, and the engine
   // runs once instead of the five times paging would cost.
+  // A change of settings while a call is in flight makes the older answer
+  // worthless; the counter lets a late response know it lost.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     const { data, error } = await supabase.rpc("fn_stock_engine_json", {
       p_window_days: windowDays,
       p_coverage_days: coverDays,
-      p_global_min: globalMin,
-      p_bestseller_min: bestsellerMin,
+      p_global_min: debouncedMin,
+      p_bestseller_min: debouncedBestseller,
       p_bestseller_units: ENGINE.bestsellerUnits,
-      p_max_order: ENGINE.maxOrder,
+      p_max_order: debouncedMaxOrder,
       p_min_sap_move: minSapMove,
       p_relist_qty: ENGINE.relistQty,
       p_ad_days: ENGINE.adDays,
@@ -225,23 +248,28 @@ export default function StockPage() {
       p_recent_days: ENGINE.recentDays,
       p_surge_min: ENGINE.surgeMin,
     });
+    if (seq !== loadSeq.current) return;
     if (error) console.error("fn_stock_engine_json", error);
     const list = (data as EngineRow[] | null) ?? [];
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [supabase, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove]);
+  }, [supabase, windowDays, coverDays, debouncedMin, minScope, debouncedBestseller, minSapMove, debouncedMaxOrder]);
 
   useEffect(() => {
     if (!settingsReady) return;
     load();
+  }, [settingsReady, load]);
+
+  useEffect(() => {
+    if (!settingsReady) return;
     try {
       localStorage.setItem(
         SETTINGS_KEY,
-        JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove })
+        JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder })
       );
     } catch {}
-  }, [settingsReady, load, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove]);
+  }, [settingsReady, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -822,6 +850,17 @@ export default function StockPage() {
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </Ctl>
+          <Ctl label={t("maxOrder")} hint={t("maxOrderHint")}>
+            <input
+              type="number"
+              min={1}
+              className="input !w-20"
+              dir="ltr"
+              title={t("maxOrderHint")}
+              value={maxOrder}
+              onChange={(e) => setMaxOrder(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </Ctl>
           {vendors.length > 0 && (
             <Ctl label={t("vendorCol")}>
               <MultiSelect
@@ -949,7 +988,7 @@ export default function StockPage() {
             })}
           </div>
         )
-      ) : loading ? (
+      ) : loading && rows.length === 0 ? (
         <Spinner />
       ) : sorted.length === 0 ? (
         <div className="space-y-3">
@@ -1042,7 +1081,10 @@ export default function StockPage() {
               </span>
             </div>
           )}
-          <div className="card overflow-x-auto">
+          {/* after the first load the table stays put and dims while the
+              engine re-runs — a spinner on every setting change made the
+              page feel far slower than it is */}
+          <div className={cn("card overflow-x-auto transition-opacity", loading && "pointer-events-none opacity-50")}>
             <table className="table-base">
               <thead>
                 <tr>
