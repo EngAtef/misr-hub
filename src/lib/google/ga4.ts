@@ -125,13 +125,17 @@ const num = (v: string | undefined): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-// month is "YYYY-MM-01"; the range is clamped so we never ask for future days.
+// month is "YYYY-MM-01"; the range is clamped to COMPLETE days only — the
+// last day we ask GA4/GSC for is yesterday (UTC). A partial "today" pulled at
+// 05:00 next to live orders always read as a gap on every page, so it is
+// simply never stored; the 17:00 pull then finalises yesterday.
 export function monthRange(month: string): { startDate: string; endDate: string } | null {
   const start = new Date(`${month}T00:00:00Z`);
-  const today = new Date();
-  if (start.getTime() > today.getTime()) return null;
+  const now = new Date();
+  const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  if (start.getTime() > yesterday.getTime()) return null;
   const monthEnd = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
-  const end = monthEnd.getTime() < today.getTime() ? monthEnd : today;
+  const end = monthEnd.getTime() < yesterday.getTime() ? monthEnd : yesterday;
   return { startDate: month, endDate: end.toISOString().slice(0, 10) };
 }
 

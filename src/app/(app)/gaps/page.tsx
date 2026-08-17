@@ -141,7 +141,6 @@ const S = {
   coverage: { ar: "التغطية", en: "Coverage" },
   ga4Purchases: { ar: "مشتريات GA4", en: "GA4 purchases" },
   notSyncedYet: { ar: "لم يُزامن بعد", en: "not synced yet" },
-  maybePartial: { ar: "قد يكون جزئيًا", en: "may be partial" },
   weeklyTitle: { ar: "أسبوع بأسبوع", en: "Week by week" },
   weeklySub: {
     ar: "شرائح ثابتة (١–٧، ٨–١٤...) عشان تطابق فترات مزامنة ميتا الأسبوعية. أرقام ميتا الأسبوعية متاحة من أغسطس ٢٠٢٦ (يوليو كان استيراد شهري واحد).",
@@ -1145,7 +1144,6 @@ export default function GapsPage() {
                 <tbody>
                   {(report.daily ?? []).map((d) => {
                     const synced = d.sessions !== null;
-                    const isLastSynced = synced && d.day === ga4Through && isCurrentMonth;
                     const cov = synced && d.orders > 0 ? Math.min(((d.ga4_purchases ?? 0) * 100) / d.orders, 100) : null;
                     const maxOrders = Math.max(...(report.daily ?? []).map((x) => x.orders), 1);
                     return (
@@ -1163,10 +1161,6 @@ export default function GapsPage() {
                           {!synced ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                               {tx(S.notSyncedYet)}
-                            </span>
-                          ) : isLastSynced ? (
-                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                              {tx(S.maybePartial)}
                             </span>
                           ) : cov === null ? (
                             "—"

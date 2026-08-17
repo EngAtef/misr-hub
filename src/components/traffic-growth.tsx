@@ -385,16 +385,19 @@ const isoDaysAgo = (days: number) => {
 const MTD = 0;
 const LAST_MONTH = -1;
 
+// Windows end YESTERDAY: GA4/GSC are only stored through the last complete
+// day (see monthRange in lib/google/ga4.ts), and the RPCs cap orders to
+// match — so "last N days" = the N complete days before today.
 const rangeStart = (days: number) => {
   const now = new Date();
   if (days === MTD) return isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
   if (days === LAST_MONTH) return isoLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-  return isoDaysAgo(days - 1);
+  return isoDaysAgo(days);
 };
 
 // inclusive, unlike the exclusive bound date-range.tsx carries
 const rangeEnd = (days: number) => {
-  if (days !== LAST_MONTH) return isoDaysAgo(0);
+  if (days !== LAST_MONTH) return isoDaysAgo(1);
   const now = new Date();
   // day 0 of this month is the last day of the previous one
   return isoLocal(new Date(now.getFullYear(), now.getMonth(), 0));
@@ -837,8 +840,8 @@ export function HealthReport() {
 
   const stats = useMemo(() => {
     if (!rows) return null;
-    // ignore today (both sides incomplete) and days with no GA4 data at all
-    const closed = rows.slice(0, -1).filter((r) => r.sessions > 0 || r.ga4_purchases > 0);
+    // rows already stop at yesterday; skip days with no GA4 data at all
+    const closed = rows.filter((r) => r.sessions > 0 || r.ga4_purchases > 0);
     const rate = (slice: DailyRow[]) => {
       const orders = slice.reduce((s, r) => s + r.orders, 0);
       const ga4 = slice.reduce((s, r) => s + r.ga4_purchases, 0);
