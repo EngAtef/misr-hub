@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, ShieldCheck, ShieldOff, User } from "lucide-react";
+import { Camera, KeyRound, ShieldCheck, ShieldOff, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
+import { PasswordField } from "@/components/password-field";
+import { isStrongPassword } from "@/lib/password";
 
 export default function ProfilePage() {
   const { t } = useLang();
@@ -122,8 +124,58 @@ export default function ProfilePage() {
         </button>
       </div>
 
+      <ChangePasswordSection />
       <TwoFactorSection />
     </div>
+  );
+}
+
+function ChangePasswordSection() {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const strong = isStrongPassword(pw);
+  const match = pw.length > 0 && pw === pw2;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!strong) return setError(t("pwWeak"));
+    if (!match) return setError(t("pwMismatch"));
+    setSaving(true);
+    setError("");
+    const { error: err } = await supabase.rpc("change_own_password", { p_password: pw });
+    setSaving(false);
+    if (err) return setError(err.message);
+    setPw("");
+    setPw2("");
+    setDone(true);
+    setTimeout(() => setDone(false), 2500);
+  }
+
+  return (
+    <form onSubmit={save} className="card p-6 mt-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <KeyRound size={18} className="text-brand-600" />
+        <h3 className="font-bold">{t("pwChangeTitle")}</h3>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold mb-1">{t("pwCurrentPlaceholder")}</label>
+        <PasswordField value={pw} onChange={setPw} />
+      </div>
+      <div>
+        <label className="block text-sm font-semibold mb-1">{t("pwConfirm")}</label>
+        <PasswordField value={pw2} onChange={setPw2} showRules={false} />
+        {pw2.length > 0 && !match && <p className="mt-1 text-[11px] text-red-600">{t("pwMismatch")}</p>}
+      </div>
+      {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
+      <button type="submit" className="btn-primary" disabled={saving || !strong || !match}>
+        {done ? t("pwChanged") : saving ? t("saving") : t("pwChangeTitle")}
+      </button>
+    </form>
   );
 }
 

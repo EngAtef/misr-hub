@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUser } from "@/lib/supabase/api-auth";
+import { isStrongPassword } from "@/lib/password";
 
 export async function POST(request: NextRequest) {
   const user = await getApiUser(request);
@@ -10,37 +11,33 @@ export async function POST(request: NextRequest) {
   const db = user.supabase;
 
   if (body.action === "create") {
-    const { email, password, fullName, phone, role } = body;
+    const { email, password, fullName, phone, role, mustChange } = body;
     if (!email || !password || !["admin", "manager", "viewer"].includes(role)) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
+    if (!isStrongPassword(password)) {
+      return NextResponse.json(
+        { error: "Password must be at least 8 characters with a capital letter, a number and a special character" },
+        { status: 400 }
+      );
+    }
 
-    let { data, error } = await db.rpc("admin_create_user", {
+    // migration 105: the RPC re-checks strength and stores the first-login flag
+    const { data, error } = await db.rpc("admin_create_user", {
       p_email: email,
       p_password: password,
       p_full_name: fullName ?? "",
       p_role: role,
       p_phone: phone || null,
+      p_must_change: mustChange !== false,
     });
-    // Fallback for databases where migration 012 (p_phone) isn't applied yet
-    if (error && /function|p_phone|does not exist/i.test(error.message)) {
-      ({ data, error } = await db.rpc("admin_create_user", {
-        p_email: email,
-        p_password: password,
-        p_full_name: fullName ?? "",
-        p_role: role,
-      }));
-      if (!error && data && phone) {
-        await db.from("profiles").update({ phone }).eq("id", data);
-      }
-    }
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     await db.from("audit_log").insert({
       user_id: user.id,
       user_email: user.email,
       action: "create_user",
-      details: { email, role },
+      details: { email, role, must_change_password: mustChange !== false },
     });
 
     return NextResponse.json({ ok: true, userId: data });

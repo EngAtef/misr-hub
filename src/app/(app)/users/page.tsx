@@ -8,6 +8,8 @@ import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 import { confirmDialog } from "@/components/dialog";
+import { PasswordField } from "@/components/password-field";
+import { isStrongPassword } from "@/lib/password";
 
 interface ProfileRow {
   id: string;
@@ -18,6 +20,7 @@ interface ProfileRow {
   role: Role;
   is_active: boolean;
   is_owner: boolean;
+  must_change_password?: boolean;
   created_at: string;
 }
 
@@ -160,6 +163,11 @@ export default function UsersPage() {
                     >
                       {u.is_active ? t("active") : t("inactive")}
                     </span>
+                    {u.must_change_password && (
+                      <span className="ms-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                        {t("pwPendingChange")}
+                      </span>
+                    )}
                   </td>
                   <td className="text-xs text-slate-500">{formatDateTime(u.created_at)}</td>
                   <td>
@@ -204,6 +212,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Role>("viewer");
+  const [mustChange, setMustChange] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [pageAccess, setPageAccess] = useState<Record<string, boolean>>(
@@ -212,12 +221,16 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isStrongPassword(password)) {
+      setError(t("pwWeak"));
+      return;
+    }
     setSaving(true);
     setError("");
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create", email, password, fullName, phone, role }),
+      body: JSON.stringify({ action: "create", email, password, fullName, phone, role, mustChange }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -257,7 +270,11 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <input className="input" dir="ltr" placeholder="+2010..." value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
         <Field label={t("password")}>
-          <input type="text" className="input" dir="ltr" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordField value={password} onChange={setPassword} required />
+          <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
+            {t("pwForceOnLogin")}
+          </label>
         </Field>
         <Field label={t("role")}>
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
@@ -304,6 +321,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>(user.role);
   const [isActive, setIsActive] = useState(user.is_active);
+  const [mustChange, setMustChange] = useState(!!user.must_change_password);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [useDefaults, setUseDefaults] = useState(true);
@@ -331,6 +349,10 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (password && !isStrongPassword(password)) {
+      setError(t("pwWeak"));
+      return;
+    }
     setSaving(true);
     setError("");
     const { error: err } = await supabase.rpc("admin_update_user", {
@@ -340,6 +362,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
       p_password: password || null,
       p_role: role !== user.role ? role : null,
       p_is_active: isActive !== user.is_active ? isActive : null,
+      p_must_change: mustChange !== !!user.must_change_password ? mustChange : null,
     });
     if (err) {
       setError(err.message);
@@ -375,7 +398,11 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
           <input type="email" className="input" dir="ltr" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label={t("newPassword")}>
-          <input type="text" className="input" dir="ltr" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordField value={password} onChange={setPassword} />
+          <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
+            {t("pwForceOnNextLogin")}
+          </label>
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t("role")}>

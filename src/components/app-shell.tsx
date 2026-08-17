@@ -56,6 +56,7 @@ import { Logo } from "@/components/logo";
 import { NotificationBell } from "@/components/notification-bell";
 import { ActivityTracker } from "@/lib/activity-tracker";
 import { DialogHost } from "@/components/dialog";
+import { ForcePasswordChange } from "@/components/force-password-change";
 import { Spinner } from "@/components/ui";
 import type { Profile } from "@/lib/types";
 
@@ -330,6 +331,9 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
       </div>
     </div>
   );
+
+  // temporary / admin-reset password: nothing else renders until it is replaced
+  if (profile.must_change_password) return <ForcePasswordChange profile={profile} />;
 
   return (
     <div className="min-h-screen">

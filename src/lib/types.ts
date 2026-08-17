@@ -7,6 +7,7 @@ export interface Profile {
   role: Role;
   is_active: boolean;
   is_owner?: boolean;
+  must_change_password?: boolean;
   created_at: string;
 }
 
