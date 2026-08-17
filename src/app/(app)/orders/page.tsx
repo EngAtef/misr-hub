@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, X } from "lucide-react";
+import { Download, X, Globe, Smartphone, Apple } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter, presetToRange } from "@/components/date-range";
@@ -10,6 +10,30 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
+
+// Where the order was placed — the platform export's `source` (web / android / ios)
+function SourceBadge({ source, size = "sm" }: { source: string | null; size?: "sm" | "md" }) {
+  if (!source) return <span className="text-slate-300">—</span>;
+  const key = source.toLowerCase();
+  const meta =
+    key === "ios"
+      ? { Icon: Apple, label: "iOS", cls: "bg-slate-100 text-slate-800" }
+      : key === "android"
+        ? { Icon: Smartphone, label: "Android", cls: "bg-emerald-50 text-emerald-800" }
+        : key === "web"
+          ? { Icon: Globe, label: "Web", cls: "bg-sky-50 text-sky-800" }
+          : { Icon: Globe, label: source, cls: "bg-slate-100 text-slate-700" };
+  const { Icon, label, cls } = meta;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full font-semibold ${cls} ${size === "md" ? "px-2.5 py-1 text-xs" : "px-2 py-0.5 text-[11px]"}`}
+      dir="ltr"
+    >
+      <Icon size={size === "md" ? 14 : 12} />
+      {label}
+    </span>
+  );
+}
 import type { Order, OrderItem, OrderEvent, CategoryBuyer, PromoCode, SalesLine } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -506,6 +530,7 @@ export default function OrdersPage() {
                 <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
                 <SortTh label={t("status")} k="order_status" sort={sort} onToggle={onSort} />
                 <SortTh label={t("paymentMethod")} k="payment_method" sort={sort} onToggle={onSort} />
+                <SortTh label={t("source")} k="source" sort={sort} onToggle={onSort} />
                 <SortTh label={t("amount")} k="total_order_amount" sort={sort} onToggle={onSort} />
                 <SortTh label={t("promoCode")} k="applied_offer" sort={sort} onToggle={onSort} />
                 <SortTh label={t("itemsCount")} k="items_count" sort={sort} onToggle={onSort} />
@@ -523,6 +548,7 @@ export default function OrdersPage() {
                   <td>{o.city ?? "—"}</td>
                   <td><StatusBadge status={o.order_status} /></td>
                   <td className="text-xs">{o.payment_method ?? "—"}</td>
+                  <td><SourceBadge source={o.source} /></td>
                   <td className="font-semibold">{formatMoney(o.total_order_amount, lang)}</td>
                   <td>
                     {o.applied_offer ? (
@@ -632,6 +658,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.order_status} />
             {order.delivery_status && <StatusBadge status={order.delivery_status} />}
+            <SourceBadge source={order.source} size="md" />
             <div className="ms-auto">
               <ContactActions
                 phone={order.customer_phone}

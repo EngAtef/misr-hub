@@ -132,6 +132,7 @@ export async function syncGscMonth(
       impressions: r.impressions,
       ctr: r.ctr,
       position: r.position,
+      imported_at: new Date().toISOString(),
     }));
   if (dailyRows.length) {
     const { error } = await supabase.from("gsc_daily").upsert(dailyRows, { onConflict: "date" });

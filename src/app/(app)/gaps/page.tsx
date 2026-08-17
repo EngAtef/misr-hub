@@ -152,9 +152,10 @@ const S = {
   mer: { ar: "MER (إيراد ÷ إنفاق)", en: "MER (revenue ÷ spend)" },
   daysNotSynced: { ar: "أيام غير مُزامنة", en: "days not synced" },
   syncLagBanner: {
-    ar: "الشهر لسه شغال: الطلبات واصلة حتى {orders} لكن GA4 مُزامن حتى {ga4} بس — نسبة التتبع هتبان أقل من حقيقتها لحد ما GA4 يلحق. اعتمد على الأيام المُزامنة في الجدول اليومي.",
-    en: "Running month: orders are in through {orders} but GA4 is only synced through {ga4} — the tracking rate will look worse than reality until GA4 catches up. Trust the synced days in the daily table.",
+    ar: "الشهر لسه شغال: كل الأرقام هنا (الطلبات وGA4 والتتبع) محسوبة على الأيام المكتملة حتى {ga4} — اليوم الجاري مستبعد لأن GA4 بيتزامن مرتين يوميًا فقط. آخر مزامنة GA4: {sync}.",
+    en: "Running month: every figure here (orders, GA4, tracking) covers complete days through {ga4} — today is left out because GA4 syncs twice a day. Last GA4 sync: {sync}.",
   },
+  syncedAt: { ar: "آخر مزامنة", en: "synced" },
   lookupTitle: { ar: "ابحث عن كتاب — كل طلب ومصدره بالدليل", en: "Book lookup — every order and its proven source" },
   lookupSub: {
     ar: "اكتب اسم الكتاب أو SKU (٣ حروف على الأقل). كل طلب بيظهر بمصدره من GA4 — واللي ملوش مصدر بيتقال عليه صراحةً: فجوة، أو لسه في انتظار مزامنة GA4.",
@@ -256,9 +257,11 @@ interface Report {
     orders_last_date: string | null;
     orders_last_import: string | null;
     ga4_last_day: string | null;
+    ga4_last_sync?: string | null;
     meta_last_period: string | null;
     meta_last_import: string | null;
     gsc_last_day: string | null;
+    gsc_last_sync?: string | null;
   };
   tracking: {
     orders: number;
@@ -895,6 +898,7 @@ export default function GapsPage() {
           ok: report.orders.total > 0,
           main: `${formatNumber(report.orders.total)} • ${formatMoney(report.orders.revenue, lang)}`,
           fresh: report.freshness.orders_last_date?.slice(0, 10) ?? "—",
+          syncedAt: report.freshness.orders_last_import,
         },
         {
           icon: BarChart3,
@@ -902,6 +906,7 @@ export default function GapsPage() {
           ok: report.ga4.tx > 0,
           main: `${formatNumber(report.ga4.tx)} • ${formatMoney(report.ga4.revenue, lang)}`,
           fresh: report.freshness.ga4_last_day ?? "—",
+          syncedAt: report.freshness.ga4_last_sync,
         },
         {
           icon: Megaphone,
@@ -909,6 +914,7 @@ export default function GapsPage() {
           ok: report.meta.ads > 0,
           main: `${formatNumber(report.meta.ads)} ads • ${formatMoney(report.meta.spend, lang)}`,
           fresh: report.freshness.meta_last_period ?? "—",
+          syncedAt: report.freshness.meta_last_import,
         },
         {
           icon: Search,
@@ -916,6 +922,7 @@ export default function GapsPage() {
           ok: report.gsc.clicks > 0,
           main: `${formatNumber(report.gsc.clicks)} clicks`,
           fresh: report.freshness.gsc_last_day ?? "—",
+          syncedAt: report.freshness.gsc_last_sync,
         },
       ]
     : [];
@@ -932,8 +939,11 @@ export default function GapsPage() {
   // running month: GA4 syncs behind orders, so month-level rates undercount
   const isCurrentMonth = month === months[0];
   const ga4Through = report?.ga4.last_day ?? null;
-  const ordersThrough = report?.freshness.orders_last_date?.slice(0, 10) ?? null;
-  const syncLag = isCurrentMonth && ga4Through && ordersThrough && ga4Through < ordersThrough;
+  // the report itself already stops at the last complete day (migration 106);
+  // the banner just says so, and shows when GA4 last pulled
+  const syncLag = isCurrentMonth && !!ga4Through;
+  const fmtSync = (iso: string | null | undefined) =>
+    iso ? new Date(iso).toLocaleString(lang === "ar" ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
   const visibleUntracked = showAllUntracked ? untracked : untracked.slice(0, 12);
   const sortedBooks = [...gapRows].sort((a, b) => b.spend - a.spend);
@@ -1003,7 +1013,7 @@ export default function GapsPage() {
         <>
           {syncLag && (
             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-              {tx(S.syncLagBanner).replace("{orders}", ordersThrough ?? "—").replace("{ga4}", ga4Through ?? "—")}
+              {tx(S.syncLagBanner).replace("{ga4}", ga4Through ?? "—").replace("{sync}", fmtSync(report?.freshness.ga4_last_sync))}
             </div>
           )}
 
@@ -1024,6 +1034,7 @@ export default function GapsPage() {
                   </div>
                   <div className="text-[11px] text-slate-400" dir="ltr">
                     {tx(S.syncedThrough)} {c.fresh}
+                    {c.syncedAt && <span className="ms-1.5 text-slate-300">· {tx(S.syncedAt)} {fmtSync(c.syncedAt)}</span>}
                   </div>
                 </div>
               </div>

@@ -234,6 +234,7 @@ export interface Ga4DailyRow {
   checkouts: number | null;
   purchases: number | null;
   revenue: number | null;
+  imported_at?: string;
 }
 
 export async function fetchGa4Daily(cfg: Ga4Config, month: string): Promise<Ga4DailyRow[]> {
@@ -263,6 +264,9 @@ export async function fetchGa4Daily(cfg: Ga4Config, month: string): Promise<Ga4D
       checkouts: num(r.metricValues[4]?.value),
       purchases: num(r.metricValues[5]?.value),
       revenue: num(r.metricValues[6]?.value),
+      // upserts don't touch a column default, so stamp explicitly — this is
+      // what the GAPS freshness panel reads as "last sync"
+      imported_at: new Date().toISOString(),
     }));
 }
 
