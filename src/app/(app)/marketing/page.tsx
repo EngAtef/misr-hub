@@ -16,6 +16,7 @@ import {
   renderAsset, loadImage, ASSET_DIMS, ASSET_LABELS, STYLE_NAMES, LAYOUT_NAMES,
   type AssetFmt, type AssetStyle, type AssetLayout,
 } from "@/lib/marketing/asset-engine";
+import { confirmDialog } from "@/components/dialog";
 
 const SUPA = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
@@ -628,7 +629,7 @@ export default function MarketingPage() {
   }
 
   async function removePost(postId: string) {
-    if (!confirm(t("mktDeleteConfirm"))) return;
+    if (!await confirmDialog(t("mktDeleteConfirm"))) return;
     await supabase.from("marketing_posts").delete().eq("id", postId);
     await loadPosts();
   }

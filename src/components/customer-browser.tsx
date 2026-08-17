@@ -11,6 +11,7 @@ import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { useMyRole } from "@/lib/use-role";
 import type { Identity } from "@/components/customer-drawer";
+import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 const SEGMENTS = ["champions", "loyal", "new", "promising", "at_risk", "hibernating"];
 const STATUSES = ["all", "buyers", "repeat", "one_time", "never"] as const;
@@ -186,12 +187,12 @@ export function CustomerBrowser({
       (a.first_joined_at ?? "9999").localeCompare(b.first_joined_at ?? "9999")
     )[0];
     const ids = picked.flatMap((r) => r.account_ids ?? [r.master_id]);
-    if (!confirm(t("mergeConfirm").replace("{n}", String(picked.length)).replace("{name}", survivor.name ?? survivor.master_id))) return;
+    if (!await confirmDialog(t("mergeConfirm").replace("{n}", String(picked.length)).replace("{name}", survivor.name ?? survivor.master_id))) return;
     setBusy(true);
     const { error } = await supabase.rpc("fn_merge_customers", { p_ids: ids, p_master: survivor.master_id });
     setBusy(false);
     if (error) {
-      alert(error.message);
+      await notifyDialog(error.message);
       return;
     }
     setSelected([]);
@@ -204,7 +205,7 @@ export function CustomerBrowser({
     const { error } = await supabase.rpc("fn_rebuild_customer_identities");
     setBusy(false);
     if (error) {
-      alert(error.message);
+      await notifyDialog(error.message);
       return;
     }
     await reload();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { History, Play, Pause, AlertTriangle, Check, Trash2, Clock } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { cn, formatNumber, formatMoney } from "@/lib/utils";
+import { confirmDialog } from "@/components/dialog";
 
 interface Progress {
   total: number;
@@ -150,7 +151,7 @@ export function AdsBackfill({ onChanged }: { onChanged: () => void }) {
   }
 
   async function checkPurge(dryRun: boolean) {
-    if (!dryRun && !confirm(tx(T.purgeWarn))) return;
+    if (!dryRun && !await confirmDialog(tx(T.purgeWarn))) return;
     const r = await post({ action: "purge_manual", dryRun });
     if (!r.ok) {
       setNote({ kind: "err", text: r.json.error ?? "failed" });

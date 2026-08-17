@@ -40,6 +40,7 @@ import {
   type Verdict,
 } from "@/lib/ads/diagnose";
 import { buildAdsWorkbook, downloadWorkbook, adRowsForExport } from "@/lib/ads/export";
+import { confirmDialog } from "@/components/dialog";
 
 type Tab =
   | "overview"
@@ -1571,7 +1572,7 @@ export default function AdsPage() {
                           className="rounded p-1 text-red-400 hover:bg-red-50"
                           title={tx(AD.deleteImport)}
                           onClick={async () => {
-                            if (!confirm(tx(AD.deleteImportConfirm))) return;
+                            if (!await confirmDialog(tx(AD.deleteImportConfirm))) return;
                             await fetch("/api/ads", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },

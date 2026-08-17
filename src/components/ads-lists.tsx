@@ -9,6 +9,7 @@ import { formatMoney, formatNumber, cn } from "@/lib/utils";
 import { Spinner, EmptyState, KpiCard, Pagination } from "@/components/ui";
 import { ProductDrawer } from "@/components/product-drawer";
 import type { CustomListRow, CustomListItemRow, StockHealth } from "@/lib/ads/types";
+import { confirmDialog } from "@/components/dialog";
 
 const BOOKS_PER_PAGE = 50;
 
@@ -408,7 +409,7 @@ export function AdsLists({
                               className="rounded p-1 text-red-400 hover:bg-red-50"
                               title={tx(AD.deleteList)}
                               onClick={async () => {
-                                if (!confirm(tx(AD.deleteListConfirm))) return;
+                                if (!await confirmDialog(tx(AD.deleteListConfirm))) return;
                                 await fetch("/api/ads", {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },

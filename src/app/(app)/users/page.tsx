@@ -7,6 +7,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
+import { confirmDialog } from "@/components/dialog";
 
 interface ProfileRow {
   id: string;
@@ -83,7 +84,7 @@ export default function UsersPage() {
   }, [load]);
 
   async function deleteUser(u: ProfileRow) {
-    if (!confirm(`${t("confirmDelete")} (${u.email})`)) return;
+    if (!await confirmDialog(`${t("confirmDelete")} (${u.email})`)) return;
     setError("");
     const { error: err } = await supabase.rpc("admin_delete_user", { p_user_id: u.id });
     if (err) setError(err.message);

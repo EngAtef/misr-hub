@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader } from "@/components/ui";
+import { confirmDialog } from "@/components/dialog";
 
 interface HostedBook {
   id: string;
@@ -474,7 +475,7 @@ export default function StudioPage() {
   // book whose pages are already healthy is left completely untouched.
   const upgradeBook = useCallback(
     async (b: HostedBook, silent = false) => {
-      if (!silent && !window.confirm(t("upgradeConfirm"))) return false;
+      if (!silent && !await confirmDialog(t("upgradeConfirm"))) return false;
       setUpgradingId(b.id);
       setUpgradeErrId("");
       setUpgradeMsg(t("upgrading"));
@@ -640,7 +641,7 @@ export default function StudioPage() {
 
   async function upgradeAllLegacy() {
     const legacy = books.filter((b) => b.fmt !== "v2");
-    if (legacy.length === 0 || !window.confirm(t("upgradeAllConfirm"))) return;
+    if (legacy.length === 0 || !await confirmDialog(t("upgradeAllConfirm"))) return;
     for (const b of legacy) {
       const ok = await upgradeBook(b, true);
       if (!ok) break; // the failed book keeps its error message on screen
@@ -649,7 +650,7 @@ export default function StudioPage() {
   }
 
   async function deleteBook(b: HostedBook) {
-    if (!window.confirm(t("deleteBookConfirm"))) return;
+    if (!await confirmDialog(t("deleteBookConfirm"))) return;
     setDeletingId(b.id);
     try {
       const res = await fetch("/api/flipbooks", {

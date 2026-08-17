@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { useMyRole } from "@/lib/use-role";
+import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 export interface Identity {
   master_id: string;
@@ -168,12 +169,12 @@ export function CustomerDrawer({
   }, [customerId, load]);
 
   async function unlink(accountId: string) {
-    if (!confirm(t("unlinkConfirm"))) return;
+    if (!await confirmDialog(t("unlinkConfirm"))) return;
     setBusy(true);
     const { error } = await supabase.rpc("fn_split_customer", { p_customer_id: accountId });
     setBusy(false);
     if (error) {
-      alert(error.message);
+      await notifyDialog(error.message);
       return;
     }
     await load();
@@ -185,7 +186,7 @@ export function CustomerDrawer({
     const { error } = await supabase.rpc("fn_clear_customer_override", { p_customer_id: accountId });
     setBusy(false);
     if (error) {
-      alert(error.message);
+      await notifyDialog(error.message);
       return;
     }
     await load();

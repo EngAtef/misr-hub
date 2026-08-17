@@ -8,6 +8,7 @@ import { PageHeader, Spinner } from "@/components/ui";
 import { RichComposer } from "@/components/rich-composer";
 import { sanitizeHtml, htmlToText } from "@/lib/rich-text";
 import { formatDateTime, cn } from "@/lib/utils";
+import { notifyDialog } from "@/components/dialog";
 
 type Msg = {
   id: number;
@@ -376,7 +377,7 @@ export default function InboxPage() {
   async function attach(file: File) {
     if (!myId || !selected || selected === ANNOUNCEMENTS_ID) return;
     if (file.size > 10 * 1024 * 1024) {
-      alert(t("attachTooLarge"));
+      await notifyDialog(t("attachTooLarge"));
       return;
     }
     const path = `${myId}/${Date.now()}-${file.name.replace(/[^\w.\-]+/g, "_")}`;

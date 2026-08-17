@@ -10,6 +10,7 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { StockForecast } from "@/components/stock-forecast";
 import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 interface EngineRow {
   sku: string;
@@ -423,11 +424,11 @@ export default function StockPage() {
       shortfall: Math.round(r.shortfall ?? 0),
     }));
     if (!items.length) {
-      alert(t("moveListEmpty"));
+      await notifyDialog(t("moveListEmpty"));
       return;
     }
     const note = skipped ? `\n${skipped} ${t("moveListSapSkipped")}` : "";
-    if (!confirm(`${t("moveListConfirmQ")} ${items.length} ${t("moveListConfirmEnd")}${note}`)) return;
+    if (!await confirmDialog(`${t("moveListConfirmQ")} ${items.length} ${t("moveListConfirmEnd")}${note}`)) return;
     setSavingList(true);
     try {
       const { data: num, error: numErr } = await supabase.rpc("fn_next_move_list_number");
@@ -445,9 +446,9 @@ export default function StockPage() {
       if (itemsErr) throw itemsErr;
       await loadMoveLists();
       setTab("lists");
-      alert(`${num} — ${t("moveListSavedMsg")}`);
+      await notifyDialog(`${num} — ${t("moveListSavedMsg")}`);
     } catch (e) {
-      alert((e as Error).message);
+      await notifyDialog((e as Error).message);
     } finally {
       setSavingList(false);
     }
@@ -459,7 +460,7 @@ export default function StockPage() {
   }
 
   async function deleteList(list: MoveList) {
-    if (!confirm(`${list.list_number} — ${t("mlDeleteConfirm")}`)) return;
+    if (!await confirmDialog(`${list.list_number} — ${t("mlDeleteConfirm")}`)) return;
     await supabase.from("stock_move_lists").delete().eq("id", list.id);
     loadMoveLists();
   }

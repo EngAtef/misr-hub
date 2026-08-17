@@ -20,6 +20,7 @@ import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
 import { ActivityInsights } from "@/components/activity-insights";
 import { formatDateTime, formatNumber, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
+import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 const PAGE_SIZE = 50;
 
@@ -319,9 +320,9 @@ function ActivityTab() {
       setClearOpen(false);
       setPage(0);
       setReloadKey((k) => k + 1);
-      alert(t("clearHistoryDone").replace("{n}", String(data ?? 0)));
+      await notifyDialog(t("clearHistoryDone").replace("{n}", String(data ?? 0)));
     } else {
-      alert(error.message);
+      await notifyDialog(error.message);
     }
   }
 
@@ -574,19 +575,19 @@ function SessionsTab() {
   }, [sessions]);
 
   async function terminateOne(sessionId: string) {
-    if (!confirm(t("terminateConfirm"))) return;
+    if (!await confirmDialog(t("terminateConfirm"))) return;
     setBusy(true);
     const { error } = await supabase.rpc("owner_terminate_session", { p_session_id: sessionId });
-    if (error) alert(`${t("error")}: ${error.message}`);
+    if (error) await notifyDialog(`${t("error")}: ${error.message}`);
     await load();
     setBusy(false);
   }
 
   async function terminateAll(uid: string) {
-    if (!confirm(t("terminateConfirm"))) return;
+    if (!await confirmDialog(t("terminateConfirm"))) return;
     setBusy(true);
     const { error } = await supabase.rpc("owner_terminate_user_sessions", { p_user_id: uid });
-    if (error) alert(`${t("error")}: ${error.message}`);
+    if (error) await notifyDialog(`${t("error")}: ${error.message}`);
     await load();
     setBusy(false);
   }
@@ -762,7 +763,7 @@ function TrashTab() {
   }
 
   async function deleteForever(row: TrashRow) {
-    if (!confirm(t("deleteForeverConfirm"))) return;
+    if (!await confirmDialog(t("deleteForeverConfirm"))) return;
     setBusyId(row.id);
     setError("");
     const err = await purgeRow(row);
@@ -792,7 +793,7 @@ function TrashTab() {
   async function deleteSelected() {
     const targets = rows.filter((r) => selected.has(r.id));
     if (!targets.length) return;
-    if (!confirm(t("deleteSelectedConfirm").replace("{n}", String(targets.length)))) return;
+    if (!await confirmDialog(t("deleteSelectedConfirm").replace("{n}", String(targets.length)))) return;
     setError("");
     setBulk({ done: 0, total: targets.length });
     let ok = 0;

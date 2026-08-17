@@ -22,6 +22,7 @@ import { CustomerDrawer } from "@/components/customer-drawer";
 import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { rpcAll } from "@/lib/rpc-all";
+import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 const SMS_PRICE_EGP = 0.285;
 
@@ -303,7 +304,7 @@ export default function SegmentsPage() {
   async function markSent() {
     if (!activeDef || !activeCount) return;
     const n = activeCount.exportable;
-    if (!confirm(t("segMarkSentConfirm").replace("{n}", formatNumber(n)))) return;
+    if (!await confirmDialog(t("segMarkSentConfirm").replace("{n}", formatNumber(n)))) return;
     setMarking(true);
     const { data, error } = await supabase.rpc("fn_sms_mark_sent", {
       p_def: withCap(activeDef, capDays),
@@ -312,7 +313,7 @@ export default function SegmentsPage() {
     });
     setMarking(false);
     if (error) {
-      alert(error.message);
+      await notifyDialog(error.message);
       return;
     }
     setMarkedN(Number(data) || 0);
@@ -973,7 +974,7 @@ function SavedSegments({
   }
 
   async function remove(s: SavedSegment) {
-    if (!confirm(t("segDeleteConfirm"))) return;
+    if (!await confirmDialog(t("segDeleteConfirm"))) return;
     await supabase.from("saved_segments").delete().eq("id", s.id);
     onChanged();
   }

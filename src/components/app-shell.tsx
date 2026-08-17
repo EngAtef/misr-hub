@@ -55,6 +55,8 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { NotificationBell } from "@/components/notification-bell";
 import { ActivityTracker } from "@/lib/activity-tracker";
+import { DialogHost } from "@/components/dialog";
+import { Spinner } from "@/components/ui";
 import type { Profile } from "@/lib/types";
 
 type NavGroup = "daily" | "sales" | "catalog" | "marketing" | "finance" | "tools" | "admin";
@@ -146,6 +148,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   const [quickQ, setQuickQ] = useState("");
   const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
   const [userOverrides, setUserOverrides] = useState<Record<string, boolean> | null>(null);
+  const [overridesLoaded, setOverridesLoaded] = useState(false);
 
   // desktop sidebar collapse — remembered per browser
   useEffect(() => {
@@ -180,13 +183,17 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         const rows = (data as { page_key: string; allowed: boolean }[]) ?? [];
         if (!rows.length) {
           setUserOverrides(null);
-          return;
+        } else {
+          const map: Record<string, boolean> = {};
+          for (const r of rows) map[r.page_key] = r.allowed;
+          setUserOverrides(map);
         }
-        const map: Record<string, boolean> = {};
-        for (const r of rows) map[r.page_key] = r.allowed;
-        setUserOverrides(map);
+        setOverridesLoaded(true);
       });
   }, [profile.role, profile.id]);
+
+  // admins see everything; everyone else waits for both permission tables
+  const permsReady = profile.role === "admin" || (permissions !== null && overridesLoaded);
 
   const items = NAV.filter((item) => {
     if (item.ownerOnly && !profile.is_owner) return false;
@@ -200,6 +207,20 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
     if (!perm) return true;
     return profile.role === "manager" ? perm.m : perm.v;
   });
+
+  // Access guard: the menu already hides pages the account can't use, but the
+  // route itself still rendered (login lands on "/" = overview, for one). Match
+  // the current path to its nav item and, if it's not on the allowed list, send
+  // the user to their first allowed page instead — or an access notice if none.
+  const currentItem = NAV.find((item) =>
+    item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(item.href + "/")
+  );
+  const currentAllowed = !currentItem || items.some((i) => i.href === currentItem.href);
+  const firstAllowed = items[0]?.href;
+  useEffect(() => {
+    if (!permsReady || currentAllowed) return;
+    if (firstAllowed && firstAllowed !== pathname) router.replace(firstAllowed);
+  }, [permsReady, currentAllowed, firstAllowed, pathname, router]);
 
   async function signOut() {
     const supabase = createClient();
@@ -360,8 +381,27 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
       </div>
 
       <main className={cn("p-4 lg:p-8 transition-[margin] duration-200", collapsed ? "lg:ms-12" : "lg:ms-64")}>
-        {children}
+        {!permsReady ? (
+          <div className="flex justify-center py-24">
+            <Spinner />
+          </div>
+        ) : currentAllowed ? (
+          children
+        ) : firstAllowed ? (
+          <div className="flex justify-center py-24">
+            <Spinner />
+          </div>
+        ) : (
+          <div className="mx-auto mt-24 max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+              <ShieldCheck size={24} className="text-amber-600" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900">{t("noPageAccess")}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t("noPageAccessHint")}</p>
+          </div>
+        )}
       </main>
+      <DialogHost />
     </div>
   );
 }

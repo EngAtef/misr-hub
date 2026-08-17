@@ -90,3 +90,15 @@
     @apply bg-slate-50;
   }
 }
+
+/* dialog.tsx — confirm / notice box */
+@keyframes nm-dlg-in {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes nm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.nm-dlg-panel { animation: nm-dlg-in 0.16s ease-out; }
+.nm-dlg-backdrop { animation: nm-fade-in 0.16s ease-out; }
