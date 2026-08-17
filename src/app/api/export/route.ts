@@ -20,6 +20,10 @@ const EXPORT_COLUMNS = [
   "promo_amount",
   "items_count",
   "source",
+  "attr_bucket",
+  "attr_source",
+  "attr_medium",
+  "attr_campaign",
   "awb_number",
   "delivery_date",
   "cancellation_reason",
@@ -50,6 +54,7 @@ export async function GET(request: NextRequest) {
   const payment = params.getAll("payment").filter(Boolean);
   const city = params.getAll("city").filter(Boolean);
   const source = params.getAll("source").filter(Boolean);
+  const attr = params.getAll("attr").filter(Boolean);
   const category = params.getAll("category").filter(Boolean);
   const subCategory = params.getAll("sub_category").filter(Boolean);
   const brand = params.getAll("brand").filter(Boolean);
@@ -76,6 +81,14 @@ export async function GET(request: NextRequest) {
     if (payment.length) query = query.in("payment_method", payment);
     if (city.length) query = query.in("city", city);
     if (source.length) query = query.in("source", source);
+    if (attr.length) {
+      const real = attr.filter((a) => a !== "untracked");
+      const parts = [
+        real.length ? `attr_bucket.in.(${real.join(",")})` : null,
+        attr.includes("untracked") ? "attr_bucket.is.null" : null,
+      ].filter(Boolean);
+      query = query.or(parts.join(","));
+    }
     if (category.length) query = query.overlaps("categories", category);
     if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
     if (brand.length) query = query.overlaps("brands", brand);

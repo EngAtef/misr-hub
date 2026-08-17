@@ -57,7 +57,15 @@ async function runSync(supabase: SupabaseClient, months: string[]) {
   }
   const results: (Ga4SyncResult & { gsc?: GscSyncResult | string })[] = [];
   for (const month of months) {
-    const r: Ga4SyncResult & { gsc?: GscSyncResult | string } = await syncGa4Month(cfg, supabase, month);
+    const r: Ga4SyncResult & { gsc?: GscSyncResult | string; attributed?: number | string } = await syncGa4Month(cfg, supabase, month);
+    // write the session source onto the month's orders (migration 109)
+    {
+      const from = month;
+      const d = new Date(`${month}T00:00:00Z`);
+      const to = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+      const { data, error } = await supabase.rpc("fn_refresh_order_attribution", { p_from: from, p_to: to });
+      r.attributed = error ? `attribution: ${error.message}` : Number(data ?? 0);
+    }
     if (gscCfg) {
       // Search Console is additive — a failure there must not block GA4 data
       r.gsc = await syncGscMonth(gscCfg, supabase, month).catch((e) => String(e));

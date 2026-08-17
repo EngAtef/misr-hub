@@ -39,6 +39,10 @@ export interface Order {
   cancellation_reason: string | null;
   cancellation_note: string | null;
   source: string | null;
+  attr_bucket?: string | null;
+  attr_source?: string | null;
+  attr_medium?: string | null;
+  attr_campaign?: string | null;
   applied_offer: string | null;
   applied_promotion: string | null;
   campaign_id: string | null;

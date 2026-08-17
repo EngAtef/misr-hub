@@ -10,6 +10,21 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
+import { ATTR_BUCKETS, attrLabel, attrClass } from "@/lib/attribution";
+
+// Where the customer came from — GA4 session source written onto the order
+// (orders.attr_bucket, migration 109). Null = GA4 never saw the purchase.
+function AttrBadge({ order, lang, size = "sm" }: { order: Pick<Order, "attr_bucket" | "attr_source" | "attr_medium" | "attr_campaign">; lang: "ar" | "en"; size?: "sm" | "md" }) {
+  const title = [order.attr_source && order.attr_medium ? `${order.attr_source} / ${order.attr_medium}` : null, order.attr_campaign].filter(Boolean).join(" · ");
+  return (
+    <span
+      className={`inline-flex items-center rounded-full font-semibold ${attrClass(order.attr_bucket)} ${size === "md" ? "px-2.5 py-1 text-xs" : "px-2 py-0.5 text-[11px]"}`}
+      title={title || undefined}
+    >
+      {attrLabel(order.attr_bucket, lang)}
+    </span>
+  );
+}
 
 // Where the order was placed — the platform export's `source` (web / android / ios)
 function SourceBadge({ source, size = "sm" }: { source: string | null; size?: "sm" | "md" }) {
@@ -50,6 +65,7 @@ export default function OrdersPage() {
   const [payment, setPayment] = useState<string[]>([]);
   const [city, setCity] = useState<string[]>([]);
   const [source, setSource] = useState<string[]>([]);
+  const [attr, setAttr] = useState<string[]>([]);
   const [category, setCategory] = useState<string[]>([]);
   const [subCategory, setSubCategory] = useState<string[]>([]);
   const [brand, setBrand] = useState<string[]>([]);
@@ -138,6 +154,14 @@ export default function OrdersPage() {
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
+      if (attr.length) {
+        const real = attr.filter((a) => a !== "untracked");
+        const parts = [
+          real.length ? `attr_bucket.in.(${real.join(",")})` : null,
+          attr.includes("untracked") ? "attr_bucket.is.null" : null,
+        ].filter(Boolean);
+        query = query.or(parts.join(","));
+      }
       if (category.length) query = query.overlaps("categories", category);
       if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
       if (brand.length) query = query.overlaps("brands", brand);
@@ -162,7 +186,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, view, range.from, range.to, status, payment, city, source, category, subCategory, brand, promo, search, page, sort]);
+  }, [supabase, view, range.from, range.to, status, payment, city, source, attr, category, subCategory, brand, promo, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -182,6 +206,14 @@ export default function OrdersPage() {
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
       if (source.length) query = query.in("source", source);
+      if (attr.length) {
+        const real = attr.filter((a) => a !== "untracked");
+        const parts = [
+          real.length ? `attr_bucket.in.(${real.join(",")})` : null,
+          attr.includes("untracked") ? "attr_bucket.is.null" : null,
+        ].filter(Boolean);
+        query = query.or(parts.join(","));
+      }
       if (category.length) query = query.overlaps("categories", category);
       if (subCategory.length) query = query.overlaps("sub_categories", subCategory);
       if (brand.length) query = query.overlaps("brands", brand);
@@ -200,7 +232,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, compare, status, payment, city, source, category, subCategory, brand, promo, search]);
+  }, [supabase, compare, status, payment, city, source, attr, category, subCategory, brand, promo, search]);
 
   // buyers view: per-customer aggregates within the selected categories
   // and period (fn_category_buyers). PostgREST caps RPC results at
@@ -316,6 +348,7 @@ export default function OrdersPage() {
     for (const p of payment) params.append("payment", p);
     for (const c of city) params.append("city", c);
     for (const s of source) params.append("source", s);
+    for (const a of attr) params.append("attr", a);
     for (const c of category) params.append("category", c);
     for (const sc of subCategory) params.append("sub_category", sc);
     for (const b of brand) params.append("brand", b);
@@ -426,6 +459,13 @@ export default function OrdersPage() {
                 placeholder={t("allCities")}
               />
               <MultiSelect
+                options={[...ATTR_BUCKETS]}
+                values={attr}
+                onChange={(v) => { setAttr(v); setPage(0); }}
+                placeholder={t("allTrafficSources")}
+                getLabel={(v) => attrLabel(v, lang)}
+              />
+              <MultiSelect
                 options={filterOptions.sources}
                 values={source}
                 onChange={(v) => { setSource(v); setPage(0); }}
@@ -530,7 +570,8 @@ export default function OrdersPage() {
                 <SortTh label={t("city")} k="city" sort={sort} onToggle={onSort} />
                 <SortTh label={t("status")} k="order_status" sort={sort} onToggle={onSort} />
                 <SortTh label={t("paymentMethod")} k="payment_method" sort={sort} onToggle={onSort} />
-                <SortTh label={t("source")} k="source" sort={sort} onToggle={onSort} />
+                <SortTh label={t("trafficSource")} k="attr_bucket" sort={sort} onToggle={onSort} />
+                <SortTh label={t("platformLbl")} k="source" sort={sort} onToggle={onSort} />
                 <SortTh label={t("amount")} k="total_order_amount" sort={sort} onToggle={onSort} />
                 <SortTh label={t("promoCode")} k="applied_offer" sort={sort} onToggle={onSort} />
                 <SortTh label={t("itemsCount")} k="items_count" sort={sort} onToggle={onSort} />
@@ -548,6 +589,7 @@ export default function OrdersPage() {
                   <td>{o.city ?? "—"}</td>
                   <td><StatusBadge status={o.order_status} /></td>
                   <td className="text-xs">{o.payment_method ?? "—"}</td>
+                  <td><AttrBadge order={o} lang={lang} /></td>
                   <td><SourceBadge source={o.source} /></td>
                   <td className="font-semibold">{formatMoney(o.total_order_amount, lang)}</td>
                   <td>
@@ -658,6 +700,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.order_status} />
             {order.delivery_status && <StatusBadge status={order.delivery_status} />}
+            <AttrBadge order={order} lang={lang} size="md" />
             <SourceBadge source={order.source} size="md" />
             <div className="ms-auto">
               <ContactActions
@@ -685,6 +728,16 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
             <div className="card p-4">
               <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">{t("paymentInfo")}</h3>
               <div className="text-sm space-y-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600" title={t("attrHint")}>
+                  <span className="font-semibold text-slate-500">{t("trafficSource")}:</span>
+                  <AttrBadge order={order} lang={lang} />
+                  {order.attr_source && order.attr_medium && (
+                    <span className="text-slate-400" dir="ltr">{order.attr_source} / {order.attr_medium}</span>
+                  )}
+                  {order.attr_campaign && (
+                    <span className="text-slate-400" dir="ltr">· {t("campaignLbl")}: {order.attr_campaign}</span>
+                  )}
+                </div>
                 <div>{order.payment_method ?? "—"}</div>
                 <div className="font-bold text-lg">{formatMoney(order.total_order_amount, lang)}</div>
                 {order.cod_amount != null && order.cod_amount > 0 && (
