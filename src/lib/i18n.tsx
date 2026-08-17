@@ -109,7 +109,7 @@ const dict = {
   allTrafficSources: { ar: "كل مصادر العملاء", en: "All customer sources" },
   platformLbl: { ar: "المنصة", en: "Platform" },
   campaignLbl: { ar: "الحملة", en: "Campaign" },
-  attrHint: { ar: "من GA4 — مصدر الجلسة التي أتمّت الشراء", en: "From GA4 — the session source that completed the purchase" },
+  attrHint: { ar: "كما سجّله GA4 لجلسة الشراء — الروابط الموسومة والبحث والإحالات مؤكدة؛ \"غير معروف\" يعني أن GA4 لم يرَ مصدرًا", en: "As recorded by GA4 for the purchase session — tagged links, search and referrers are proven; \"Unknown\" means GA4 saw no source" },
   allPromos: { ar: "كل أكواد الخصم", en: "All promo codes" },
   pageNumber: { ar: "رقم الصفحة", en: "Page #" },
   allSubCategories: { ar: "كل التصنيفات الفرعية", en: "All sub-categories" },
