@@ -4,46 +4,11 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  BarChart3,
-  FileText,
-  UploadCloud,
-  Users,
-  ScrollText,
   LogOut,
   Globe,
   Menu,
   X,
-  Lightbulb,
-  Megaphone,
-  Wand2,
-  HeartHandshake,
-  Package,
-  Target,
-  Boxes,
-  Sparkles,
-  Bot,
-  Contact,
-  Settings,
-  MousePointerClick,
-  Flag,
-  Truck,
-  BookOpen,
-  LayoutGrid,
-  UserCircle,
-  Store,
-  Coins,
-  ClipboardList,
-  TrendingUp,
-  Undo2,
-  Landmark,
-  MessageSquare,
   ShieldCheck,
-  ShoppingBasket,
-  Crosshair,
-  UsersRound,
-  Radar,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -51,6 +16,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
+import { NAV, GROUP_LABELS, GROUP_ORDER, pageKey, type NavGroup } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { NotificationBell } from "@/components/notification-bell";
@@ -60,85 +26,6 @@ import { ForcePasswordChange } from "@/components/force-password-change";
 import { Spinner } from "@/components/ui";
 import type { Profile } from "@/lib/types";
 
-type NavGroup = "daily" | "sales" | "catalog" | "marketing" | "finance" | "tools" | "admin";
-
-interface NavItem {
-  href: string;
-  labelKey: DictKey;
-  icon: React.ElementType;
-  roles: string[];
-  group: NavGroup;
-  ownerOnly?: boolean;
-}
-
-const GROUP_LABELS: Record<NavGroup, DictKey> = {
-  daily: "navGroupDaily",
-  sales: "navGroupSales",
-  catalog: "navGroupCatalog",
-  marketing: "navGroupMarketing",
-  finance: "navGroupFinance",
-  tools: "navGroupTools",
-  admin: "navGroupAdmin",
-};
-
-// Render order of the groups. Items keep their order within a group.
-const GROUP_ORDER: NavGroup[] = ["daily", "sales", "catalog", "marketing", "finance", "tools", "admin"];
-
-const NAV: NavItem[] = [
-  // Daily — what you open every morning
-  { href: "/", labelKey: "overview", icon: LayoutDashboard, roles: ["admin", "manager", "viewer"], group: "daily" },
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutGrid, roles: ["admin", "manager", "viewer"], group: "daily" },
-  { href: "/insights", labelKey: "insights", icon: Lightbulb, roles: ["admin", "manager", "viewer"], group: "daily" },
-  { href: "/assistant", labelKey: "assistant", icon: Sparkles, roles: ["admin", "manager", "viewer"], group: "daily" },
-
-  // Sales & customers — the demand side
-  { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/segments", labelKey: "segments", icon: UsersRound, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/returns", labelKey: "returns", icon: Undo2, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/analytics", labelKey: "analytics", icon: BarChart3, roles: ["admin", "manager", "viewer"], group: "sales" },
-  { href: "/reports", labelKey: "reports", icon: FileText, roles: ["admin", "manager", "viewer"], group: "sales" },
-
-  // Catalog & stock — the supply side
-  { href: "/products", labelKey: "productsPage", icon: Package, roles: ["admin", "manager", "viewer"], group: "catalog" },
-  { href: "/stock", labelKey: "stock", icon: Boxes, roles: ["admin", "manager", "viewer"], group: "catalog" },
-  { href: "/catalog", labelKey: "catalog", icon: BookOpen, roles: ["admin", "manager", "viewer"], group: "catalog" },
-  { href: "/vendors", labelKey: "vendors", icon: Store, roles: ["admin", "manager", "viewer"], group: "catalog" },
-
-  // Marketing — spend and reach
-  { href: "/traffic", labelKey: "traffic", icon: MousePointerClick, roles: ["admin", "manager", "viewer"], group: "marketing" },
-  { href: "/ads", labelKey: "ads", icon: Megaphone, roles: ["admin", "manager", "viewer"], group: "marketing" },
-  { href: "/gaps", labelKey: "gaps", icon: Crosshair, roles: ["admin", "manager", "viewer"], group: "marketing" },
-  { href: "/audiences", labelKey: "audiences", icon: Radar, roles: ["admin", "manager", "viewer"], group: "marketing" },
-  { href: "/campaigns", labelKey: "campaigns", icon: Flag, roles: ["admin", "manager", "viewer"], group: "marketing" },
-  { href: "/marketing", labelKey: "marketing", icon: Wand2, roles: ["admin", "manager", "viewer"], group: "marketing" },
-
-  // Finance — the money
-  { href: "/pnl", labelKey: "pnl", icon: Landmark, roles: ["admin", "manager"], group: "finance" },
-  { href: "/profit", labelKey: "profit", icon: Coins, roles: ["admin", "manager"], group: "finance" },
-  { href: "/targets", labelKey: "targets", icon: Target, roles: ["admin", "manager", "viewer"], group: "finance" },
-
-  // Tools
-  { href: "/data-center", labelKey: "dataCenter", icon: UploadCloud, roles: ["admin", "manager"], group: "tools" },
-  { href: "/studio", labelKey: "studio", icon: BookOpen, roles: ["admin", "manager"], group: "tools" },
-  { href: "/bot", labelKey: "afterHoursBot", icon: Bot, roles: ["admin", "manager", "viewer"], group: "tools" },
-  { href: "/inbox", labelKey: "inbox", icon: MessageSquare, roles: ["admin", "manager", "viewer"], group: "tools" },
-  { href: "/team", labelKey: "teamContacts", icon: Contact, roles: ["admin", "manager"], group: "tools" },
-
-  // Administration
-  { href: "/profile", labelKey: "profile", icon: UserCircle, roles: ["admin", "manager", "viewer"], group: "admin" },
-  { href: "/users", labelKey: "users", icon: Users, roles: ["admin"], group: "admin" },
-  { href: "/settings", labelKey: "settings", icon: Settings, roles: ["admin"], group: "admin" },
-  { href: "/audit", labelKey: "auditLog", icon: ScrollText, roles: ["admin"], group: "admin" },
-  { href: "/control", labelKey: "controlCenter", icon: ShieldCheck, roles: ["admin"], group: "admin", ownerOnly: true },
-];
-
-// href -> page_permissions.page_key
-function pageKey(href: string): string {
-  return href === "/" ? "overview" : href.slice(1);
-}
 
 export function AppShell({ profile, children }: { profile: Profile; children: React.ReactNode }) {
   const { t, lang, setLang } = useLang();
@@ -147,7 +34,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [quickQ, setQuickQ] = useState("");
-  const [permissions, setPermissions] = useState<Record<string, { m: boolean; v: boolean }> | null>(null);
+  const [permissions, setPermissions] = useState<Record<string, { a: boolean; m: boolean; v: boolean }> | null>(null);
   const [userOverrides, setUserOverrides] = useState<Record<string, boolean> | null>(null);
   const [overridesLoaded, setOverridesLoaded] = useState(false);
 
@@ -164,15 +51,15 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   }
 
   useEffect(() => {
-    if (profile.role === "admin") return;
+    if (profile.is_owner) return;
     const supabase = createClient();
     supabase
       .from("page_permissions")
-      .select("page_key, allow_manager, allow_viewer")
+      .select("page_key, allow_admin, allow_manager, allow_viewer")
       .then(({ data }) => {
-        const map: Record<string, { m: boolean; v: boolean }> = {};
-        for (const r of (data as { page_key: string; allow_manager: boolean; allow_viewer: boolean }[]) ?? []) {
-          map[r.page_key] = { m: r.allow_manager, v: r.allow_viewer };
+        const map: Record<string, { a: boolean; m: boolean; v: boolean }> = {};
+        for (const r of (data as { page_key: string; allow_admin: boolean | null; allow_manager: boolean; allow_viewer: boolean }[]) ?? []) {
+          map[r.page_key] = { a: r.allow_admin ?? true, m: r.allow_manager, v: r.allow_viewer };
         }
         setPermissions(map);
       });
@@ -191,23 +78,29 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         }
         setOverridesLoaded(true);
       });
-  }, [profile.role, profile.id]);
+  }, [profile.role, profile.id, profile.is_owner]);
 
-  // admins see everything; everyone else waits for both permission tables
-  const permsReady = profile.role === "admin" || (permissions !== null && overridesLoaded);
+  // the owner sees everything; everyone else waits for both permission tables
+  const permsReady = !!profile.is_owner || (permissions !== null && overridesLoaded);
 
+  // Visibility rule:
+  //   owner            → everything
+  //   per-user grant   → wins (Users page checklist)
+  //   page_permissions → role default (allow_admin / allow_manager / allow_viewer)
+  //   no row at all    → a NEW section: owner only until access is granted
   const items = NAV.filter((item) => {
-    if (item.ownerOnly && !profile.is_owner) return false;
+    if (profile.is_owner) return true;
+    if (item.ownerOnly) return false;
     if (!item.roles.includes(profile.role)) return false;
-    if (profile.role === "admin") return true;
     const key = pageKey(item.href);
-    // per-account checklist wins over role defaults
+    if (key === "profile") return true;
     if (userOverrides && userOverrides[key] !== undefined) return userOverrides[key];
-    if (!permissions) return true;
+    if (!permissions) return false;
     const perm = permissions[key];
-    if (!perm) return true;
-    return profile.role === "manager" ? perm.m : perm.v;
+    if (!perm) return false;
+    return profile.role === "admin" ? perm.a : profile.role === "manager" ? perm.m : perm.v;
   });
+  const canChat = items.some((i) => i.href === "/inbox");
 
   // Access guard: the menu already hides pages the account can't use, but the
   // route itself still rendered (login lands on "/" = overview, for one). Match
@@ -270,7 +163,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             </button>
           )}
         </form>
-        <NotificationBell profile={profile} />
+        <NotificationBell profile={profile} canCompose={canChat} />
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {GROUP_ORDER.map((group) => {

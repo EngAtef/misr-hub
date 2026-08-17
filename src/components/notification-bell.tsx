@@ -29,7 +29,9 @@ interface DirectoryUser {
 }
 
 /** Sidebar bell + inbox icons with unread badges, notification panel and sender. */
-export function NotificationBell({ profile }: { profile: Profile }) {
+// canCompose: sending a team-wide notification is part of the Inbox
+// access level — a user without /inbox only reads their notifications
+export function NotificationBell({ profile, canCompose = true }: { profile: Profile; canCompose?: boolean }) {
   const { t, lang } = useLang();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -161,14 +163,16 @@ export function NotificationBell({ profile }: { profile: Profile }) {
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <h3 className="font-bold text-slate-800">{t("notifications")}</h3>
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  title={t("sendNotification")}
-                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-                  onClick={openCompose}
-                >
-                  <Megaphone size={16} />
-                </button>
+                {canCompose && (
+                  <button
+                    type="button"
+                    title={t("sendNotification")}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                    onClick={openCompose}
+                  >
+                    <Megaphone size={16} />
+                  </button>
+                )}
                 <button
                   type="button"
                   title={t("markAllRead")}

@@ -10,6 +10,21 @@ import type { Role } from "@/lib/types";
 import { confirmDialog } from "@/components/dialog";
 import { PasswordField } from "@/components/password-field";
 import { isStrongPassword } from "@/lib/password";
+import { ACCESS_PAGES } from "@/lib/nav";
+
+function SelectAllBar({ onAll, onNone, disabled }: { onAll: () => void; onNone: () => void; disabled?: boolean }) {
+  const { t } = useLang();
+  return (
+    <div className={cn("flex items-center gap-2 text-xs", disabled && "opacity-40 pointer-events-none")}>
+      <button type="button" onClick={onAll} className="rounded-md border border-slate-200 px-2 py-0.5 font-semibold text-brand-700 hover:bg-brand-50">
+        {t("selectAll")}
+      </button>
+      <button type="button" onClick={onNone} className="rounded-md border border-slate-200 px-2 py-0.5 font-semibold text-slate-600 hover:bg-slate-50">
+        {t("unselectAll")}
+      </button>
+    </div>
+  );
+}
 
 interface ProfileRow {
   id: string;
@@ -24,35 +39,10 @@ interface ProfileRow {
   created_at: string;
 }
 
-const PAGE_LABELS: Record<string, DictKey> = {
-  overview: "overview",
-  dashboard: "dashboard",
-  orders: "orders",
-  products: "productsPage",
-  analytics: "analytics",
-  traffic: "traffic",
-  insights: "insights",
-  customers: "customers",
-  abandoned: "abandoned",
-  ads: "ads",
-  gaps: "gaps",
-  campaigns: "campaigns",
-  marketing: "marketing",
-  delivery: "deliveryReports",
-  stock: "stock",
-  returns: "returns",
-  profit: "profit",
-  pnl: "pnl",
-  catalog: "catalog",
-  vendors: "vendors",
-  targets: "targets",
-  reports: "reports",
-  team: "teamContacts",
-  "data-center": "dataCenter",
-  studio: "studio",
-  assistant: "assistant",
-  bot: "afterHoursBot",
-};
+// Every grantable page comes from the nav itself (src/lib/nav.ts), so a new
+// section shows up here the moment it exists — and until it is ticked for
+// someone, only the owner can see it.
+const PAGE_LABELS: Record<string, DictKey> = Object.fromEntries(ACCESS_PAGES.map((p) => [p.key, p.labelKey]));
 
 export default function UsersPage() {
   const { t } = useLang();
@@ -286,7 +276,13 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
         {role !== "admin" && (
           <div className="rounded-xl border border-slate-200 p-4">
-            <div className="text-sm font-bold mb-1">{t("userAccessList")}</div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="text-sm font-bold">{t("userAccessList")}</div>
+              <SelectAllBar
+                onAll={() => setPageAccess(Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, true])))}
+                onNone={() => setPageAccess(Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, false])))}
+              />
+            </div>
             <p className="text-[11px] text-slate-400 mb-3">{t("accessControlHint")}</p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               {Object.entries(PAGE_LABELS).map(([key, labelKey]) => (
@@ -433,6 +429,13 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
                 />
                 {t("useRoleDefaults")}
               </label>
+            </div>
+            <div className="mb-2 flex items-center justify-end">
+              <SelectAllBar
+                disabled={useDefaults}
+                onAll={() => setPageAccess(Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, true])))}
+                onNone={() => setPageAccess(Object.fromEntries(Object.keys(PAGE_LABELS).map((k) => [k, false])))}
+              />
             </div>
             <p className="text-[11px] text-slate-400 mb-3">{t("userAccessHint")}</p>
             <div className={cn("grid grid-cols-2 gap-x-3 gap-y-2", useDefaults && "opacity-40 pointer-events-none")}>

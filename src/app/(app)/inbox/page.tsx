@@ -1,7 +1,12 @@
 "use client";
 
+// Team inbox: pinned announcements + conversations (1:1 and named groups).
+// Data model (migration 112): chat_conversations / chat_members /
+// chat_messages, RLS by membership; the old 1:1 `messages` table is no
+// longer read here (history hidden for now, nothing deleted).
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCheck, Megaphone, MessageSquare, Paperclip } from "lucide-react";
+import { ArrowLeft, CheckCheck, Megaphone, MessageSquare, Paperclip, Plus, Users2, X, Settings2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
@@ -12,15 +17,26 @@ import { notifyDialog } from "@/components/dialog";
 
 type Msg = {
   id: number;
+  conversation_id: string;
   sender_id: string;
-  recipient_id: string;
   body: string;
   created_at: string;
-  read_at: string | null;
   attachment_path: string | null;
   attachment_name: string | null;
   attachment_type: string | null;
   attachment_size: number | null;
+};
+
+type Conversation = {
+  id: string;
+  kind: "dm" | "group";
+  name: string | null;
+  created_by: string;
+  created_at: string;
+  last_read_at: string | null;
+  members: { user_id: string; last_read_at: string | null }[];
+  last: Msg | null;
+  unread: number;
 };
 
 type Announcement = {
@@ -39,57 +55,36 @@ type DirUser = {
   avatar_url: string | null;
 };
 
-type Summaries = {
-  last: Record<string, Msg>;
-  unread: Record<string, number>;
-};
-
 const ANNOUNCEMENTS_ID = "__announcements__";
-
 const MSG_COLUMNS =
-  "id, sender_id, recipient_id, body, created_at, read_at, attachment_path, attachment_name, attachment_type, attachment_size";
+  "id, conversation_id, sender_id, body, created_at, attachment_path, attachment_name, attachment_type, attachment_size";
 
-const NAME_COLORS = [
-  "text-rose-600",
-  "text-amber-600",
-  "text-emerald-600",
-  "text-sky-600",
-  "text-violet-600",
-  "text-fuchsia-600",
-];
-
+const NAME_COLORS = ["text-rose-600", "text-amber-600", "text-emerald-600", "text-sky-600", "text-violet-600", "text-fuchsia-600"];
 function nameColor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return NAME_COLORS[h % NAME_COLORS.length];
 }
-
-function displayName(u: DirUser): string {
-  return u.full_name || u.email || "—";
+function displayName(u: DirUser | undefined | null): string {
+  return u ? u.full_name || u.email || "—" : "—";
 }
-
-function initialsOf(u: DirUser): string {
-  const name = (u.full_name || u.email || "").trim();
-  const parts = name.split(/\s+/).filter(Boolean).slice(0, 2);
-  const ini = parts.map((p) => p[0]).join("").toUpperCase();
-  return ini || "?";
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  return parts.map((p) => p[0]).join("").toUpperCase() || "?";
 }
-
 function formatSize(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 export default function InboxPage() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
 
   const [myId, setMyId] = useState<string | null>(null);
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myName, setMyName] = useState<string | null>(null);
   const [users, setUsers] = useState<DirUser[]>([]);
-  const [summaries, setSummaries] = useState<Summaries>({ last: {}, unread: {} });
+  const [convs, setConvs] = useState<Conversation[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<Msg[]>([]);
@@ -98,16 +93,19 @@ export default function InboxPage() {
   const [annLoading, setAnnLoading] = useState(true);
   const [annUnread, setAnnUnread] = useState(0);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [groupModal, setGroupModal] = useState<null | { mode: "create" } | { mode: "edit"; conv: Conversation }>(null);
+  const [showPeople, setShowPeople] = useState(false);
 
   const selectedRef = useRef<string | null>(null);
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
-
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [thread, threadLoading, announcements, annLoading, selected]);
+
+  const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
 
   // who am I
   useEffect(() => {
@@ -123,47 +121,30 @@ export default function InboxPage() {
     };
   }, [supabase]);
 
-  // directory + recent messages -> conversation summaries (initial load + 20s poll fallback)
-  useEffect(() => {
+  // directory + conversation summaries (initial load + 20s poll fallback)
+  const loadSummaries = useCallback(async () => {
     if (!myId) return;
-    let cancelled = false;
-    const load = async () => {
-      const [dir, msgs] = await Promise.all([
-        supabase.rpc("fn_user_directory"),
-        supabase
-          .from("messages")
-          .select(MSG_COLUMNS)
-          .or(`sender_id.eq.${myId},recipient_id.eq.${myId}`)
-          .order("created_at", { ascending: false })
-          .limit(400),
-      ]);
-      if (cancelled) return;
-      const allRows = (dir.data as DirUser[] | null) ?? [];
-      const me = allRows.find((u) => u.id === myId);
-      if (me) setMyName(me.full_name || me.email);
-      setUsers(allRows.filter((u) => u.id !== myId));
-      const rows = (msgs.data as Msg[] | null) ?? [];
-      const last: Record<string, Msg> = {};
-      const unread: Record<string, number> = {};
-      for (const m of rows) {
-        const other = m.sender_id === myId ? m.recipient_id : m.sender_id;
-        if (!last[other]) last[other] = m;
-        if (m.recipient_id === myId && !m.read_at) unread[other] = (unread[other] ?? 0) + 1;
-      }
-      // the open thread is marked read server-side on open; keep the UI consistent
-      if (selectedRef.current) unread[selectedRef.current] = 0;
-      setSummaries({ last, unread });
-      setListLoading(false);
-    };
-    load();
-    const iv = setInterval(load, 20000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
+    const [dir, sums] = await Promise.all([supabase.rpc("fn_user_directory"), supabase.rpc("fn_chat_summaries")]);
+    const allRows = (dir.data as DirUser[] | null) ?? [];
+    const me = allRows.find((u) => u.id === myId);
+    if (me) setMyName(me.full_name || me.email);
+    setUsers(allRows.filter((u) => u.id !== myId));
+    const list = ((sums.data as Conversation[] | null) ?? []).map((c) => ({
+      ...c,
+      unread: selectedRef.current === c.id ? 0 : c.unread,
+    }));
+    setConvs(list);
+    setListLoading(false);
   }, [myId, supabase]);
 
-  // announcements (last 30 days) + my read marker -> unread badge
+  useEffect(() => {
+    if (!myId) return;
+    loadSummaries();
+    const iv = setInterval(loadSummaries, 20000);
+    return () => clearInterval(iv);
+  }, [myId, loadSummaries]);
+
+  // announcements (last 30 days) + read marker
   useEffect(() => {
     if (!myId) return;
     let cancelled = false;
@@ -193,15 +174,11 @@ export default function InboxPage() {
   }, [myId, supabase]);
 
   const markRead = useCallback(
-    async (other: string) => {
+    async (convId: string) => {
       if (!myId) return;
-      await supabase
-        .from("messages")
-        .update({ read_at: new Date().toISOString() })
-        .eq("recipient_id", myId)
-        .eq("sender_id", other)
-        .is("read_at", null);
-      setSummaries((s) => ({ ...s, unread: { ...s.unread, [other]: 0 } }));
+      const now = new Date().toISOString();
+      setConvs((cs) => cs.map((c) => (c.id === convId ? { ...c, unread: 0, last_read_at: now } : c)));
+      await supabase.from("chat_members").update({ last_read_at: now }).eq("conversation_id", convId).eq("user_id", myId);
     },
     [myId, supabase]
   );
@@ -209,17 +186,14 @@ export default function InboxPage() {
   const markAnnRead = useCallback(async () => {
     if (!myId) return;
     setAnnUnread(0);
-    await supabase
-      .from("announcement_reads")
-      .upsert({ user_id: myId, last_read_at: new Date().toISOString() });
+    await supabase.from("announcement_reads").upsert({ user_id: myId, last_read_at: new Date().toISOString() });
   }, [myId, supabase]);
 
-  // opening the announcements thread clears its badge
   useEffect(() => {
     if (selected === ANNOUNCEMENTS_ID) markAnnRead();
   }, [selected, markAnnRead]);
 
-  // full history for the selected conversation
+  // full thread for the selected conversation
   useEffect(() => {
     if (!myId || !selected || selected === ANNOUNCEMENTS_ID) {
       setThread([]);
@@ -229,11 +203,9 @@ export default function InboxPage() {
     setThreadLoading(true);
     (async () => {
       const { data } = await supabase
-        .from("messages")
+        .from("chat_messages")
         .select(MSG_COLUMNS)
-        .or(
-          `and(sender_id.eq.${myId},recipient_id.eq.${selected}),and(sender_id.eq.${selected},recipient_id.eq.${myId})`
-        )
+        .eq("conversation_id", selected)
         .order("created_at", { ascending: true })
         .limit(500);
       if (cancelled) return;
@@ -246,7 +218,7 @@ export default function InboxPage() {
     };
   }, [myId, selected, supabase, markRead]);
 
-  // signed URLs for attachments visible in the open thread
+  // signed URLs for attachments in the open thread
   useEffect(() => {
     const paths = thread
       .map((m) => m.attachment_path)
@@ -267,64 +239,54 @@ export default function InboxPage() {
     };
   }, [thread, signedUrls, supabase]);
 
-  // realtime: new messages addressed to me + new announcements
+  // realtime: new messages in any of my conversations (RLS scopes the stream) + announcements
   useEffect(() => {
     if (!myId) return;
     const ch = supabase
-      .channel(`inbox-${myId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${myId}` },
-        (payload) => {
-          const m = payload.new as Msg;
-          const inOpenThread = m.sender_id === selectedRef.current;
-          if (inOpenThread) {
-            setThread((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-            markRead(m.sender_id);
-          }
-          setSummaries((s) => ({
-            last: { ...s.last, [m.sender_id]: m },
-            unread: {
-              ...s.unread,
-              [m.sender_id]: inOpenThread ? 0 : (s.unread[m.sender_id] ?? 0) + 1,
-            },
-          }));
+      .channel(`chat-${myId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
+        const m = payload.new as Msg;
+        if (m.sender_id === myId) return; // appended locally on send
+        const inOpen = m.conversation_id === selectedRef.current;
+        if (inOpen) {
+          setThread((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+          markRead(m.conversation_id);
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "announcements" },
-        (payload) => {
-          const a = payload.new as Announcement;
-          if (a.sender_id === myId) return; // already appended locally after insert
-          setAnnouncements((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
-          if (selectedRef.current === ANNOUNCEMENTS_ID) {
-            markAnnRead();
-          } else {
-            setAnnUnread((n) => n + 1);
+        setConvs((cs) => {
+          const known = cs.some((c) => c.id === m.conversation_id);
+          if (!known) {
+            // a group I was just added to — reload the list
+            loadSummaries();
+            return cs;
           }
-        }
-      )
+          return cs
+            .map((c) => (c.id === m.conversation_id ? { ...c, last: m, unread: inOpen ? 0 : c.unread + 1 } : c))
+            .sort((a, b) => (b.last?.created_at ?? b.created_at).localeCompare(a.last?.created_at ?? a.created_at));
+        });
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "announcements" }, (payload) => {
+        const a = payload.new as Announcement;
+        if (a.sender_id === myId) return;
+        setAnnouncements((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
+        if (selectedRef.current === ANNOUNCEMENTS_ID) markAnnRead();
+        else setAnnUnread((n) => n + 1);
+      })
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [myId, supabase, markRead, markAnnRead]);
+  }, [myId, supabase, markRead, markAnnRead, loadSummaries]);
 
   const mentionUsers = useMemo(
-    () =>
-      users
-        .map((u) => ({ id: u.id, name: u.full_name || u.email || "" }))
-        .filter((u) => u.name !== ""),
+    () => users.map((u) => ({ id: u.id, name: u.full_name || u.email || "" })).filter((u) => u.name !== ""),
     [users]
   );
 
-  // fire-and-forget @mention notifications for a sent body
-  function notifyMentions(html: string, dmRecipient: string | null) {
+  function notifyMentions(html: string, exclude: string[]) {
     if (!myId) return;
     const text = htmlToText(html, 10000);
     const rows = users
-      .filter((u) => u.id !== dmRecipient)
+      .filter((u) => !exclude.includes(u.id))
       .filter((u) => {
         const name = u.full_name || u.email;
         return !!name && text.includes(`@${name}`);
@@ -338,27 +300,30 @@ export default function InboxPage() {
         link: "/inbox",
       }));
     if (rows.length === 0) return;
-    void supabase
-      .from("notifications")
-      .insert(rows)
-      .then(
-        () => undefined,
-        () => undefined
-      );
+    void supabase.from("notifications").insert(rows).then(() => undefined, () => undefined);
+  }
+
+  function appendLocal(m: Msg) {
+    setThread((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+    setConvs((cs) =>
+      cs
+        .map((c) => (c.id === m.conversation_id ? { ...c, last: m } : c))
+        .sort((a, b) => (b.last?.created_at ?? b.created_at).localeCompare(a.last?.created_at ?? a.created_at))
+    );
   }
 
   async function send(html: string) {
     if (!myId || !selected || selected === ANNOUNCEMENTS_ID) return;
     const { data } = await supabase
-      .from("messages")
-      .insert({ sender_id: myId, recipient_id: selected, body: html })
-      .select()
+      .from("chat_messages")
+      .insert({ conversation_id: selected, sender_id: myId, body: html })
+      .select(MSG_COLUMNS)
       .single();
     if (!data) return;
-    const m = data as Msg;
-    setThread((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    setSummaries((s) => ({ ...s, last: { ...s.last, [m.recipient_id]: m } }));
-    notifyMentions(html, m.recipient_id);
+    appendLocal(data as Msg);
+    // members of a DM/group get the message itself; @mentions notify anyone else
+    const conv = convs.find((c) => c.id === selected);
+    notifyMentions(html, conv?.members.map((m) => m.user_id) ?? []);
   }
 
   async function sendAnnouncement(html: string) {
@@ -371,7 +336,7 @@ export default function InboxPage() {
     if (!data) return;
     const a = data as Announcement;
     setAnnouncements((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
-    notifyMentions(html, null);
+    notifyMentions(html, []);
   }
 
   async function attach(file: File) {
@@ -384,28 +349,71 @@ export default function InboxPage() {
     const { error } = await supabase.storage.from("chat-uploads").upload(path, file);
     if (error) return;
     const { data } = await supabase
-      .from("messages")
+      .from("chat_messages")
       .insert({
+        conversation_id: selected,
         sender_id: myId,
-        recipient_id: selected,
         body: `📎 ${file.name}`,
         attachment_path: path,
         attachment_name: file.name,
         attachment_type: file.type,
         attachment_size: file.size,
       })
-      .select()
+      .select(MSG_COLUMNS)
       .single();
-    if (!data) return;
-    const m = data as Msg;
-    setThread((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    setSummaries((s) => ({ ...s, last: { ...s.last, [m.recipient_id]: m } }));
+    if (data) appendLocal(data as Msg);
   }
 
-  function annSenderName(a: Announcement): string {
-    if (a.sender_id === myId) return myName ?? a.sender_email;
-    const u = users.find((x) => x.id === a.sender_id);
-    return u ? displayName(u) : a.sender_email;
+  async function openDm(otherId: string) {
+    const existing = convs.find((c) => c.kind === "dm" && c.members.some((m) => m.user_id === otherId));
+    if (existing) {
+      setSelected(existing.id);
+      setShowPeople(false);
+      return;
+    }
+    const { data, error } = await supabase.rpc("fn_chat_open_dm", { p_other: otherId });
+    if (error || !data) {
+      if (error) await notifyDialog(error.message, { tone: "danger" });
+      return;
+    }
+    await loadSummaries();
+    setSelected(data as string);
+    setShowPeople(false);
+  }
+
+  function convTitle(c: Conversation): string {
+    if (c.kind === "group") return c.name ?? "—";
+    const other = c.members.find((m) => m.user_id !== myId);
+    return displayName(other ? userById[other.user_id] : null);
+  }
+  function convAvatar(c: Conversation, size = "h-9 w-9") {
+    if (c.kind === "group") {
+      return (
+        <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700", size)}>
+          <Users2 size={16} />
+        </span>
+      );
+    }
+    const other = c.members.find((m) => m.user_id !== myId);
+    const u = other ? userById[other.user_id] : null;
+    if (u?.avatar_url) {
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src={u.avatar_url} alt="" className={cn("shrink-0 rounded-full object-cover", size)} />;
+    }
+    return (
+      <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700", size)}>
+        {initialsOf(displayName(u))}
+      </span>
+    );
+  }
+  function senderName(id: string): string {
+    if (id === myId) return myName ?? myEmail ?? t("youLabel");
+    return displayName(userById[id]);
+  }
+  // DM read receipt: the other member has read past this message
+  function readByOther(c: Conversation, m: Msg): boolean {
+    const other = c.members.find((x) => x.user_id !== myId);
+    return !!other?.last_read_at && other.last_read_at >= m.created_at;
   }
 
   function renderAttachment(m: Msg) {
@@ -425,11 +433,7 @@ export default function InboxPage() {
         href={url ?? "#"}
         target="_blank"
         rel="noopener noreferrer"
-        className={cn(
-          "flex items-center gap-2 text-sm",
-          mine ? "text-white" : "text-slate-800",
-          !url && "pointer-events-none opacity-60"
-        )}
+        className={cn("flex items-center gap-2 text-sm", mine ? "text-white" : "text-slate-800", !url && "pointer-events-none opacity-60")}
       >
         <Paperclip size={14} className="shrink-0" />
         <span className="truncate font-semibold" dir="auto">
@@ -442,36 +446,43 @@ export default function InboxPage() {
     );
   }
 
-  // users with a conversation first (latest message desc), then the rest A→Z
-  const sortedUsers = useMemo(() => {
-    return [...users].sort((a, b) => {
-      const la = summaries.last[a.id];
-      const lb = summaries.last[b.id];
-      if (la && lb) return lb.created_at.localeCompare(la.created_at);
-      if (la) return -1;
-      if (lb) return 1;
-      return displayName(a).localeCompare(displayName(b), "ar");
-    });
-  }, [users, summaries]);
-
-  const selectedUser =
-    selected && selected !== ANNOUNCEMENTS_ID ? users.find((u) => u.id === selected) ?? null : null;
+  const selectedConv = selected && selected !== ANNOUNCEMENTS_ID ? convs.find((c) => c.id === selected) ?? null : null;
   const lastAnn = announcements.length > 0 ? announcements[announcements.length - 1] : null;
+  const peopleWithoutDm = users.filter((u) => !convs.some((c) => c.kind === "dm" && c.members.some((m) => m.user_id === u.id)));
+  const canManage = (c: Conversation) => c.kind === "group" && c.created_by === myId;
+
+  const bubble = (mine: boolean) =>
+    cn(
+      "max-w-[75%] rounded-2xl px-3.5 py-2 text-sm [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:list-decimal [&_ol]:ps-5",
+      mine ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800"
+    );
 
   return (
     <div>
-      <PageHeader title={t("inbox")} subtitle={t("inboxSubtitle")} />
+      <PageHeader
+        title={t("inbox")}
+        subtitle={t("inboxSubtitle")}
+        actions={
+          <button type="button" onClick={() => setGroupModal({ mode: "create" })} className="btn-primary flex items-center gap-1.5">
+            <Plus size={16} />
+            {t("newGroup")}
+          </button>
+        }
+      />
 
       <div className="card flex h-[calc(100vh-12rem)] overflow-hidden p-0">
         {/* Conversation list */}
-        <div
-          className={cn(
-            "w-full shrink-0 flex-col border-e border-slate-200 sm:flex sm:w-72",
-            selected ? "hidden" : "flex"
-          )}
-        >
-          <div className="border-b border-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {t("online")}
+        <div className={cn("w-full shrink-0 flex-col border-e border-slate-200 sm:flex sm:w-72", selected ? "hidden" : "flex")}>
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("conversations")}</span>
+            <button
+              type="button"
+              onClick={() => setShowPeople((v) => !v)}
+              className={cn("rounded-md p-1 text-slate-500 hover:bg-slate-100", showPeople && "bg-brand-50 text-brand-700")}
+              title={t("startChatWith")}
+            >
+              <Plus size={16} />
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {/* Pinned team announcements channel */}
@@ -488,9 +499,7 @@ export default function InboxPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-semibold text-slate-800">
-                    {t("announcementsLbl")}
-                  </span>
+                  <span className="truncate text-sm font-semibold text-slate-800">{t("announcementsLbl")}</span>
                   {lastAnn && (
                     <span dir="ltr" className="shrink-0 text-[10px] text-slate-400">
                       {formatDateTime(lastAnn.created_at)}
@@ -499,73 +508,91 @@ export default function InboxPage() {
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-slate-500" dir="auto">
-                    {lastAnn
-                      ? `${annSenderName(lastAnn)}: ${htmlToText(lastAnn.body, 60)}`
-                      : t("noMessages")}
+                    {lastAnn ? `${senderName(lastAnn.sender_id)}: ${htmlToText(lastAnn.body, 60)}` : t("noMessages")}
                   </span>
                   {annUnread > 0 && (
-                    <span
-                      title={t("unread")}
-                      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-bold text-white"
-                    >
+                    <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-bold text-white">
                       {annUnread}
                     </span>
                   )}
                 </span>
               </span>
             </button>
+
+            {/* People picker to start a DM */}
+            {showPeople && (
+              <div className="border-b border-slate-100 bg-slate-50/60">
+                <div className="px-4 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{t("startChatWith")}</div>
+                {peopleWithoutDm.length === 0 ? (
+                  <div className="px-4 py-2 text-xs text-slate-400">—</div>
+                ) : (
+                  peopleWithoutDm.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => openDm(u.id)}
+                      className="flex w-full items-center gap-3 px-4 py-2 text-start hover:bg-white"
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700">
+                        {initialsOf(displayName(u))}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-slate-800">{displayName(u)}</span>
+                        <span className="block truncate text-[11px] text-slate-400" dir="ltr">
+                          {u.email}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
             {listLoading ? (
               <Spinner />
+            ) : convs.length === 0 && !showPeople ? (
+              <button
+                type="button"
+                onClick={() => setShowPeople(true)}
+                className="block w-full px-4 py-6 text-center text-sm text-slate-400 hover:text-brand-700"
+              >
+                {t("startChatWith")}
+              </button>
             ) : (
-              sortedUsers.map((u) => {
-                const last = summaries.last[u.id];
-                const unread = summaries.unread[u.id] ?? 0;
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => setSelected(u.id)}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-slate-50",
-                      selected === u.id && "bg-brand-50"
-                    )}
-                  >
-                    {u.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={u.avatar_url} alt="" className="h-9 w-9 rounded-full object-cover" />
-                    ) : (
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                        {initialsOf(u)}
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold text-slate-800">{displayName(u)}</span>
-                        {last && (
-                          <span dir="ltr" className="shrink-0 text-[10px] text-slate-400">
-                            {formatDateTime(last.created_at)}
-                          </span>
-                        )}
-                      </span>
-                      <span className="mt-0.5 flex items-center justify-between gap-2">
-                        <span className="truncate text-xs text-slate-500" dir="auto">
-                          {last
-                            ? `${last.sender_id === myId ? `${t("sentLabel")} ` : ""}${htmlToText(last.body, 60)}`
-                            : u.email}
+              convs.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelected(c.id)}
+                  className={cn("flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-slate-50", selected === c.id && "bg-brand-50")}
+                >
+                  {convAvatar(c)}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-slate-800">{convTitle(c)}</span>
+                      {c.last && (
+                        <span dir="ltr" className="shrink-0 text-[10px] text-slate-400">
+                          {formatDateTime(c.last.created_at)}
                         </span>
-                        {unread > 0 && (
-                          <span
-                            title={t("unread")}
-                            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-bold text-white"
-                          >
-                            {unread}
-                          </span>
-                        )}
-                      </span>
+                      )}
                     </span>
-                  </button>
-                );
-              })
+                    <span className="mt-0.5 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs text-slate-500" dir="auto">
+                        {c.last
+                          ? `${c.last.sender_id === myId ? t("sentLabel") : c.kind === "group" ? `${senderName(c.last.sender_id)}:` : ""} ${htmlToText(c.last.body, 60)}`
+                          : c.kind === "group"
+                            ? t("membersCount").replace("{n}", String(c.members.length))
+                            : t("noMessages")}
+                      </span>
+                      {c.unread > 0 && (
+                        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-bold text-white">
+                          {c.unread}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              ))
             )}
           </div>
         </div>
@@ -574,14 +601,8 @@ export default function InboxPage() {
         <div className={cn("min-w-0 flex-1 flex-col sm:flex", selected ? "flex" : "hidden")}>
           {selected === ANNOUNCEMENTS_ID ? (
             <>
-              {/* Announcements header */}
               <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
-                <button
-                  type="button"
-                  className="rounded-md p-1 text-slate-500 hover:bg-slate-100 sm:hidden"
-                  onClick={() => setSelected(null)}
-                  aria-label={t("inbox")}
-                >
+                <button type="button" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 sm:hidden" onClick={() => setSelected(null)}>
                   <ArrowLeft size={18} className="rtl:-scale-x-100" />
                 </button>
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white">
@@ -589,33 +610,18 @@ export default function InboxPage() {
                 </span>
                 <div className="truncate text-sm font-bold text-slate-800">{t("announcementsLbl")}</div>
               </div>
-
-              {/* Announcements thread */}
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {annLoading ? (
                   <Spinner />
                 ) : announcements.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                    {t("noMessages")}
-                  </div>
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("noMessages")}</div>
                 ) : (
                   announcements.map((a) => {
                     const mine = a.sender_id === myId;
                     return (
                       <div key={a.id} className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
-                        {!mine && (
-                          <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(a.sender_id))}>
-                            {annSenderName(a)}
-                          </div>
-                        )}
-                        <div
-                          dir="auto"
-                          className={cn(
-                            "max-w-[75%] rounded-2xl px-3.5 py-2 text-sm [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:list-decimal [&_ol]:ps-5",
-                            mine ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800"
-                          )}
-                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body) }}
-                        />
+                        {!mine && <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(a.sender_id))}>{senderName(a.sender_id)}</div>}
+                        <div dir="auto" className={bubble(mine)} dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body) }} />
                         <div className="mt-0.5 text-[10px] text-slate-400" dir="ltr">
                           {formatDateTime(a.created_at)}
                         </div>
@@ -625,18 +631,11 @@ export default function InboxPage() {
                 )}
                 <div ref={bottomRef} />
               </div>
-
-              {/* Announcements composer (no attachments here) */}
               <div className="border-t border-slate-100 p-3">
-                <RichComposer
-                  onSend={sendAnnouncement}
-                  placeholder={t("typeMessage")}
-                  disabled={!myId}
-                  mentionUsers={mentionUsers}
-                />
+                <RichComposer onSend={sendAnnouncement} placeholder={t("typeMessage")} disabled={!myId} mentionUsers={mentionUsers} />
               </div>
             </>
-          ) : !selectedUser ? (
+          ) : !selectedConv ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
               <MessageSquare size={40} strokeWidth={1.5} />
               <p className="text-sm">{t("selectConversation")}</p>
@@ -645,30 +644,28 @@ export default function InboxPage() {
             <>
               {/* Thread header */}
               <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
-                <button
-                  type="button"
-                  className="rounded-md p-1 text-slate-500 hover:bg-slate-100 sm:hidden"
-                  onClick={() => setSelected(null)}
-                  aria-label={t("inbox")}
-                >
+                <button type="button" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 sm:hidden" onClick={() => setSelected(null)}>
                   <ArrowLeft size={18} className="rtl:-scale-x-100" />
                 </button>
-                {selectedUser.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={selectedUser.avatar_url} alt="" className="h-9 w-9 rounded-full object-cover" />
-                ) : (
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                    {initialsOf(selectedUser)}
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-slate-800">{displayName(selectedUser)}</div>
-                  {selectedUser.email && (
-                    <div dir="ltr" className="truncate text-xs text-slate-400">
-                      {selectedUser.email}
-                    </div>
-                  )}
+                {convAvatar(selectedConv)}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-bold text-slate-800">{convTitle(selectedConv)}</div>
+                  <div className="truncate text-xs text-slate-400" dir="auto">
+                    {selectedConv.kind === "group"
+                      ? selectedConv.members.map((m) => senderName(m.user_id)).join(" · ")
+                      : userById[selectedConv.members.find((m) => m.user_id !== myId)?.user_id ?? ""]?.email}
+                  </div>
                 </div>
+                {canManage(selectedConv) && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupModal({ mode: "edit", conv: selectedConv })}
+                    className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                    title={t("manageMembers")}
+                  >
+                    <Settings2 size={16} />
+                  </button>
+                )}
               </div>
 
               {/* Messages */}
@@ -676,37 +673,26 @@ export default function InboxPage() {
                 {threadLoading ? (
                   <Spinner />
                 ) : thread.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                    {t("noMessages")}
-                  </div>
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("noMessages")}</div>
                 ) : (
                   thread.map((m) => {
                     const mine = m.sender_id === myId;
                     return (
                       <div key={m.id} className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
+                        {!mine && selectedConv.kind === "group" && (
+                          <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(m.sender_id))}>{senderName(m.sender_id)}</div>
+                        )}
                         {m.attachment_path ? (
-                          <div
-                            className={cn(
-                              "max-w-[75%] rounded-2xl px-3.5 py-2 text-sm",
-                              mine ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800"
-                            )}
-                          >
+                          <div className={cn("max-w-[75%] rounded-2xl px-3.5 py-2 text-sm", mine ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800")}>
                             {renderAttachment(m)}
                           </div>
                         ) : (
-                          <div
-                            dir="auto"
-                            className={cn(
-                              "max-w-[75%] rounded-2xl px-3.5 py-2 text-sm [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:list-decimal [&_ol]:ps-5",
-                              mine ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800"
-                            )}
-                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.body) }}
-                          />
+                          <div dir="auto" className={bubble(mine)} dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.body) }} />
                         )}
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400">
                           <span dir="ltr">{formatDateTime(m.created_at)}</span>
-                          {mine && (
-                            <CheckCheck size={13} className={m.read_at ? "text-sky-500" : "text-slate-400"} />
+                          {mine && selectedConv.kind === "dm" && (
+                            <CheckCheck size={13} className={readByOther(selectedConv, m) ? "text-sky-500" : "text-slate-400"} />
                           )}
                         </div>
                       </div>
@@ -716,20 +702,146 @@ export default function InboxPage() {
                 <div ref={bottomRef} />
               </div>
 
-              {/* Composer */}
               <div className="border-t border-slate-100 p-3">
-                <RichComposer
-                  onSend={send}
-                  placeholder={t("typeMessage")}
-                  disabled={!myId}
-                  mentionUsers={mentionUsers}
-                  onAttach={attach}
-                />
+                <RichComposer onSend={send} placeholder={t("typeMessage")} disabled={!myId} mentionUsers={mentionUsers} onAttach={attach} />
               </div>
             </>
           )}
         </div>
       </div>
+
+      {groupModal && (
+        <GroupModal
+          mode={groupModal.mode}
+          conv={groupModal.mode === "edit" ? groupModal.conv : null}
+          users={users}
+          lang={lang}
+          onClose={() => setGroupModal(null)}
+          onDone={async (id) => {
+            setGroupModal(null);
+            await loadSummaries();
+            setSelected(id);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- group modal
+function GroupModal({
+  mode,
+  conv,
+  users,
+  onClose,
+  onDone,
+}: {
+  mode: "create" | "edit";
+  conv: Conversation | null;
+  users: DirUser[];
+  lang: "ar" | "en";
+  onClose: () => void;
+  onDone: (id: string) => void | Promise<void>;
+}) {
+  const { t } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [name, setName] = useState(conv?.name ?? "");
+  const [picked, setPicked] = useState<string[]>(
+    conv ? conv.members.map((m) => m.user_id).filter((id) => users.some((u) => u.id === id)) : []
+  );
+  const [q, setQ] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const visible = users.filter((u) => {
+    const s = q.trim().toLowerCase();
+    return !s || (u.full_name ?? "").toLowerCase().includes(s) || (u.email ?? "").toLowerCase().includes(s);
+  });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (mode === "create" && !name.trim()) return setError(t("groupName"));
+    if (picked.length === 0) return setError(t("pickMembersHint"));
+    setSaving(true);
+    if (mode === "create") {
+      const { data, error: err } = await supabase.rpc("fn_chat_create_group", { p_name: name.trim(), p_members: picked });
+      setSaving(false);
+      if (err || !data) return setError(err?.message ?? "Failed");
+      await onDone(data as string);
+    } else if (conv) {
+      const { error: err } = await supabase.rpc("fn_chat_set_members", { p_conv: conv.id, p_members: picked });
+      setSaving(false);
+      if (err) return setError(err.message);
+      await onDone(conv.id);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} />
+      <form onSubmit={submit} className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-900/5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-bold text-slate-900">
+            <Users2 size={18} className="text-violet-600" />
+            {mode === "create" ? t("newGroup") : t("manageMembers")}
+          </h2>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X size={18} />
+          </button>
+        </div>
+        {mode === "create" && (
+          <div className="mb-3">
+            <label className="mb-1 block text-sm font-semibold text-slate-700">{t("groupName")}</label>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={80} />
+          </div>
+        )}
+        <div className="mb-1 flex items-center justify-between">
+          <label className="text-sm font-semibold text-slate-700">
+            {t("groupMembers")} <span className="text-xs font-normal text-slate-400">({picked.length})</span>
+          </label>
+          <div className="flex items-center gap-2 text-xs">
+            <button type="button" onClick={() => setPicked(users.map((u) => u.id))} className="font-semibold text-brand-700 hover:underline">
+              {t("selectAll")}
+            </button>
+            <button type="button" onClick={() => setPicked([])} className="font-semibold text-slate-500 hover:underline">
+              {t("unselectAll")}
+            </button>
+          </div>
+        </div>
+        <p className="mb-2 text-[11px] text-slate-400">{t("pickMembersHint")}</p>
+        <input className="input mb-2" placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-2">
+          {visible.map((u) => (
+            <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-brand-600"
+                checked={picked.includes(u.id)}
+                onChange={(e) => setPicked((p) => (e.target.checked ? [...p, u.id] : p.filter((x) => x !== u.id)))}
+              />
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700">
+                {initialsOf(displayName(u))}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{displayName(u)}</span>
+                <span className="block truncate text-[11px] text-slate-400" dir="ltr">
+                  {u.email}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            {t("cancel")}
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? t("saving") : mode === "create" ? t("createGroup") : t("saveMembers")}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
