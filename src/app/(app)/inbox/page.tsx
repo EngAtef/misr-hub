@@ -13,7 +13,7 @@ import { PageHeader, Spinner } from "@/components/ui";
 import { RichComposer } from "@/components/rich-composer";
 import { sanitizeHtml, htmlToText } from "@/lib/rich-text";
 import { formatDateTime, cn } from "@/lib/utils";
-import { notifyDialog } from "@/components/dialog";
+import { notifyDialog, confirmDialog } from "@/components/dialog";
 
 type Msg = {
   id: number;
@@ -83,6 +83,7 @@ export default function InboxPage() {
   const [myId, setMyId] = useState<string | null>(null);
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myName, setMyName] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<string | null>(null);
   const [users, setUsers] = useState<DirUser[]>([]);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -127,7 +128,10 @@ export default function InboxPage() {
     const [dir, sums] = await Promise.all([supabase.rpc("fn_user_directory"), supabase.rpc("fn_chat_summaries")]);
     const allRows = (dir.data as DirUser[] | null) ?? [];
     const me = allRows.find((u) => u.id === myId);
-    if (me) setMyName(me.full_name || me.email);
+    if (me) {
+      setMyName(me.full_name || me.email);
+      setMyRole(me.role);
+    }
     setUsers(allRows.filter((u) => u.id !== myId));
     const list = ((sums.data as Conversation[] | null) ?? []).map((c) => ({
       ...c,
@@ -449,7 +453,42 @@ export default function InboxPage() {
   const selectedConv = selected && selected !== ANNOUNCEMENTS_ID ? convs.find((c) => c.id === selected) ?? null : null;
   const lastAnn = announcements.length > 0 ? announcements[announcements.length - 1] : null;
   const peopleWithoutDm = users.filter((u) => !convs.some((c) => c.kind === "dm" && c.members.some((m) => m.user_id === u.id)));
-  const canManage = (c: Conversation) => c.kind === "group" && c.created_by === myId;
+  // the creator or any admin can rename, add/remove members, or delete a group
+  const canManage = (c: Conversation) => c.kind === "group" && (c.created_by === myId || myRole === "admin");
+  const dayLabel = (iso: string) => {
+    const d = new Date(iso);
+    const today = new Date();
+    const y = new Date(today);
+    y.setDate(today.getDate() - 1);
+    const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+    if (same(d, today)) return t("today");
+    if (same(d, y)) return t("yesterday");
+    return d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: d.getFullYear() === today.getFullYear() ? undefined : "numeric",
+    });
+  };
+  const DaySep = ({ iso }: { iso: string }) => (
+    <div className="flex items-center gap-3 py-1">
+      <div className="h-px flex-1 bg-slate-100" />
+      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-500">{dayLabel(iso)}</span>
+      <div className="h-px flex-1 bg-slate-100" />
+    </div>
+  );
+  const smallAvatar = (id: string) => {
+    const u = userById[id];
+    if (u?.avatar_url) {
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src={u.avatar_url} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />;
+    }
+    return (
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[9px] font-bold text-brand-700">
+        {initialsOf(displayName(u))}
+      </span>
+    );
+  };
 
   const bubble = (mine: boolean) =>
     cn(
@@ -616,14 +655,19 @@ export default function InboxPage() {
                 ) : announcements.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("noMessages")}</div>
                 ) : (
-                  announcements.map((a) => {
+                  announcements.map((a, i) => {
                     const mine = a.sender_id === myId;
+                    const prev = announcements[i - 1];
+                    const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(a.created_at).toDateString();
                     return (
-                      <div key={a.id} className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
+                      <div key={a.id}>
+                        {newDay && <DaySep iso={a.created_at} />}
+                        <div className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
                         {!mine && <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(a.sender_id))}>{senderName(a.sender_id)}</div>}
                         <div dir="auto" className={bubble(mine)} dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body) }} />
                         <div className="mt-0.5 text-[10px] text-slate-400" dir="ltr">
                           {formatDateTime(a.created_at)}
+                        </div>
                         </div>
                       </div>
                     );
@@ -652,7 +696,7 @@ export default function InboxPage() {
                   <div className="truncate text-sm font-bold text-slate-800">{convTitle(selectedConv)}</div>
                   <div className="truncate text-xs text-slate-400" dir="auto">
                     {selectedConv.kind === "group"
-                      ? selectedConv.members.map((m) => senderName(m.user_id)).join(" · ")
+                      ? `${t("membersCount").replace("{n}", String(selectedConv.members.length))} — ${selectedConv.members.map((m) => senderName(m.user_id)).join(" · ")}`
                       : userById[selectedConv.members.find((m) => m.user_id !== myId)?.user_id ?? ""]?.email}
                   </div>
                 </div>
@@ -675,11 +719,19 @@ export default function InboxPage() {
                 ) : thread.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("noMessages")}</div>
                 ) : (
-                  thread.map((m) => {
+                  thread.map((m, i) => {
                     const mine = m.sender_id === myId;
+                    const prev = thread[i - 1];
+                    const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
+                    const sameSender = !!prev && !newDay && prev.sender_id === m.sender_id;
+                    const isGroup = selectedConv.kind === "group";
                     return (
-                      <div key={m.id} className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
-                        {!mine && selectedConv.kind === "group" && (
+                      <div key={m.id}>
+                        {newDay && <DaySep iso={m.created_at} />}
+                        <div className={cn("flex gap-2", mine ? "flex-row-reverse" : "flex-row", sameSender ? "mt-0.5" : "mt-2")}>
+                          {!mine && isGroup && <div className="w-6 shrink-0 self-end">{smallAvatar(m.sender_id)}</div>}
+                          <div className={cn("flex min-w-0 flex-col", mine ? "items-end" : "items-start")}>
+                        {!mine && isGroup && !sameSender && (
                           <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(m.sender_id))}>{senderName(m.sender_id)}</div>
                         )}
                         {m.attachment_path ? (
@@ -694,6 +746,8 @@ export default function InboxPage() {
                           {mine && selectedConv.kind === "dm" && (
                             <CheckCheck size={13} className={readByOther(selectedConv, m) ? "text-sky-500" : "text-slate-400"} />
                           )}
+                        </div>
+                          </div>
                         </div>
                       </div>
                     );
@@ -720,7 +774,7 @@ export default function InboxPage() {
           onDone={async (id) => {
             setGroupModal(null);
             await loadSummaries();
-            setSelected(id);
+            setSelected(id || null);
           }}
         />
       )}
@@ -746,6 +800,7 @@ function GroupModal({
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [name, setName] = useState(conv?.name ?? "");
+  const [deleting, setDeleting] = useState(false);
   const [picked, setPicked] = useState<string[]>(
     conv ? conv.members.map((m) => m.user_id).filter((id) => users.some((u) => u.id === id)) : []
   );
@@ -770,11 +825,22 @@ function GroupModal({
       if (err || !data) return setError(err?.message ?? "Failed");
       await onDone(data as string);
     } else if (conv) {
-      const { error: err } = await supabase.rpc("fn_chat_set_members", { p_conv: conv.id, p_members: picked });
+      const { error: err } = await supabase.rpc("fn_chat_update_group", { p_conv: conv.id, p_name: name.trim() || null, p_members: picked });
       setSaving(false);
       if (err) return setError(err.message);
       await onDone(conv.id);
     }
+  }
+
+  async function removeGroup() {
+    if (!conv) return;
+    const ok = await confirmDialog(t("deleteGroupConfirm").replace("{name}", conv.name ?? ""), { tone: "danger", okLabel: t("delete") });
+    if (!ok) return;
+    setDeleting(true);
+    const { error: err } = await supabase.rpc("fn_chat_delete_group", { p_conv: conv.id });
+    setDeleting(false);
+    if (err) return setError(err.message);
+    await onDone("");
   }
 
   return (
@@ -790,12 +856,10 @@ function GroupModal({
             <X size={18} />
           </button>
         </div>
-        {mode === "create" && (
-          <div className="mb-3">
-            <label className="mb-1 block text-sm font-semibold text-slate-700">{t("groupName")}</label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={80} />
-          </div>
-        )}
+        <div className="mb-3">
+          <label className="mb-1 block text-sm font-semibold text-slate-700">{t("groupName")}</label>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus={mode === "create"} maxLength={80} />
+        </div>
         <div className="mb-1 flex items-center justify-between">
           <label className="text-sm font-semibold text-slate-700">
             {t("groupMembers")} <span className="text-xs font-normal text-slate-400">({picked.length})</span>
@@ -833,7 +897,12 @@ function GroupModal({
           ))}
         </div>
         {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex items-center justify-end gap-2">
+          {mode === "edit" && (
+            <button type="button" onClick={removeGroup} disabled={deleting} className="me-auto text-sm font-semibold text-red-600 hover:underline">
+              {t("deleteGroup")}
+            </button>
+          )}
           <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             {t("cancel")}
           </button>

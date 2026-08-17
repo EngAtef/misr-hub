@@ -102,6 +102,36 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   });
   const canChat = items.some((i) => i.href === "/inbox");
 
+  // unread chat badge on the Inbox item: poll every 30s + bump on realtime
+  // inserts (RLS scopes the stream to my conversations); cleared on /inbox
+  const [chatUnread, setChatUnread] = useState(0);
+  useEffect(() => {
+    if (!canChat) return;
+    const supabase = createClient();
+    let cancelled = false;
+    const refresh = () =>
+      supabase.rpc("fn_chat_unread_total").then(({ data }) => {
+        if (!cancelled) setChatUnread(Number(data ?? 0));
+      });
+    refresh();
+    const iv = setInterval(refresh, 30000);
+    const ch = supabase
+      .channel(`chat-badge-${profile.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
+        const m = payload.new as { sender_id: string };
+        if (m.sender_id !== profile.id && !pathname.startsWith("/inbox")) setChatUnread((n) => n + 1);
+      })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      supabase.removeChannel(ch);
+    };
+  }, [canChat, profile.id, pathname]);
+  useEffect(() => {
+    if (pathname.startsWith("/inbox")) setChatUnread(0);
+  }, [pathname]);
+
   // Access guard: the menu already hides pages the account can't use, but the
   // route itself still rendered (login lands on "/" = overview, for one). Match
   // the current path to its nav item and, if it's not on the allowed list, send
@@ -191,7 +221,12 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                       )}
                     >
                       <Icon className="h-4.5 w-4.5 shrink-0" size={18} />
-                      {t(item.labelKey)}
+                      <span className="flex-1 truncate">{t(item.labelKey)}</span>
+                      {item.href === "/inbox" && chatUnread > 0 && (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">
+                          {chatUnread > 99 ? "99+" : chatUnread}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
