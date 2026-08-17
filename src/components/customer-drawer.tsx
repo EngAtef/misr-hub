@@ -44,6 +44,8 @@ export interface Identity {
   last_app_order_at: string | null;
   recency_days: number | null;
   segment: string | null;
+  first_source?: string | null;
+  last_source?: string | null;
   has_stats: boolean;
 }
 
@@ -260,6 +262,20 @@ export function CustomerDrawer({
                     icon={CalendarClock}
                   />
                 </div>
+                {(identity.first_source || identity.last_source) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" title={t("acquiredViaHint")}>
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-slate-400">{t("acquiredVia")}:</span>
+                      <AttrBadge bucket={identity.first_source} lang={lang} />
+                    </span>
+                    {identity.last_source && identity.last_source !== identity.first_source && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-slate-400">{t("lastOrder")}:</span>
+                        <AttrBadge bucket={identity.last_source} lang={lang} />
+                      </span>
+                    )}
+                  </div>
+                )}
                 {(identity.phones?.length ?? 0) > 1 && (
                   <div className="mt-3 text-xs">
                     <span className="text-slate-400">{t("otherPhones")}: </span>

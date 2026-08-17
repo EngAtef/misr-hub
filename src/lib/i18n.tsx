@@ -104,6 +104,8 @@ const dict = {
   allCities: { ar: "كل المحافظات", en: "All cities" },
   allSources: { ar: "كل المنصات", en: "All platforms" },
   trafficSource: { ar: "مصدر العميل", en: "Customer source" },
+  acquiredVia: { ar: "مصدر الاكتساب", en: "Acquired via" },
+  acquiredViaHint: { ar: "مصدر أول طلب للعميل حسب GA4 (— = قبل ربط GA4 أو بدون طلبات)", en: "GA4 source of the customer's first order (— = before GA4 was connected, or no orders)" },
   allTrafficSources: { ar: "كل مصادر العملاء", en: "All customer sources" },
   platformLbl: { ar: "المنصة", en: "Platform" },
   campaignLbl: { ar: "الحملة", en: "Campaign" },

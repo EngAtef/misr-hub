@@ -9,6 +9,16 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { AttrBadge } from "@/components/attr-badge";
+import { attrLabel } from "@/lib/attribution";
+
+// GA4 only exists from Sep 2025: a null first_source on an earlier first
+// order (or a customer with no orders) is "no data", not "untracked"
+const GA4_START = "2025-09-01";
+function acquiredCell(c: Identity, lang: "ar" | "en") {
+  if (!c.first_source && (!c.first_order_at || c.first_order_at < GA4_START)) return <span className="text-slate-300">—</span>;
+  return <AttrBadge bucket={c.first_source} lang={lang} />;
+}
 import { useMyRole } from "@/lib/use-role";
 import type { Identity } from "@/components/customer-drawer";
 import { confirmDialog, notifyDialog } from "@/components/dialog";
@@ -162,6 +172,8 @@ export function CustomerBrowser({
       city: r.city,
       area: r.area,
       segment: r.segment,
+      acquired_via: r.first_source ? attrLabel(r.first_source, "en") : (r.first_order_at && r.first_order_at >= GA4_START ? "untracked" : ""),
+      last_source: r.last_source ? attrLabel(r.last_source, "en") : "",
       lifetime_orders: r.lifetime_orders,
       lifetime_delivered: r.lifetime_delivered,
       lifetime_canceled: r.lifetime_canceled,
@@ -418,6 +430,7 @@ export function CustomerBrowser({
                 <SortTh label={t("city")} k="city" sort={sort} onToggle={toggleSort} />
                 <SortTh label={t("accountsCol")} k="accounts" sort={sort} onToggle={toggleSort} />
                 <th>{t("segmentCol")}</th>
+                <th title={t("acquiredViaHint")}>{t("acquiredVia")}</th>
                 <SortTh label={t("ltOrders")} k="orders" sort={sort} onToggle={toggleSort} />
                 <SortTh label={t("deliveredCol")} k="delivered" sort={sort} onToggle={toggleSort} />
                 <SortTh label={t("totalSpent")} k="spent" sort={sort} onToggle={toggleSort} />
@@ -456,6 +469,7 @@ export function CustomerBrowser({
                     )}
                   </td>
                   <td className="text-xs">{c.segment ? t(segmentKey(c.segment)) : "—"}</td>
+                  <td>{acquiredCell(c, lang)}</td>
                   <td className="font-semibold">{formatNumber(c.lifetime_orders)}</td>
                   <td className="text-emerald-700">{formatNumber(c.lifetime_delivered)}</td>
                   <td className="font-semibold">{formatMoney(c.lifetime_delivered_amount, lang)}</td>
