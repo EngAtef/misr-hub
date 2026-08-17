@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { AttrBadge } from "@/components/attr-badge";
 
 // Everything the uploaded catalog file carried for this SKU.
 interface ProductDetail {
@@ -55,6 +56,11 @@ interface PurchaseRow {
   book_amount: number | null;
   order_total: number | null;
   payment_method: string | null;
+  source: string | null;
+  attr_bucket: string | null;
+  attr_source: string | null;
+  attr_medium: string | null;
+  attr_campaign: string | null;
 }
 
 function statusTone(status: string | null): string {
@@ -248,6 +254,7 @@ export function ProductDrawer({
                     <th>{t("date")}</th>
                     <th>{t("orderNumber")}</th>
                     <th>{t("status")}</th>
+                    <th>{t("trafficSource")}</th>
                     <th>{t("customer")}</th>
                     <th>{t("phone")}</th>
                     <th>{t("city")}</th>
@@ -275,6 +282,9 @@ export function ProductDrawer({
                         <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", statusTone(r.order_status))}>
                           {r.order_status ?? "—"}
                         </span>
+                      </td>
+                      <td>
+                        <AttrBadge bucket={r.attr_bucket} source={r.attr_source} medium={r.attr_medium} campaign={r.attr_campaign} lang={lang} />
                       </td>
                       <td className="!whitespace-normal max-w-[12rem] font-medium">{r.customer_name ?? "—"}</td>
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.customer_phone ?? "—"}</td>

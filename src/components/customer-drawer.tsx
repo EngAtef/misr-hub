@@ -7,6 +7,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { Spinner } from "@/components/ui";
+import { AttrBadge } from "@/components/attr-badge";
 import { formatMoney, formatNumber, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { useMyRole } from "@/lib/use-role";
@@ -75,6 +76,10 @@ interface OrderRow {
   city: string | null;
   area: string | null;
   source: string | null;
+  attr_bucket?: string | null;
+  attr_source?: string | null;
+  attr_medium?: string | null;
+  attr_campaign?: string | null;
   items_count: number | null;
   cancellation_reason: string | null;
   applied_offer: string | null;
@@ -414,6 +419,7 @@ export function CustomerDrawer({
                             <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", statusTone(o.order_status))}>
                               {o.order_status ?? "—"}
                             </span>
+                            <AttrBadge bucket={o.attr_bucket} source={o.attr_source} medium={o.attr_medium} campaign={o.attr_campaign} lang={lang} />
                             {merged && o.customer_id && (
                               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500" dir="ltr">
                                 #{o.customer_id}

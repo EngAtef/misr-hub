@@ -10,22 +10,12 @@ import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import { ATTR_BUCKETS, attrLabel, attrClass } from "@/lib/attribution";
+import { ATTR_BUCKETS, attrLabel } from "@/lib/attribution";
+import { AttrBadge as Attr } from "@/components/attr-badge";
 
-// Where the customer came from — GA4 session source written onto the order
-// (orders.attr_bucket, migration 109). Null = GA4 never saw the purchase.
-function AttrBadge({ order, lang, size = "sm" }: { order: Pick<Order, "attr_bucket" | "attr_source" | "attr_medium" | "attr_campaign">; lang: "ar" | "en"; size?: "sm" | "md" }) {
-  const title = [order.attr_source && order.attr_medium ? `${order.attr_source} / ${order.attr_medium}` : null, order.attr_campaign].filter(Boolean).join(" · ");
-  return (
-    <span
-      className={`inline-flex items-center rounded-full font-semibold ${attrClass(order.attr_bucket)} ${size === "md" ? "px-2.5 py-1 text-xs" : "px-2 py-0.5 text-[11px]"}`}
-      title={title || undefined}
-    >
-      {attrLabel(order.attr_bucket, lang)}
-    </span>
-  );
+function AttrBadge({ order, lang, size }: { order: Pick<Order, "attr_bucket" | "attr_source" | "attr_medium" | "attr_campaign">; lang: "ar" | "en"; size?: "sm" | "md" }) {
+  return <Attr bucket={order.attr_bucket} source={order.attr_source} medium={order.attr_medium} campaign={order.attr_campaign} lang={lang} size={size} />;
 }
-
 // Where the order was placed — the platform export's `source` (web / android / ios)
 function SourceBadge({ source, size = "sm" }: { source: string | null; size?: "sm" | "md" }) {
   if (!source) return <span className="text-slate-300">—</span>;
@@ -49,6 +39,7 @@ function SourceBadge({ source, size = "sm" }: { source: string | null; size?: "s
     </span>
   );
 }
+
 import type { Order, OrderItem, OrderEvent, CategoryBuyer, PromoCode, SalesLine } from "@/lib/types";
 
 const PAGE_SIZE = 25;
