@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { KpiCard, ChartCard, Spinner, EmptyState } from "@/components/ui";
 import { BarsChart } from "@/components/charts";
-import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ *
  * Delivery quality: the one place where delivery speed, ratings,
@@ -32,6 +32,9 @@ interface Summary {
   avg_driver_rating: number | null;
   cancel_pct: number | null;
   return_pct: number | null;
+  weight_kg?: number;
+  delivered_weight_kg?: number;
+  returned_weight_kg?: number;
 }
 
 interface CityRow {
@@ -50,6 +53,8 @@ interface CityRow {
   cancel_pct: number | null;
   return_pct: number | null;
   rts_pct: number | null;
+  weight_kg?: number;
+  returned_weight_kg?: number;
 }
 
 interface SpeedRow {
@@ -214,8 +219,14 @@ export function DeliveryQuality({ from, to }: { from: string | null; to: string 
   return (
     <div className="space-y-6">
       {/* headline: the money actually lost */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
         <KpiCard label={t("dqLostValue")} value={money(s.lost_value)} accent="red" sub={t("dqLostValueSub")} />
+        <KpiCard
+          label={t("dqShippedWeight")}
+          value={formatWeight(s.weight_kg, lang)}
+          accent="slate"
+          sub={`${t("dqReturnedWeight")}: ${formatWeight(s.returned_weight_kg, lang)}`}
+        />
         <KpiCard
           label={t("cancelled")}
           value={formatNumber(s.cancelled)}
@@ -321,6 +332,7 @@ export function DeliveryQuality({ from, to }: { from: string | null; to: string 
                 <th className="px-2 py-2 text-end">{t("dqAvgDays")}</th>
                 <th className="px-2 py-2 text-end">{t("dqCustomerRating")}</th>
                 <th className="px-2 py-2 text-end">{t("dqLostValue")}</th>
+                <th className="px-2 py-2 text-end">{t("weightCol")}</th>
               </tr>
             </thead>
             <tbody>
@@ -354,6 +366,9 @@ export function DeliveryQuality({ from, to }: { from: string | null; to: string 
                     <span className="ms-1 text-[11px] text-slate-400">({r.rated})</span>
                   </td>
                   <td className="px-2 py-2 text-end tabular-nums font-semibold text-slate-800">{money(r.lost_value)}</td>
+                  <td className="px-2 py-2 text-end tabular-nums text-xs text-slate-600" dir="ltr" title={`${t("dqReturnedWeight")}: ${formatWeight(r.returned_weight_kg, lang)}`}>
+                    {formatWeight(r.weight_kg, lang)}
+                  </td>
                 </tr>
               ))}
             </tbody>

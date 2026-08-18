@@ -9,7 +9,7 @@ import { PageHeader, Spinner, EmptyState, KpiCard, SortTh, useSort } from "@/com
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { StockForecast } from "@/components/stock-forecast";
-import { formatNumber, formatMoney, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatNumber, formatMoney, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 interface EngineRow {
@@ -54,6 +54,14 @@ interface EngineRow {
   is_active: boolean;
   // and the store's own reason, when the export carried one
   ecom_note: string | null;
+  // catalog weight per copy (migration 116) — move / surplus weight derive from it
+  unit_weight_kg?: number | null;
+}
+
+// weight of N copies of this row, null when the catalog has no weight
+function rowKg(r: EngineRow, qty: number | null | undefined): number | null {
+  if (r.unit_weight_kg === null || r.unit_weight_kg === undefined) return null;
+  return (qty ?? 0) * r.unit_weight_kg;
 }
 
 interface MoveList {
@@ -309,6 +317,17 @@ export default function StockPage() {
   // Unit value: real cost when uploaded, otherwise recent avg selling price
   const unitValue = useCallback((r: EngineRow) => r.cost ?? r.avg_price ?? 0, []);
 
+  // sku → catalog weight, for saved move lists (their items carry no weight)
+  const weightBySku = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) if (r.unit_weight_kg != null) m.set(r.sku, r.unit_weight_kg);
+    return m;
+  }, [rows]);
+  const listWeight = useCallback(
+    (its: MoveItem[]) => its.reduce((s, i) => s + (weightBySku.get(i.sku) ?? 0) * (i.qty ?? 0), 0),
+    [weightBySku]
+  );
+
   const vendors = useMemo(
     () => Array.from(new Set(rows.map((r) => r.vendor).filter(Boolean) as string[])).sort(),
     [rows]
@@ -368,9 +387,30 @@ export default function StockPage() {
             : tab === "inactive"
               ? (r.sap_stock ?? 0) + (r.ecom_stock ?? 0)
               : effMove(r)),
+        weight: (r) =>
+          rowKg(
+            r,
+            tab === "overstock"
+              ? (r.surplus ?? 0)
+              : tab === "inactive"
+                ? (r.sap_stock ?? 0) + (r.ecom_stock ?? 0)
+                : effMove(r)
+          ),
       }),
     [filtered, apply, tab, effMove, unitValue]
   );
+
+  // the weight the row's own quantity column carries (move / surplus / held)
+  const rowWeightCell = (r: EngineRow) => {
+    const qty =
+      tab === "overstock" ? (r.surplus ?? 0) : tab === "inactive" ? (r.sap_stock ?? 0) + (r.ecom_stock ?? 0) : effMove(r);
+    const kg = rowKg(r, qty);
+    return (
+      <td className="whitespace-nowrap text-xs text-slate-500" dir="ltr" title={r.unit_weight_kg != null ? `${formatWeight(r.unit_weight_kg, lang)}/${t("unitLbl")}` : undefined}>
+        {kg === null ? "—" : formatWeight(kg, lang)}
+      </td>
+    );
+  };
 
   // A rendering budget, not a filter: every export below reads `sorted`.
   const visible = useMemo(() => sorted.slice(0, pageRows), [sorted, pageRows]);
@@ -397,6 +437,10 @@ export default function StockPage() {
       overstock: overRows.length,
       moveValue: moveRows.reduce((s, r) => s + effMove(r) * unitValue(r), 0),
       overstockValue: overRows.reduce((s, r) => s + (r.surplus ?? 0) * unitValue(r), 0),
+      // what the warehouse trip weighs / what the surplus weighs
+      moveWeight: moveRows.reduce((s, r) => s + (rowKg(r, effMove(r)) ?? 0), 0),
+      shortfallWeight: rows.reduce((s, r) => s + (rowKg(r, r.shortfall) ?? 0), 0),
+      overstockWeight: overRows.reduce((s, r) => s + (rowKg(r, r.surplus) ?? 0), 0),
       relist: relistRows.length,
       relistUnits: relistRows.reduce((s, r) => s + (r.sap_stock ?? 0), 0),
       neverListed: neverListedRows.length,
@@ -470,7 +514,7 @@ export default function StockPage() {
     if (!its.length) return;
     downloadCsv(
       `${list.list_number}.csv`,
-      toCsv(its.map((i) => ({ Sku: i.sku, "product name": i.product_name ?? "", qty: i.qty, shortfall: i.shortfall })))
+      toCsv(its.map((i) => ({ Sku: i.sku, "product name": i.product_name ?? "", qty: i.qty, shortfall: i.shortfall, "weight kg": weightBySku.has(i.sku) ? Math.round((weightBySku.get(i.sku) as number) * i.qty * 100) / 100 : "" })))
     );
   }
 
@@ -509,6 +553,7 @@ export default function StockPage() {
         "SAP stock": r.sap_stock ?? "",
         "On ads": r.on_ads ? "yes" : "",
         "Campaign spend": r.on_ads ? Math.round(r.ad_spend) : "",
+        "Unit weight kg": r.unit_weight_kg ?? "",
       });
       if (which === "overstock")
         return sorted.map((r) => ({
@@ -516,6 +561,7 @@ export default function StockPage() {
           "Expected demand (cover)": r.expected,
           Surplus: r.surplus ?? 0,
           "Surplus value": Math.round((r.surplus ?? 0) * unitValue(r)) || "",
+          "Surplus weight kg": Math.round((rowKg(r, r.surplus) ?? 0) * 100) / 100 || "",
           "Cover (days)": r.cover_days ?? "",
         }));
       if (which === "oos")
@@ -530,6 +576,7 @@ export default function StockPage() {
           "Reason (store)": r.ecom_note ?? "",
           "Copies held (SAP + store)": (r.sap_stock ?? 0) + (r.ecom_stock ?? 0),
           "Held value": Math.round(((r.sap_stock ?? 0) + (r.ecom_stock ?? 0)) * unitValue(r)) || "",
+          "Held weight kg": Math.round((rowKg(r, (r.sap_stock ?? 0) + (r.ecom_stock ?? 0)) ?? 0) * 100) / 100 || "",
         }));
       if (which === "relist")
         return sorted.map((r) => ({
@@ -537,6 +584,7 @@ export default function StockPage() {
           Group: r.status === "relist" ? "Was on the store" : "Never listed",
           "Move qty": effMove(r),
           "Move value": Math.round(effMove(r) * unitValue(r)) || "",
+          "Move weight kg": Math.round((rowKg(r, effMove(r)) ?? 0) * 100) / 100 || "",
         }));
       // replenish and all items share the replenishment columns
       return sorted.map((r) => ({
@@ -546,6 +594,8 @@ export default function StockPage() {
         "Move qty": effMove(r),
         Shortfall: r.shortfall,
         "Move value": Math.round(effMove(r) * unitValue(r)) || "",
+        "Move weight kg": Math.round((rowKg(r, effMove(r)) ?? 0) * 100) / 100 || "",
+        "Shortfall weight kg": Math.round((rowKg(r, r.shortfall) ?? 0) * 100) / 100 || "",
         Status: r.status,
       }));
     },
@@ -581,6 +631,7 @@ export default function StockPage() {
         "Product name": i.product_name ?? "",
         Qty: i.qty,
         Shortfall: i.shortfall,
+        "Weight kg": weightBySku.has(i.sku) ? Math.round((weightBySku.get(i.sku) as number) * i.qty * 100) / 100 : "",
       }))
     );
     if (!list.length) return;
@@ -608,6 +659,8 @@ export default function StockPage() {
         Shortfall: r.shortfall,
         "Unit value": unitValue(r) || "",
         "Move value": Math.round(effMove(r) * unitValue(r)) || "",
+        "Unit weight kg": r.unit_weight_kg ?? "",
+        "Move weight kg": Math.round((rowKg(r, effMove(r)) ?? 0) * 100) / 100 || "",
         Status: r.status === "low_sap" ? "Low SAP stock" : "Move",
       }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(moveRows.length ? moveRows : [{ Sku: "none" }]), "Move list");
@@ -623,6 +676,7 @@ export default function StockPage() {
         "Expected demand": r.expected,
         Surplus: r.surplus,
         "Surplus value": Math.round((r.surplus ?? 0) * unitValue(r)) || "",
+        "Surplus weight kg": Math.round((rowKg(r, r.surplus) ?? 0) * 100) / 100 || "",
         "Cover (days)": r.cover_days ?? "",
       }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(overRows.length ? overRows : [{ Sku: "none" }]), "Overstock");
@@ -774,7 +828,7 @@ export default function StockPage() {
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8 mb-4">
         <KpiCard label={t("moveQty")} value={formatNumber(kpis.toMove)} sub={`${kpis.moveSkus} SKU`} accent="green" />
-        <KpiCard label={t("moveValue")} value={formatMoney(kpis.moveValue, lang)} accent="green" />
+        <KpiCard label={t("moveValue")} value={formatMoney(kpis.moveValue, lang)} sub={`${t("weightCol")}: ${formatWeight(kpis.moveWeight, lang)}`} accent="green" />
         <KpiCard
           label={t("relistKpi")}
           value={formatNumber(kpis.relist)}
@@ -787,10 +841,10 @@ export default function StockPage() {
           sub={`${formatNumber(kpis.neverListedUnits)} ${t("relistUnitsSub")}`}
           accent="amber"
         />
-        <KpiCard label={t("shortfall")} value={formatNumber(kpis.shortfall)} accent="amber" />
+        <KpiCard label={t("shortfall")} value={formatNumber(kpis.shortfall)} sub={`${t("weightCol")}: ${formatWeight(kpis.shortfallWeight, lang)}`} accent="amber" />
         <KpiCard label={t("stockTabOos")} value={formatNumber(kpis.oos)} accent="red" />
         <KpiCard label={t("stockTabOverstock")} value={formatNumber(kpis.overstock)} accent="slate" />
-        <KpiCard label={t("overstockValue")} value={formatMoney(kpis.overstockValue, lang)} accent="slate" />
+        <KpiCard label={t("overstockValue")} value={formatMoney(kpis.overstockValue, lang)} sub={`${t("weightCol")}: ${formatWeight(kpis.overstockWeight, lang)}`} accent="slate" />
       </div>
 
       {tab !== "lists" && tab !== "forecast" && (
@@ -936,7 +990,7 @@ export default function StockPage() {
                     <span className="font-bold" dir="ltr">{l.list_number}</span>
                     <span className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold", meta.style)}>{t(meta.key)}</span>
                     <span className="text-xs text-slate-500">{formatDate(l.created_at)}</span>
-                    <span className="text-xs text-slate-500">{its.length} SKU — {t("totalQty")}: {formatNumber(total)}</span>
+                    <span className="text-xs text-slate-500">{its.length} SKU — {t("totalQty")}: {formatNumber(total)} — {t("weightCol")}: <span dir="ltr">{formatWeight(listWeight(its), lang)}</span></span>
                     {l.created_by_email && <span className="text-xs text-slate-400" dir="ltr">{l.created_by_email}</span>}
                     <div className="ms-auto flex gap-2">
                       {l.status === "pending" && (
@@ -969,6 +1023,7 @@ export default function StockPage() {
                             <th>{t("sku")}</th>
                             <th>{t("moveQty")}</th>
                             <th>{t("shortfall")}</th>
+                            <th>{t("weightCol")}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -978,6 +1033,7 @@ export default function StockPage() {
                               <td dir="ltr" className="font-mono text-xs text-slate-500">{i.sku}</td>
                               <td className="font-semibold">{formatNumber(i.qty)}</td>
                               <td className={cn(i.shortfall > 0 && "text-red-600 font-semibold")}>{formatNumber(i.shortfall)}</td>
+                              <td className="text-xs text-slate-500" dir="ltr">{weightBySku.has(i.sku) ? formatWeight((weightBySku.get(i.sku) as number) * i.qty, lang) : "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1102,6 +1158,7 @@ export default function StockPage() {
                       <Th labelKey="moveQty" k="move" />
                       <Th labelKey="shortfall" k="shortfall" />
                       <Th labelKey="stockValueCol" k="value" />
+                      <Th labelKey="weightCol" k="weight" />
                     </>
                   )}
                   {tab === "relist" && (
@@ -1112,6 +1169,7 @@ export default function StockPage() {
                       <Th labelKey="lastSale" k="lastsale" />
                       <Th labelKey="moveQty" k="move" />
                       <Th labelKey="stockValueCol" k="value" />
+                      <Th labelKey="weightCol" k="weight" />
                     </>
                   )}
                   {tab === "all" && (
@@ -1130,6 +1188,7 @@ export default function StockPage() {
                       <Th labelKey="expectedCol" k="expected" />
                       <Th labelKey="surplusQty" k="surplus" />
                       <Th labelKey="stockValueCol" k="value" />
+                      <Th labelKey="weightCol" k="weight" />
                       <Th labelKey="daysOfCover" k="cover" />
                     </>
                   )}
@@ -1149,6 +1208,7 @@ export default function StockPage() {
                       <Th labelKey="ecomStock" k="ecom" />
                       <Th labelKey="sapStock" k="sap" />
                       <Th labelKey="stockValueCol" k="value" />
+                      <Th labelKey="weightCol" k="weight" />
                       <Th labelKey="ltUnits" k="lifetime" />
                       <Th labelKey="lastSale" k="lastsale" />
                     </>
@@ -1201,6 +1261,7 @@ export default function StockPage() {
                           <td>{qtyInput}</td>
                           <td className={cn("font-semibold", r.shortfall > 0 && "text-red-600")}>{formatNumber(r.shortfall)}</td>
                           <td className="text-slate-500">{unitValue(r) ? formatMoney(effMove(r) * unitValue(r), lang) : "—"}</td>
+                          {rowWeightCell(r)}
                         </>
                       )}
                       {tab === "relist" && (
@@ -1218,6 +1279,7 @@ export default function StockPage() {
                           </td>
                           <td>{qtyInput}</td>
                           <td className="text-slate-500">{unitValue(r) ? formatMoney(effMove(r) * unitValue(r), lang) : "—"}</td>
+                          {rowWeightCell(r)}
                         </>
                       )}
                       {tab === "all" && (
@@ -1262,6 +1324,7 @@ export default function StockPage() {
                           <td>{formatNumber(r.expected)}</td>
                           <td className="font-semibold text-blue-700">{formatNumber(r.surplus ?? 0)}</td>
                           <td className="text-slate-500">{unitValue(r) ? formatMoney((r.surplus ?? 0) * unitValue(r), lang) : "—"}</td>
+                          {rowWeightCell(r)}
                           <td className={coverClass(r.cover_days)}>{r.cover_days != null ? formatNumber(r.cover_days) : "—"}</td>
                         </>
                       )}
@@ -1292,6 +1355,7 @@ export default function StockPage() {
                           <td className="text-slate-500">
                             {unitValue(r) ? formatMoney(((r.sap_stock ?? 0) + (r.ecom_stock ?? 0)) * unitValue(r), lang) : "—"}
                           </td>
+                          {rowWeightCell(r)}
                           <td className="font-semibold text-slate-700">{formatNumber(r.lifetime_units ?? 0)}</td>
                           <td className="whitespace-nowrap text-xs text-slate-500">
                             {r.last_order_date ? formatDate(r.last_order_date) : <span className="text-slate-400">{t("neverSoldLbl")}</span>}

@@ -164,6 +164,8 @@ const dict = {
   abHotWeight: { ar: "وزن السلال الساخنة", en: "Hot Cart Weight" },
   abRecoveredWeight: { ar: "الوزن المسترد", en: "Recovered Weight" },
   abSortWeight: { ar: "الأثقل وزنًا", en: "Heaviest" },
+  dqShippedWeight: { ar: "الوزن المشحون", en: "Shipped Weight" },
+  dqReturnedWeight: { ar: "وزن المرتجعات", en: "Returned weight" },
   source: { ar: "المصدر", en: "Source" },
   noResults: { ar: "لا توجد نتائج", en: "No results" },
   loadFailed: { ar: "تعذّر تحميل البيانات", en: "Couldn't load the data" },

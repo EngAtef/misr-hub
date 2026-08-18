@@ -6,7 +6,7 @@ import { useDateRange, DateRangeFilter, type DateRange } from "@/components/date
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, ChartCard, KpiCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
-import { formatMoney, formatNumber, formatPercent, formatDateTime, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatPercent, formatWeight, formatDateTime, cn } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 type Tab = "sales" | "delivery" | "payments" | "geography" | "products" | "returns" | "team";
@@ -119,6 +119,13 @@ function SalesTab({ range, compare }: RangeProp) {
           value={formatMoney(k?.avg_order_value ?? 0, lang)}
           accent="slate"
           delta={pk && k && <DeltaBadge current={k.avg_order_value} previous={pk.avg_order_value} fmtPrev={money} />}
+        />
+        <KpiCard
+          label={t("rhTotalWeight")}
+          value={formatWeight(k?.net_weight_kg, lang)}
+          sub={`${t("rhAvgWeight")}: ${formatWeight(k?.avg_weight_kg, lang)}`}
+          accent="slate"
+          delta={pk && k && <DeltaBadge current={k.net_weight_kg ?? 0} previous={pk.net_weight_kg ?? 0} fmtPrev={(n) => formatWeight(n, lang)} />}
         />
         <KpiCard
           label={t("repeatCustomers")}

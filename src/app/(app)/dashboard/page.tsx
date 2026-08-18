@@ -11,7 +11,7 @@ import { AlertsBar } from "@/components/alerts-bar";
 import { TrafficKpis } from "@/components/traffic-growth";
 import { DeliveryQuality } from "@/components/delivery-quality";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
-import { formatMoney, formatNumber, formatPercent, cn, STATUS_AR } from "@/lib/utils";
+import { formatMoney, formatNumber, formatPercent, formatWeight, cn, STATUS_AR } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 /* ------------------------------------------------------------------ *
@@ -267,6 +267,7 @@ export default function DashboardPage() {
               accent="red"
             />
             <KpiCard label={t("avgOrderValue")} value={money(k.avg_order_value)} accent="slate" />
+            <KpiCard label={t("rhTotalWeight")} value={formatWeight(k.net_weight_kg, lang)} sub={`${t("rhAvgWeight")}: ${formatWeight(k.avg_weight_kg, lang)}`} accent="slate" />
             <KpiCard
               label={t("uniqueCustomers")}
               value={formatNumber(k.unique_customers)}

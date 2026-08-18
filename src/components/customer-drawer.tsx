@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { Spinner } from "@/components/ui";
 import { AttrBadge } from "@/components/attr-badge";
-import { formatMoney, formatNumber, formatDate, formatDateTime, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { useMyRole } from "@/lib/use-role";
 import { confirmDialog, notifyDialog } from "@/components/dialog";
@@ -83,6 +83,8 @@ interface OrderRow {
   attr_medium?: string | null;
   attr_campaign?: string | null;
   items_count: number | null;
+  weight_kg?: number | null;
+  weight_missing?: number | null;
   cancellation_reason: string | null;
   applied_offer: string | null;
 }
@@ -449,6 +451,7 @@ export function CustomerDrawer({
                           {o.payment_method && <span>{o.payment_method}</span>}
                           {(o.city || o.area) && <span>{[o.city, o.area].filter(Boolean).join(" — ")}</span>}
                           {o.source && <span dir="ltr">{o.source}</span>}
+                          {o.weight_kg != null && <span dir="ltr" title={t("weightCol")}>{formatWeight(o.weight_kg, lang, !!o.weight_missing)}</span>}
                           {o.applied_offer && <span className="text-emerald-600" dir="ltr">{o.applied_offer}</span>}
                         </div>
                         {o.cancellation_reason && (

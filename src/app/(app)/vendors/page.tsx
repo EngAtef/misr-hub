@@ -8,7 +8,7 @@ import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams } from "@/lib/use-analytics";
 import { PageHeader, KpiCard, ChartCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, BarsChart } from "@/components/charts";
-import { formatMoney, formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, toCsv, downloadCsv, cn } from "@/lib/utils";
 
 // Vendor split is category-driven: SKUs in category "AL-Adwaa" belong to
 // the Al Adwaa vendor, every other SKU belongs to NM Books (migration 052).
@@ -23,11 +23,13 @@ interface VendorKpis {
   unique_titles: number;
   unique_customers: number;
   avg_price: number;
+  weight_kg?: number;
+  delivered_weight_kg?: number;
 }
 
-interface MonthRow { month: string; units: number; revenue: number; orders: number }
-interface BookRow { product_name: string; sku: string; units: number; revenue: number }
-interface CityRow { city: string; units: number; revenue: number }
+interface MonthRow { month: string; units: number; revenue: number; orders: number; weight_kg?: number }
+interface BookRow { product_name: string; sku: string; units: number; revenue: number; weight_kg?: number }
+interface CityRow { city: string; units: number; revenue: number; weight_kg?: number }
 
 // fn_vendor_grp_overview returns everything the page renders in one
 // call (migration 072) — four parallel RPCs used to blow past the 8s
@@ -152,6 +154,7 @@ export default function VendorsPage() {
         sku: (b) => b.sku,
         units: (b) => b.units,
         revenue: (b) => b.revenue,
+        weight: (b) => b.weight_kg ?? 0,
       }),
     [books, applyBooks]
   );
@@ -213,7 +216,7 @@ export default function VendorsPage() {
         <div className="card p-12 text-center text-slate-500">{t("noResults")}</div>
       ) : (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
             <KpiCard
               label={t("vendorUnits")}
               value={formatNumber(kpis.units)}
@@ -247,6 +250,13 @@ export default function VendorsPage() {
               value={formatNumber(kpis.cancelled_units)}
               accent="red"
               delta={pk && <DeltaBadge current={kpis.cancelled_units} previous={pk.cancelled_units} invert fmtPrev={formatNumber} />}
+            />
+            <KpiCard
+              label={t("weightCol")}
+              value={formatWeight(kpis.weight_kg, lang)}
+              sub={`${t("delivered")}: ${formatWeight(kpis.delivered_weight_kg, lang)}`}
+              accent="slate"
+              delta={pk && <DeltaBadge current={kpis.weight_kg ?? 0} previous={pk.weight_kg ?? 0} fmtPrev={(n) => formatWeight(n, lang)} />}
             />
           </div>
 
@@ -292,6 +302,7 @@ export default function VendorsPage() {
                       <SortTh label={t("sku")} k="sku" sort={sortBooks} onToggle={toggleBooks} />
                       <SortTh label={t("vendorUnits")} k="units" sort={sortBooks} onToggle={toggleBooks} />
                       <SortTh label={t("revenue")} k="revenue" sort={sortBooks} onToggle={toggleBooks} />
+                      <SortTh label={t("weightCol")} k="weight" sort={sortBooks} onToggle={toggleBooks} />
                     </tr>
                   </thead>
                   <tbody>
@@ -301,6 +312,7 @@ export default function VendorsPage() {
                         <td dir="ltr" className="font-mono text-xs text-slate-500">{b.sku}</td>
                         <td className="font-semibold">{formatNumber(b.units)}</td>
                         <td>{formatMoney(b.revenue, lang)}</td>
+                        <td className="whitespace-nowrap text-xs text-slate-500" dir="ltr">{formatWeight(b.weight_kg, lang)}</td>
                       </tr>
                     ))}
                   </tbody>
