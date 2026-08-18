@@ -9,7 +9,7 @@ import { SearchBox } from "@/components/search-box";
 import { ProductDrawer } from "@/components/product-drawer";
 import { rangeParams } from "@/lib/use-analytics";
 import { PageHeader, Spinner, EmptyState, SortTh, Pagination, DeltaBadge, type SortState } from "@/components/ui";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { rpcAll } from "@/lib/rpc-all";
 
 // One row per catalog SKU — sales figures are LEFT-joined, so books with
@@ -38,6 +38,10 @@ interface CatalogRow {
   first_order_date: string | null;
   last_order_date: string | null;
   total_count: number;
+  // migration 115 — catalog weight per unit, period and lifetime shipped weight
+  unit_weight_kg?: number | null;
+  weight_kg?: number | null;
+  lifetime_weight_kg?: number | null;
 }
 
 interface Totals {
@@ -49,6 +53,8 @@ interface Totals {
   revenue: number;
   lifetime_units: number;
   lifetime_revenue: number;
+  weight_kg?: number;
+  lifetime_weight_kg?: number;
 }
 
 const PAGE_SIZE = 100;
@@ -237,6 +243,9 @@ export default function ProductsPage() {
       lifetime_units: r.lifetime_units,
       lifetime_orders: r.lifetime_orders,
       lifetime_revenue: r.lifetime_revenue,
+      unit_weight_kg: r.unit_weight_kg ?? null,
+      weight_period_kg: r.weight_kg ?? null,
+      lifetime_weight_kg: r.lifetime_weight_kg ?? null,
       first_order_date: r.first_order_date,
       last_order_date: r.last_order_date,
     }));
@@ -320,6 +329,10 @@ export default function ProductsPage() {
               <span className="font-semibold">{t("revenue")}:</span>
               <span className="font-bold" dir="ltr">{formatMoney(totals.revenue, lang)}</span>
             </span>
+            <span className="flex items-center gap-2" title={`${t("ltWeight")}: ${formatWeight(totals.lifetime_weight_kg, lang)}`}>
+              <span className="font-semibold">{t("weightCol")}:</span>
+              <span className="font-bold" dir="ltr">{formatWeight(totals.weight_kg, lang)}</span>
+            </span>
             <span className="flex items-center gap-2 text-violet-600">
               <span>{t("scopeNever")}:</span>
               <span className="font-bold" dir="ltr">{formatNumber(totals.never_sold)}</span>
@@ -362,6 +375,7 @@ export default function ProductsPage() {
                   <SortTh label={t("units")} k="units" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("orders")} k="orders" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("revenue")} k="revenue" sort={sort} onToggle={toggleSort} />
+                  <SortTh label={t("weightCol")} k="weight" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("ltUnits")} k="lifetime_units" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("ltRevenue")} k="lifetime_revenue" sort={sort} onToggle={toggleSort} />
                   <SortTh label={t("lastSale")} k="last_sale" sort={sort} onToggle={toggleSort} />
@@ -434,6 +448,14 @@ export default function ProductsPage() {
                             <DeltaBadge current={Number(r.revenue)} previous={Number(cmp?.revenue ?? 0)} fmtPrev={(n) => formatMoney(n, lang)} />
                           )}
                         </span>
+                      </td>
+                      <td className="whitespace-nowrap text-xs" dir="ltr">
+                        <div>{formatWeight(r.weight_kg, lang)}</div>
+                        {r.unit_weight_kg != null && (
+                          <div className="text-[10px] text-slate-400" title={t("ltWeight")}>
+                            {formatWeight(r.unit_weight_kg, lang)}/{t("unitLbl")} · {formatWeight(r.lifetime_weight_kg, lang)}
+                          </div>
+                        )}
                       </td>
                       <td className="font-semibold text-slate-700">{formatNumber(Number(r.lifetime_units))}</td>
                       <td className="text-slate-700">{formatMoney(Number(r.lifetime_revenue), lang)}</td>

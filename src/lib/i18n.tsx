@@ -560,6 +560,7 @@ const dict = {
   productsCount: { ar: "منتج", en: "products" },
   ltUnits: { ar: "نسخ (كل الفترات)", en: "Lifetime Units" },
   ltRevenue: { ar: "إيراد (كل الفترات)", en: "Lifetime Revenue" },
+  ltWeight: { ar: "وزن (كل الفترات)", en: "Lifetime Weight" },
   lastSale: { ar: "آخر بيع", en: "Last sale" },
   firstSale: { ar: "أول بيع", en: "First sale" },
   neverSoldLbl: { ar: "لم يبع", en: "Never sold" },
