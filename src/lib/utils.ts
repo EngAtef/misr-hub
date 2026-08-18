@@ -15,6 +15,20 @@ export function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-EG", { maximumFractionDigits: 1 }).format(value);
 }
 
+// Shipping weight. Small figures keep 2 decimals (a 0.35 kg book), totals
+// switch to tonnes past 1,000 kg. `approx` (missing item weights) prefixes ≈.
+export function formatWeight(kg: number | null | undefined, lang: "ar" | "en" = "ar", approx = false): string {
+  if (kg === null || kg === undefined || isNaN(Number(kg))) return "—";
+  const v = Number(kg);
+  const prefix = approx ? "≈" : "";
+  if (Math.abs(v) >= 1000) {
+    const t = new Intl.NumberFormat("en-EG", { maximumFractionDigits: 2 }).format(v / 1000);
+    return `${prefix}${t} ${lang === "ar" ? "طن" : "t"}`;
+  }
+  const n = new Intl.NumberFormat("en-EG", { maximumFractionDigits: v < 10 ? 2 : 1 }).format(v);
+  return `${prefix}${n} ${lang === "ar" ? "كجم" : "kg"}`;
+}
+
 // Strips characters that have meaning inside a PostgREST or()/ilike filter
 // so a crafted search string can't break out and query other columns.
 export function sanitizeSearch(input: string): string {

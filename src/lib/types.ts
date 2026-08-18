@@ -49,6 +49,10 @@ export interface Order {
   customer_rating: number | null;
   driver_rating: number | null;
   items_count: number | null;
+  // Σ quantity × products.weight_kg (migration 114); weight_missing = item
+  // lines with no known weight, so the figure is a floor when > 0
+  weight_kg?: number | null;
+  weight_missing?: number | null;
 }
 
 export interface OrderItem {
@@ -134,6 +138,11 @@ export interface Kpis {
   avg_customer_rating: number | null;
   avg_driver_rating: number | null;
   avg_delivery_days: number | null;
+  // migration 114 shipping weight
+  total_weight_kg?: number;
+  net_weight_kg?: number;
+  avg_weight_kg?: number | null;
+  weighed_orders?: number;
 }
 
 export interface BreakdownRow {
@@ -142,6 +151,7 @@ export interface BreakdownRow {
   revenue: number;
   delivered: number;
   cancelled_or_returned: number;
+  weight_kg?: number;
 }
 
 export interface DayRow {
@@ -150,4 +160,5 @@ export interface DayRow {
   revenue: number;
   delivered: number;
   cancelled: number;
+  weight_kg?: number;
 }

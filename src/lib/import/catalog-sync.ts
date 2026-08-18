@@ -102,6 +102,9 @@ export async function syncCatalogUpload(
       barcode: b.barcode,
       vendor: b.vendor ?? null,
       attributes: b.attributes ?? {},
+      // fn_upsert_products stores it and re-weighs every order / cart
+      // holding this book, so a corrected weight flows everywhere
+      weight_kg: b.weight_kg === null || b.weight_kg === undefined ? null : String(b.weight_kg),
     }));
     const { error } = await supabase.rpc("fn_upsert_products", { p_rows: chunk });
     if (error) {

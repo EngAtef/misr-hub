@@ -34,6 +34,18 @@ export interface CatalogBook {
   // every attribute_name/value pair as-is, so a field the platform adds
   // later is stored even before it gets a column of its own
   attributes?: Record<string, string>;
+  // shipping weight in kg (FullProductExport `weight` column) — feeds
+  // order / abandoned-cart weight totals
+  weight_kg?: number | null;
+}
+
+// The export's weight column is kilograms; a value above 100 can only be
+// grams typed into the kg field (one real case: 1096 → 1.096 kg).
+export function parseWeightKg(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = parseFloat(String(v).replace(/,/g, ""));
+  if (!isFinite(n) || n <= 0) return null;
+  return n > 100 ? n / 1000 : n;
 }
 
 export type ExtraField =
@@ -169,6 +181,9 @@ function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
     }
   }
 
+  const weightIdx = lower.findIndex((k) => k === "weight" || k.includes("weight (kg)") || k.includes("الوزن"));
+  const weightKey = weightIdx === -1 ? null : keys[weightIdx];
+
   const seen = new Set<string>();
   const out: CatalogBook[] = [];
   for (const row of rows) {
@@ -180,6 +195,7 @@ function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
       const key = fieldKeys[field];
       book[field] = key && !isEmpty(row[key]) ? String(row[key]).trim() : null;
     }
+    if (weightKey) book.weight_kg = parseWeightKg(row[weightKey]);
     out.push(book);
   }
   return out;
@@ -224,6 +240,7 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       barcode: clean(row["barcode"]),
       stock_qty: isNaN(stockNum) ? null : Math.max(Math.round(stockNum - reserved), 0),
       vendor: clean(row["brand"]) ?? clean(row["vendor"]) ?? clean(row["publisher"]),
+      weight_kg: parseWeightKg(row["weight"]),
     };
 
     // book metadata lives in the attribute_name/value_N pairs. Every pair

@@ -5,7 +5,7 @@ import { X, BookOpen, Download, Package } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { Spinner, EmptyState } from "@/components/ui";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AttrBadge } from "@/components/attr-badge";
 
 // Everything the uploaded catalog file carried for this SKU.
@@ -36,6 +36,7 @@ interface ProductDetail {
   barcode: string | null;
   vendor: string | null;
   attributes: Record<string, string> | null;
+  weight_kg?: number | null;
   updated_at: string | null;
 }
 
@@ -205,6 +206,7 @@ export function ProductDrawer({
                   <Field label={t("fldBarcode")} value={detail.barcode} ltr />
                   <Field label={t("fldPages")} value={detail.pages} />
                   <Field label={t("fldDimensions")} value={detail.dimensions} />
+                  <Field label={t("weightCol")} value={detail.weight_kg != null ? formatWeight(detail.weight_kg, lang) : null} ltr />
                   <Field label={t("fldBookType")} value={detail.book_type} />
                   <Field label={t("fldCoverType")} value={detail.cover_type} />
                 </div>

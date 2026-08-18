@@ -19,6 +19,8 @@ const EXPORT_COLUMNS = [
   "online_paid_amount",
   "promo_amount",
   "items_count",
+  "weight_kg",
+  "weight_missing",
   "source",
   "attr_bucket",
   "attr_source",

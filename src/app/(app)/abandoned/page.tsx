@@ -15,7 +15,7 @@ import { TrendChart, BarsChart, DonutChart } from "@/components/charts";
 import { MultiSelect } from "@/components/multi-select";
 import { DateRangeFilter, useDateRange } from "@/components/date-range";
 import { CustomerDrawer } from "@/components/customer-drawer";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { abandonedCartLink, normalizeEgyptPhone } from "@/lib/whatsapp";
 
@@ -30,6 +30,9 @@ interface Summary {
   repeat_abandoners: number; facebook_carts: number; notified_carts: number;
   items_rows: number; last_import: string | null;
   anomaly_carts: number; anomaly_value: number; anomaly_days: number; anomaly_days_value: number;
+  // migration 114 — Σ cart weight (active carts), per-cart average, hot / reachable / recovered
+  total_weight_kg?: number; avg_cart_weight_kg?: number | null; reachable_weight_kg?: number;
+  hot_weight_kg?: number; recovered_weight_kg?: number; weight_incomplete_carts?: number;
 }
 
 interface SegmentRow { segment: string; carts: number; reachable: number; total_value: number; recovered: number }
@@ -45,6 +48,7 @@ interface CartRow {
   customer_name: string | null; customer_city: string | null;
   lifetime_orders: number | null; lifetime_delivered_amount: number | null;
   full_count: number;
+  weight_kg?: number | null; weight_missing?: number | null;
 }
 
 interface TrendRow { day: string; lost_value: number | null; avg_cart_value: number | null; carts: number; platform_lost: number | null }
@@ -119,6 +123,7 @@ const SORTS: { key: string; labelKey: DictKey }[] = [
   { key: "value_desc", labelKey: "abSortValueDesc" },
   { key: "value_asc", labelKey: "abSortValueAsc" },
   { key: "products_desc", labelKey: "abSortProducts" },
+  { key: "weight_desc", labelKey: "abSortWeight" },
 ];
 
 export default function AbandonedPage() {
@@ -373,7 +378,7 @@ export default function AbandonedPage() {
     const all = await fetchAllFiltered();
     const rows = all.map((c) => ({
       name: c.customer_name ?? c.full_name, phone: c.phone, email: c.email,
-      cart_value: c.cart_value, products: c.products_count, skus: (c.skus ?? []).join(" | "),
+      cart_value: c.cart_value, products: c.products_count, weight_kg: c.weight_kg ?? null, skus: (c.skus ?? []).join(" | "),
       created_at: c.created_at, age_days: c.age_days, status: c.recall_status,
       known_customer: c.customer_id ? "yes" : "no", past_orders: c.lifetime_orders,
       repeat_abandoner: c.is_repeat ? "yes" : "no", source: c.traffic_hint,
@@ -595,6 +600,13 @@ export default function AbandonedPage() {
             <KpiCard label={t("abProspects")} value={formatNumber(summary.prospects)} accent="green" sub={t("abProspectsHint")} />
             <KpiCard label={t("abRecovered")} value={formatNumber(summary.recovered_carts)} accent="green" sub={`${t("abRecoveredValue")}: ${formatMoney(summary.recovered_value, lang)}`} />
             <KpiCard label={t("abRepeatAbandoners")} value={formatNumber(summary.repeat_abandoners)} accent="amber" sub={`${t("abFromFacebook")}: ${formatNumber(summary.facebook_carts)}`} />
+          </div>
+          {/* weight of what sits in abandoned carts (books × catalog weight) */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
+            <KpiCard label={t("abWeightAtRisk")} value={formatWeight(summary.total_weight_kg, lang)} accent="red" sub={`${t("abAvgCartWeight")}: ${formatWeight(summary.avg_cart_weight_kg, lang)}`} />
+            <KpiCard label={t("abReachableWeight")} value={formatWeight(summary.reachable_weight_kg, lang)} accent="green" sub={t("abReachableHint")} />
+            <KpiCard label={t("abHotWeight")} value={formatWeight(summary.hot_weight_kg, lang)} accent="amber" sub={t("abHotHint")} />
+            <KpiCard label={t("abRecoveredWeight")} value={formatWeight(summary.recovered_weight_kg, lang)} accent="green" sub={t("abRecovered")} />
           </div>
 
           {/* Recovery funnel */}
@@ -850,7 +862,12 @@ export default function AbandonedPage() {
                               {formatNumber(c.products_count)} {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                             </button>
                           </td>
-                          <td className="font-bold">{formatMoney(c.cart_value, lang)}</td>
+                          <td>
+                            <div className="font-bold">{formatMoney(c.cart_value, lang)}</div>
+                            <div className="text-[11px] text-slate-400" dir="ltr" title={c.weight_missing ? t("weightApproxHint") : t("weightCol")}>
+                              {formatWeight(c.weight_kg, lang, !!c.weight_missing)}
+                            </div>
+                          </td>
                           <td>
                             <div className="text-sm">{formatNumber(Math.round(c.age_days))} {t("abDays")}</div>
                             <div className="text-[11px] text-slate-400">{formatDate(c.created_at)}</div>

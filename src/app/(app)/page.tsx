@@ -39,7 +39,7 @@ function CityRankList({ rows, total }: { rows: BreakdownRow[]; total: number }) 
     </div>
   );
 }
-import { formatMoney, formatNumber, formatPercent, STATUS_AR } from "@/lib/utils";
+import { formatMoney, formatNumber, formatPercent, formatWeight, STATUS_AR } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
 export default function OverviewPage() {
@@ -124,6 +124,13 @@ export default function OverviewPage() {
               value={formatMoney(k.avg_order_value, lang)}
               accent="slate"
               delta={pk && <DeltaBadge current={k.avg_order_value} previous={pk.avg_order_value} fmtPrev={money} />}
+            />
+            <KpiCard
+              label={t("rhTotalWeight")}
+              value={formatWeight(k.net_weight_kg, lang)}
+              sub={`${t("rhAvgWeight")}: ${formatWeight(k.avg_weight_kg, lang)}`}
+              accent="slate"
+              delta={pk && <DeltaBadge current={k.net_weight_kg ?? 0} previous={pk.net_weight_kg ?? 0} fmtPrev={(n) => formatWeight(n, lang)} />}
             />
           </div>
 

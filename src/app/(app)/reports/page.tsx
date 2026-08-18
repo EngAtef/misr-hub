@@ -8,7 +8,7 @@ import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { rangeParams, useRpc } from "@/lib/use-analytics";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, BarsChart, DonutChart } from "@/components/charts";
-import { toCsv, downloadCsv, formatNumber, formatMoney, formatPercent, formatDate, formatDateTime, cn, STATUS_AR } from "@/lib/utils";
+import { toCsv, downloadCsv, formatNumber, formatMoney, formatPercent, formatWeight, formatDate, formatDateTime, cn, STATUS_AR } from "@/lib/utils";
 import type { Kpis, BreakdownRow, DayRow } from "@/lib/types";
 
 /* ---------- row types for the new report RPCs ---------- */
@@ -22,6 +22,11 @@ interface Extras {
   loyalty_discount: number;
   new_customers: number;
   rated_orders: number;
+  // migration 114 — Σ order weight (non-cancelled), per-order average and
+  // how many orders still hold a book with no known weight
+  total_weight_kg?: number;
+  avg_weight_kg?: number | null;
+  weight_incomplete_orders?: number;
 }
 interface CustomerInsights {
   total_customers: number;
@@ -30,16 +35,16 @@ interface CustomerInsights {
   avg_spend_per_customer: number;
 }
 interface RatingRow { kind: string; rating: number; orders: number }
-interface SalesDayRow { day: string; orders: number; items_amount: number; delivery_fees: number; promo_discount: number; grand_total: number }
+interface SalesDayRow { day: string; orders: number; items_amount: number; delivery_fees: number; promo_discount: number; grand_total: number; weight_kg?: number }
 interface FulfillRow { order_number: string; customer_name: string | null; city: string | null; order_date: string; delivery_date: string; hours: number }
 interface PromoRow { id: number; name: string; type: number; amount: number; active: boolean; expiration_date: string | null; uses_in_range: number; orders_value: number; discount_given: number; delivered_orders: number }
 interface NewCustomerRow { customer_id: string; name: string | null; email: string | null; phone: string | null; city: string | null; joined_at: string; is_active: boolean; lifetime_orders: number; lifetime_amount: number }
 interface OosRow { sku: string; product_name: string | null; ecom_stock: number; sap_stock: number; units: number; revenue: number }
 interface CatRow { key: string; lines: number; units: number; revenue: number; discounted_revenue: number; discount_amount: number }
-interface TopUnitRow { sku: string; product_name: string | null; category: string | null; units: number; orders: number; revenue: number }
+interface TopUnitRow { sku: string; product_name: string | null; category: string | null; units: number; orders: number; revenue: number; unit_weight_kg?: number | null; weight_kg?: number | null }
 interface BucketRow { bucket: string; bucket_order: number; orders: number }
 interface AbTrendRow { day: string; lost_value: number; avg_cart_value: number; carts: number; platform_lost: number }
-interface AbSummary { total_carts: number; total_value: number; avg_cart_value: number; recovered_carts: number; recovered_value: number }
+interface AbSummary { total_carts: number; total_value: number; avg_cart_value: number; recovered_carts: number; recovered_value: number; total_weight_kg?: number; avg_cart_weight_kg?: number | null }
 interface TimePatterns { by_hour: { hour: number; orders: number; revenue: number }[]; by_dow: { dow: number; orders: number; revenue: number }[] }
 
 /* ---------- custom report builder definitions (kept from v1) ---------- */
@@ -310,6 +315,17 @@ export default function ReportsPage() {
             <KpiCard label={t("rhTotalUnits")} value={formatNumber(ex?.total_units)} delta={compare && exp ? <DeltaBadge current={ex?.total_units ?? 0} previous={exp.total_units} fmtPrev={formatNumber} /> : undefined} />
             <KpiCard label={t("rhAvgUnits")} value={ex && ex.product_orders > 0 ? formatNumber(ex.total_units / ex.product_orders) : "—"} />
             <KpiCard label={t("rhDistinctProducts")} value={formatNumber(ex?.distinct_products)} />
+            <KpiCard
+              label={t("rhTotalWeight")}
+              value={formatWeight(ex?.total_weight_kg, lang)}
+              sub={ex?.weight_incomplete_orders ? `${t("weightApproxHint")} (${formatNumber(ex.weight_incomplete_orders)})` : undefined}
+              delta={compare && exp ? <DeltaBadge current={ex?.total_weight_kg ?? 0} previous={exp.total_weight_kg ?? 0} fmtPrev={(n) => formatWeight(n, lang)} /> : undefined}
+            />
+            <KpiCard
+              label={t("rhAvgWeight")}
+              value={formatWeight(ex?.avg_weight_kg, lang)}
+              delta={compare && exp ? <DeltaBadge current={ex?.avg_weight_kg ?? 0} previous={exp.avg_weight_kg ?? 0} fmtPrev={(n) => formatWeight(n, lang)} /> : undefined}
+            />
             <KpiCard label={t("rhShippingFees")} value={money(ex?.shipping_fees)} delta={compare && exp ? <DeltaBadge current={ex?.shipping_fees ?? 0} previous={exp.shipping_fees} fmtPrev={(n) => money(n)} /> : undefined} />
             <KpiCard label={t("rhPromoDiscount")} value={money(ex?.promo_discount)} accent="amber" />
             <KpiCard label={t("deliveryRate")} value={k && k.total_orders > 0 ? formatPercent(k.delivered_orders, k.total_orders) : "—"} sub={`${t("delivered")}: ${formatNumber(k?.delivered_orders)}`} accent="green" />
@@ -318,6 +334,7 @@ export default function ReportsPage() {
             <KpiCard label={t("onlinePaid")} value={money(k?.online_paid_amount)} />
             <KpiCard label={t("rhAbandoned")} value={formatNumber(abSummary.data?.total_carts)} sub={`${t("rhAbandonedValue")}: ${money(abSummary.data?.total_value)}`} accent="red" />
             <KpiCard label={t("rhAbandonedRate")} value={abandonedRate !== null ? `${formatNumber(abandonedRate)}%` : "—"} sub={`${t("rhRecovered")}: ${formatNumber(abSummary.data?.recovered_carts)}`} accent="red" />
+            <KpiCard label={t("rhAbandonedWeight")} value={formatWeight(abSummary.data?.total_weight_kg, lang)} sub={`${t("rhAvgCartWeight")}: ${formatWeight(abSummary.data?.avg_cart_weight_kg, lang)}`} accent="red" />
           </div>
         )}
       </Section>
@@ -398,6 +415,7 @@ export default function ReportsPage() {
                   <th>{t("units")}</th>
                   <th>{t("orders")}</th>
                   <th>{t("revenue")}</th>
+                  <th>{t("weightCol")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -410,6 +428,9 @@ export default function ReportsPage() {
                     <td className="font-medium">{formatNumber(r.units)}</td>
                     <td>{formatNumber(r.orders)}</td>
                     <td className="font-medium">{money(r.revenue)}</td>
+                    <td className="whitespace-nowrap text-xs" dir="ltr" title={r.unit_weight_kg != null ? `${formatWeight(r.unit_weight_kg, lang)} / ${t("unitLbl")}` : undefined}>
+                      {formatWeight(r.weight_kg, lang)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -431,6 +452,7 @@ export default function ReportsPage() {
                 <th>{t("rhDeliveryFees")}</th>
                 <th>{t("rhPromoDiscount")}</th>
                 <th>{t("rhGrandTotal")}</th>
+                <th>{t("weightCol")}</th>
               </tr>
             </thead>
             <tbody>
@@ -442,6 +464,7 @@ export default function ReportsPage() {
                   <td>{money(r.delivery_fees)}</td>
                   <td>{r.promo_discount > 0 ? money(r.promo_discount) : "—"}</td>
                   <td className="font-semibold">{money(r.grand_total)}</td>
+                  <td className="whitespace-nowrap text-xs" dir="ltr">{formatWeight(r.weight_kg, lang)}</td>
                 </tr>
               ))}
             </tbody>
@@ -500,6 +523,7 @@ export default function ReportsPage() {
                 <th>{t("orders")}</th>
                 <th>{t("revenue")}</th>
                 <th>{t("delivered")}</th>
+                <th>{t("weightCol")}</th>
                 <th>{t("rhShare")}</th>
               </tr>
             </thead>
@@ -510,6 +534,7 @@ export default function ReportsPage() {
                   <td className="font-medium">{formatNumber(r.orders)}</td>
                   <td>{money(r.revenue)}</td>
                   <td>{formatNumber(r.delivered)}</td>
+                  <td className="whitespace-nowrap text-xs" dir="ltr">{formatWeight(r.weight_kg, lang)}</td>
                   <td>
                     <span className="inline-flex items-center gap-2">
                       <span className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-100">

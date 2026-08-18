@@ -8,7 +8,7 @@ import { useDateRange, DateRangeFilter, presetToRange } from "@/components/date-
 import { PageHeader, StatusBadge, Spinner, SortTh, useSort, DeltaBadge, Pagination } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
-import { formatMoney, formatDateTime, formatNumber, sanitizeSearch } from "@/lib/utils";
+import { formatMoney, formatDateTime, formatNumber, formatWeight, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { ATTR_BUCKETS, attrLabel } from "@/lib/attribution";
 import { AttrBadge as Attr } from "@/components/attr-badge";
@@ -566,6 +566,7 @@ export default function OrdersPage() {
                 <SortTh label={t("amount")} k="total_order_amount" sort={sort} onToggle={onSort} />
                 <SortTh label={t("promoCode")} k="applied_offer" sort={sort} onToggle={onSort} />
                 <SortTh label={t("itemsCount")} k="items_count" sort={sort} onToggle={onSort} />
+                <SortTh label={t("weightCol")} k="weight_kg" sort={sort} onToggle={onSort} />
               </tr>
             </thead>
             <tbody>
@@ -593,6 +594,9 @@ export default function OrdersPage() {
                     )}
                   </td>
                   <td className="text-center">{o.items_count ?? "—"}</td>
+                  <td className="whitespace-nowrap text-center" dir="ltr" title={o.weight_missing ? t("weightApproxHint") : undefined}>
+                    {formatWeight(o.weight_kg, lang, !!o.weight_missing)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -639,6 +643,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
   const [events, setEvents] = useState<OrderEvent[]>([]);
   const [salesLines, setSalesLines] = useState<SalesLine[]>([]);
   const [promoInfo, setPromoInfo] = useState<PromoCode | null>(null);
+  const [weights, setWeights] = useState<Record<string, number | null>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -657,6 +662,16 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
       setEvents((e.data as OrderEvent[]) ?? []);
       setSalesLines((sl.data as SalesLine[]) ?? []);
       setPromoInfo((p.data as PromoCode | null) ?? null);
+      // per-book weight for the line table (order.weight_kg is the stored total)
+      const skus = Array.from(
+        new Set([...(sl.data ?? []), ...(i.data ?? [])].map((r) => (r as { sku: string | null }).sku).filter(Boolean))
+      ) as string[];
+      if (skus.length) {
+        const { data: w } = await supabase.from("products").select("sku, weight_kg").in("sku", skus);
+        const map: Record<string, number | null> = {};
+        for (const r of (w as { sku: string; weight_kg: number | null }[] | null) ?? []) map[r.sku] = r.weight_kg;
+        setWeights(map);
+      }
       setLoading(false);
     }
     load();
@@ -667,8 +682,9 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
       qty: salesLines.reduce((s, l) => s + (l.quantity ?? 0), 0),
       price: salesLines.reduce((s, l) => s + (l.price ?? 0), 0),
       discounted: salesLines.reduce((s, l) => s + (l.price_after_discount ?? l.price ?? 0), 0),
+      weight: salesLines.reduce((s, l) => s + (l.sku && weights[l.sku] != null ? (l.quantity ?? 1) * (weights[l.sku] as number) : 0), 0),
     }),
-    [salesLines]
+    [salesLines, weights]
   );
 
   return (
@@ -731,6 +747,13 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                 </div>
                 <div>{order.payment_method ?? "—"}</div>
                 <div className="font-bold text-lg">{formatMoney(order.total_order_amount, lang)}</div>
+                <div className="text-xs text-slate-600" title={order.weight_missing ? t("weightApproxHint") : undefined}>
+                  <span className="font-semibold text-slate-500">{t("weightCol")}:</span>{" "}
+                  <span dir="ltr">{formatWeight(order.weight_kg, lang, !!order.weight_missing)}</span>
+                  {order.items_count ? (
+                    <span className="text-slate-400"> · {order.items_count} {t("itemsCount").toLowerCase()}</span>
+                  ) : null}
+                </div>
                 {order.cod_amount != null && order.cod_amount > 0 && (
                   <div className="text-xs text-amber-700">COD: {formatMoney(order.cod_amount, lang)}</div>
                 )}
@@ -808,6 +831,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                           <th>{t("products")}</th>
                           <th>SKU</th>
                           <th>{t("qty")}</th>
+                          <th>{t("weightCol")}</th>
                           <th>{t("unitPriceCol")}</th>
                           <th>{t("amount")}</th>
                           <th>{t("afterDiscountCol")}</th>
@@ -836,6 +860,11 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                               )}
                             </td>
                             <td className="text-center font-bold">{formatNumber(l.quantity ?? 1)}</td>
+                            <td className="whitespace-nowrap text-xs text-slate-600" dir="ltr">
+                              {l.sku && weights[l.sku] != null
+                                ? formatWeight((l.quantity ?? 1) * (weights[l.sku] as number), lang)
+                                : "—"}
+                            </td>
                             <td className="text-xs">{formatMoney(l.unit_price, lang)}</td>
                             <td>{formatMoney(l.price, lang)}</td>
                             <td className="font-semibold text-emerald-700">
@@ -848,6 +877,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                         <tr className="font-bold bg-slate-50">
                           <td colSpan={3}>{t("results")}</td>
                           <td className="text-center">{formatNumber(lineTotals.qty)}</td>
+                          <td className="whitespace-nowrap text-xs" dir="ltr">{formatWeight(lineTotals.weight, lang)}</td>
                           <td />
                           <td>{formatMoney(lineTotals.price, lang)}</td>
                           <td className="text-emerald-700">{formatMoney(lineTotals.discounted, lang)}</td>
