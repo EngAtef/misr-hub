@@ -18,10 +18,20 @@ interface Kpis {
   online_paid_amount: number;
   avg_order_value: number;
   unique_customers: number;
+  // migration 114 — Σ order weight (all orders / excluding cancelled+returned) and per-order avg
+  total_weight_kg?: number;
+  net_weight_kg?: number;
+  avg_weight_kg?: number | null;
 }
 
 const fmt = (n: number) => new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
 const money = (n: number) => `${fmt(n)} EGP`;
+const kg = (n: number | null | undefined) =>
+  n === null || n === undefined
+    ? "—"
+    : n >= 1000
+      ? `${new Intl.NumberFormat("en-EG", { maximumFractionDigits: 2 }).format(n / 1000)} t`
+      : `${new Intl.NumberFormat("en-EG", { maximumFractionDigits: n < 10 ? 2 : 1 }).format(n)} kg`;
 
 function trend(current: number, previous: number): string {
   if (!previous) return "";
@@ -141,8 +151,8 @@ export async function GET(request: NextRequest) {
   try {
     const weekAgo = daysAgo(7);
     const [{ data: weekCarts }, { data: weekRecovered }, { data: callList }] = await Promise.all([
-      admin.from("abandoned_carts").select("cart_value").eq("is_anomaly", false).gte("created_at", weekAgo),
-      admin.from("abandoned_carts").select("recovered_value, cart_value").eq("is_anomaly", false).eq("recall_status", "recovered").gte("recovered_at", weekAgo),
+      admin.from("abandoned_carts").select("cart_value, weight_kg").eq("is_anomaly", false).gte("created_at", weekAgo),
+      admin.from("abandoned_carts").select("recovered_value, cart_value, weight_kg").eq("is_anomaly", false).eq("recall_status", "recovered").gte("recovered_at", weekAgo),
       admin
         .from("abandoned_carts")
         .select("full_name, phone, cart_value, products_count, created_at")
@@ -153,8 +163,8 @@ export async function GET(request: NextRequest) {
         .order("cart_value", { ascending: false })
         .limit(10),
     ]);
-    const wc = (weekCarts ?? []) as { cart_value: number | null }[];
-    const wr = (weekRecovered ?? []) as { recovered_value: number | null; cart_value: number | null }[];
+    const wc = (weekCarts ?? []) as { cart_value: number | null; weight_kg: number | null }[];
+    const wr = (weekRecovered ?? []) as { recovered_value: number | null; cart_value: number | null; weight_kg: number | null }[];
     const cl = (callList ?? []) as { full_name: string | null; phone: string | null; cart_value: number | null; products_count: number | null; created_at: string }[];
     const sum = (xs: (number | null)[]) => xs.reduce((s: number, v) => s + (v ?? 0), 0);
     if (wc.length || cl.length) {
@@ -163,8 +173,8 @@ export async function GET(request: NextRequest) {
       abandonedSection = `
       <h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">🛒 Abandoned Carts (7 days)</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
-        ${rowA("New abandoned carts", `${fmt(wc.length)} · ${money(sum(wc.map((x) => x.cart_value)))}`)}
-        ${rowA("Recovered this week", `${fmt(wr.length)} · ${money(sum(wr.map((x) => x.recovered_value ?? x.cart_value)))}`)}
+        ${rowA("New abandoned carts", `${fmt(wc.length)} · ${money(sum(wc.map((x) => x.cart_value)))} · ${kg(sum(wc.map((x) => x.weight_kg)))}`)}
+        ${rowA("Recovered this week", `${fmt(wr.length)} · ${money(sum(wr.map((x) => x.recovered_value ?? x.cart_value)))} · ${kg(sum(wr.map((x) => x.weight_kg)))}`)}
       </table>
       ${cl.length ? `<h3 style="font-size:14px;color:#142857;margin:20px 12px 8px">📞 Top carts to call (last 14 days, uncontacted)</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -244,6 +254,8 @@ export async function GET(request: NextRequest) {
         ${row("Cancelled", fmt(k.cancelled_orders), trend(k.cancelled_orders, prev?.cancelled_orders))}
         ${row("Returned", fmt(k.returned_orders), trend(k.returned_orders, prev?.returned_orders))}
         ${row("Avg Order Value", money(k.avg_order_value), trend(k.avg_order_value, prev?.avg_order_value))}
+        ${row("Shipped Weight", kg(k.net_weight_kg), trend(k.net_weight_kg ?? 0, prev?.net_weight_kg ?? 0))}
+        ${row("Avg Order Weight", kg(k.avg_weight_kg), trend(k.avg_weight_kg ?? 0, prev?.avg_weight_kg ?? 0))}
         ${row("COD Amount", money(k.cod_amount))}
         ${row("Online Paid", money(k.online_paid_amount))}
         ${row("Unique Customers", fmt(k.unique_customers), trend(k.unique_customers, prev?.unique_customers))}
@@ -274,7 +286,7 @@ export async function GET(request: NextRequest) {
     body: JSON.stringify({
       from: process.env.REPORT_FROM ?? "Misr Hub <onboarding@resend.dev>",
       to: recipients,
-      subject: `Misr Hub weekly report — ${fmt(k.total_orders)} orders, ${money(k.gross_revenue)} (${dateStr})`,
+      subject: `Misr Hub weekly report — ${fmt(k.total_orders)} orders, ${money(k.gross_revenue)}, ${kg(k.net_weight_kg)} (${dateStr})`,
       html,
     }),
   });
