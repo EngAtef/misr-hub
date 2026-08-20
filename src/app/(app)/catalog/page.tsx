@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, Download, BookOpen, CheckCircle2, Warehouse } from "lucide-react";
+// Read-only quality view: the catalog is imported ONCE, on the Data
+// Center's products card — this page rebuilds its view from the shared
+// snapshot that upload saves (no second import here).
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Download, BookOpen, CheckCircle2, Warehouse } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatNumber, toCsv, downloadCsv, cn } from "@/lib/utils";
-import { parseCatalogFile, parseCatalogHtml, CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
-import { syncCatalogUpload, type CatalogSnapshot, type CatalogCompare } from "@/lib/import/catalog-sync";
+import { CATALOG_FIELDS, type CatalogBook, type CatalogField } from "@/lib/import/parse-catalog";
+import { type CatalogSnapshot } from "@/lib/import/catalog-sync";
 
 // Arabic-aware title normalization for SAP <-> website matching
 function normTitle(s: string): string {
@@ -41,93 +46,6 @@ const FIELD_LABEL: Record<CatalogField, DictKey> = {
   barcode: "fldBarcode",
 };
 
-// Runs once per upload: pushes e-com stock into the stock engine and
-// saves/compares the catalog snapshot for version tracking (shared
-// with the Data Center products upload via catalog-sync).
-function UploadEffects({ books, fileName, score }: { books: CatalogBook[]; fileName: string; score: number }) {
-  const { t } = useLang();
-  const supabase = useMemo(() => createClient(), []);
-  const [stockMsg, setStockMsg] = useState<string | null>(null);
-  const [productsMsg, setProductsMsg] = useState<string | null>(null);
-  const [compare, setCompare] = useState<CatalogCompare | null>(null);
-  const [snapMsg, setSnapMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
-      setProductsMsg(t("productsSaving"));
-      if (withStock.length) setStockMsg(t("stockSyncing"));
-      const res = await syncCatalogUpload(supabase, books, fileName);
-      if (cancelled) return;
-      setProductsMsg(
-        res.productsFailed ? t("productsSaveFailed") : `✅ ${t("productsSaved")} ${res.savedProducts.toLocaleString("en-EG")} ${t("itemsWord")}`
-      );
-      if (withStock.length) {
-        setStockMsg(res.stockFailed ? t("stockSyncFailed") : `✅ ${t("stockSynced")} ${res.syncedStock.toLocaleString("en-EG")} ${t("itemsWord")}`);
-      }
-      setCompare(res.compare);
-      setSnapMsg(res.compare ? t("snapshotSaved") : t("firstSnapshot"));
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [books]);
-
-  if (!stockMsg && !productsMsg && !compare && !snapMsg) return null;
-
-  return (
-    <div className="mb-6 space-y-3">
-      {productsMsg && (
-        <div
-          className={cn(
-            "rounded-lg border px-4 py-2.5 text-sm",
-            productsMsg.startsWith("✅") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"
-          )}
-        >
-          {productsMsg}
-        </div>
-      )}
-      {stockMsg && (
-        <div className={cn("rounded-lg border px-4 py-2.5 text-sm", stockMsg.startsWith("✅") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>
-          {stockMsg}
-        </div>
-      )}
-      {compare && (
-        <div className="card p-5">
-          <h3 className="mb-1 text-sm font-bold text-slate-700">{t("versionCompare")}</h3>
-          <p className="mb-3 text-xs text-slate-400" dir="ltr">
-            {t("prevVersionOf")}: {compare.prev.fileName} — {new Date(compare.prev.date).toLocaleDateString("en-GB")} ({compare.prev.total.toLocaleString("en-EG")})
-          </p>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 text-center">
-            <MiniStat label={t("newBooks")} value={compare.added} tone={compare.added > 0 ? "good" : "flat"} />
-            <MiniStat label={t("removedBooks")} value={compare.removed} tone={compare.removed > 0 ? "bad" : "flat"} />
-            <MiniStat label={t("fixedFields")} value={compare.fixed} tone={compare.fixed > 0 ? "good" : "flat"} />
-            <MiniStat label={t("regressedFields")} value={compare.regressed} tone={compare.regressed > 0 ? "bad" : "flat"} />
-            <MiniStat
-              label={t("scoreDelta")}
-              value={`${(score - compare.prev.score) >= 0 ? "+" : ""}${(score - compare.prev.score).toFixed(1)}%`}
-              tone={score >= compare.prev.score ? "good" : "bad"}
-            />
-          </div>
-        </div>
-      )}
-      {snapMsg && <div className="text-xs font-semibold text-slate-500">{snapMsg}</div>}
-    </div>
-  );
-}
-
-function MiniStat({ label, value, tone }: { label: string; value: number | string; tone: "good" | "bad" | "flat" }) {
-  return (
-    <div className={cn("rounded-xl p-3", tone === "good" ? "bg-emerald-50" : tone === "bad" ? "bg-red-50" : "bg-slate-50")}>
-      <div className={cn("text-xl font-bold", tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-red-700" : "text-slate-700")}>
-        {typeof value === "number" ? value.toLocaleString("en-EG") : value}
-      </div>
-      <div className="text-[11px] text-slate-500">{label}</div>
-    </div>
-  );
-}
 
 function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) {
   const { t } = useLang();
@@ -268,11 +186,6 @@ function SapVsWebsite({ catalogBooks }: { catalogBooks: CatalogBook[] | null }) 
 export default function CatalogPage() {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [books, setBooks] = useState<CatalogBook[] | null>(null);
-  const [fileName, setFileName] = useState("");
-  const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState("");
   const [filterField, setFilterField] = useState<CatalogField | null>(null);
   const [snapBooks, setSnapBooks] = useState<CatalogBook[] | null>(null);
   const [snapInfo, setSnapInfo] = useState<{ fileName: string; date: string } | null>(null);
@@ -298,30 +211,7 @@ export default function CatalogPage() {
     })();
   }, [supabase]);
 
-  const view = books ?? snapBooks;
-
-  async function handleFile(file: File) {
-    setParsing(true);
-    setError("");
-    setFilterField(null);
-    try {
-      const parsed = file.name.toLowerCase().endsWith(".html")
-        ? parseCatalogHtml(await file.text())
-        : parseCatalogFile(await file.arrayBuffer());
-      if (!parsed.length) {
-        setError(t("invalidFile"));
-        setBooks(null);
-      } else {
-        setBooks(parsed);
-        setFileName(file.name);
-      }
-    } catch {
-      setError(t("invalidFile"));
-      setBooks(null);
-    }
-    setParsing(false);
-    if (fileRef.current) fileRef.current.value = "";
-  }
+  const view = snapBooks;
 
   const stats = useMemo(() => {
     if (!view) return null;
@@ -369,47 +259,25 @@ export default function CatalogPage() {
     <div>
       <PageHeader title={t("catalog")} subtitle={t("catalogSubtitle")} />
 
-      <div className="card p-6 mb-6">
-        <div
-          onClick={() => fileRef.current?.click()}
-          className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center transition hover:border-brand-400 hover:bg-slate-50"
-        >
-          <UploadCloud className="h-10 w-10 text-brand-500" />
-          <div className="font-semibold text-slate-700">{t("uploadCatalog")}</div>
-          {fileName && (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-700">
-              <CheckCircle2 size={14} />
-              <span dir="ltr">{fileName}</span>
-            </div>
-          )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv,.html"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-            }}
-          />
-        </div>
-        {error && <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>}
-      </div>
-
-      {books && <UploadEffects books={books} fileName={fileName} score={stats?.score ?? 0} />}
-
-      {!books && snapInfo && (
+      {snapInfo ? (
         <div className="mb-6 flex items-center gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-2.5 text-sm text-brand-800">
           <CheckCircle2 size={16} className="shrink-0" />
           {t("snapshotSource")}: <span dir="ltr" className="font-semibold">{snapInfo.fileName}</span> — {new Date(snapInfo.date).toLocaleDateString("en-GB")}
+          <Link href="/data-center" className="ms-auto shrink-0 font-semibold underline">
+            {t("catalogUploadInDataCenter")}
+          </Link>
+        </div>
+      ) : (
+        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-800">
+          <Link href="/data-center" className="font-semibold underline">
+            {t("catalogUploadInDataCenter")}
+          </Link>
         </div>
       )}
 
       <SapVsWebsite catalogBooks={view} />
 
-      {parsing ? (
-        <Spinner />
-      ) : !view || !stats ? null : (
+      {!view || !stats ? null : (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="card p-4 border-s-4 border-s-brand-500">

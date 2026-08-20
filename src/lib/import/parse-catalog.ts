@@ -209,6 +209,26 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
   const seen = new Set<string>();
   const out: CatalogBook[] = [];
 
+  // Some exports (seen live 2026-08) write the data rows misaligned with
+  // their own header row from the mid-sheet on: the attribute label lands
+  // in attribute_value_ar_{n-1} (English value in attribute_name_n, Arabic
+  // in attribute_value_n), the price lands under `main_image`, the image
+  // URL under `main_active`, and the slugs under `step_package_label_ar` /
+  // `keywords` — there is no top-level price/stock/barcode data at all.
+  // Detect that layout by counting known attribute labels where each
+  // layout expects them, and read the displaced columns accordingly.
+  let normalHits = 0;
+  let shiftedHits = 0;
+  for (const row of rows.slice(0, 200)) {
+    for (let n = 1; n <= 18; n++) {
+      const a = clean(row[`attribute_name_${n}`]);
+      if (a && ATTR_MAP[attrKey(a)]) normalHits++;
+      const s = clean(row[`attribute_value_ar_${n - 1}`]);
+      if (s && ATTR_MAP[attrKey(s)]) shiftedHits++;
+    }
+  }
+  const attrShifted = shiftedHits > normalHits;
+
   for (const row of rows) {
     const sku = clean(row["variant_sku"]) ?? clean(row["main_sku"])?.replace(/^main_/, "") ?? null;
     if (!sku || seen.has(sku)) continue;
@@ -243,14 +263,30 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       weight_kg: parseWeightKg(row["weight"]),
     };
 
+    if (attrShifted) {
+      // displaced columns of the misaligned export — validate by content so
+      // a half-fixed export can't write a price into the image field
+      const priceRaw = clean(row["main_image"]);
+      book.price = priceRaw !== null && /^[\d,]+(\.\d+)?$/.test(priceRaw) ? priceRaw : null;
+      const img = clean(row["main_active"]);
+      book.image = img !== null && /^https?:\/\//.test(img) ? img : null;
+      book.link = clean(row["keywords"]) ?? clean(row["step_package_label_ar"]);
+      // this export variant carries no stock data anywhere
+      book.stock = null;
+      book.stock_qty = null;
+    }
+
     // book metadata lives in the attribute_name/value_N pairs. Every pair
     // is kept in `attributes` even when it has no column, so an attribute
     // the platform adds later is still stored rather than dropped.
     const attributes: Record<string, string> = {};
     for (let n = 1; n <= 18; n++) {
-      const attrName = clean(row[`attribute_name_${n}`]);
+      const attrName = attrShifted ? clean(row[`attribute_value_ar_${n - 1}`]) : clean(row[`attribute_name_${n}`]);
       if (!attrName) continue;
-      const value = clean(row[`attribute_value_ar_${n}`]) ?? clean(row[`attribute_value_${n}`]);
+      // prefer the Arabic value in either layout
+      const value = attrShifted
+        ? (clean(row[`attribute_value_${n}`]) ?? clean(row[`attribute_name_${n}`]))
+        : (clean(row[`attribute_value_ar_${n}`]) ?? clean(row[`attribute_value_${n}`]));
       if (!value) continue;
       attributes[attrName] = value;
       const field = ATTR_MAP[attrKey(attrName)] ?? ATTR_MAP[attrName];

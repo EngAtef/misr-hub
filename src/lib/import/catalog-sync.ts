@@ -52,6 +52,10 @@ export interface CatalogSyncResult {
   stockFailed: boolean;
   savedProducts: number;
   productsFailed: boolean;
+  // the actual PostgREST error — "Forbidden" really is a role problem,
+  // anything else (timeout, bad value) must not be reported as one
+  productsError: string | null;
+  stockError: string | null;
   compare: CatalogCompare | null;
   score: number;
 }
@@ -72,6 +76,7 @@ export async function syncCatalogUpload(
   // 1) persist the full catalog. Chunked small: rows carry descriptions.
   let savedProducts = 0;
   let productsFailed = false;
+  let productsError: string | null = null;
   for (let i = 0; i < books.length; i += 400) {
     const chunk = books.slice(i, i + 400).map((b) => ({
       sku: b.sku,
@@ -109,6 +114,7 @@ export async function syncCatalogUpload(
     const { error } = await supabase.rpc("fn_upsert_products", { p_rows: chunk });
     if (error) {
       productsFailed = true;
+      productsError = error.message;
       break;
     }
     savedProducts += chunk.length;
@@ -120,6 +126,7 @@ export async function syncCatalogUpload(
   const withStock = books.filter((b) => b.stock_qty !== null && b.stock_qty !== undefined);
   let syncedStock = 0;
   let stockFailed = false;
+  let stockError: string | null = null;
   for (let i = 0; i < withStock.length; i += 2000) {
     const chunk = withStock.slice(i, i + 2000).map((b) => ({
       sku: b.sku,
@@ -131,6 +138,7 @@ export async function syncCatalogUpload(
     const { error } = await supabase.rpc("fn_upsert_stock_catalog", { p_rows: chunk });
     if (error) {
       stockFailed = true;
+      stockError = error.message;
       break;
     }
     syncedStock += chunk.length;
@@ -180,5 +188,5 @@ export async function syncCatalogUpload(
     .from("app_settings")
     .upsert({ key: "catalog_snapshot", value: snapshot, updated_at: new Date().toISOString() }, { onConflict: "key" });
 
-  return { syncedStock, stockFailed, savedProducts, productsFailed, compare, score };
+  return { syncedStock, stockFailed, savedProducts, productsFailed, productsError, stockError, compare, score };
 }

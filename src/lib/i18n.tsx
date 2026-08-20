@@ -1464,6 +1464,7 @@ const dict = {
   controlCenter: { ar: "مركز التحكم", en: "Control Center" },
   controlSubtitle: { ar: "نشاط المستخدمين والجلسات وسلة المحذوفات — للمالك فقط", en: "User activity, sessions and trash — owner only" },
   egyptTime: { ar: "توقيت مصر", en: "Egypt time" },
+  catalogUploadInDataCenter: { ar: "رفع ملف المنتجات من مركز البيانات", en: "Upload the products file in the Data Center" },
   activityTab: { ar: "سجل النشاط", en: "Activity Log" },
   sessionsTab: { ar: "الجلسات والأجهزة", en: "Sessions & Devices" },
   trashTab: { ar: "سلة المحذوفات", en: "Trash" },

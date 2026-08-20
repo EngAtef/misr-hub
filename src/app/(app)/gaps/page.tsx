@@ -187,8 +187,8 @@ const S = {
   okrOrders: { ar: "الطلبات", en: "Orders" },
   okrThrough: { ar: "حتى", en: "Through" },
   okrDefs: {
-    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الأضواء وبدون الشحن) لكل الطلبات غير الملغاة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة (بدون الأضواء) + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
-    en: "Gross = bookstore products value (AL-Adwaa and delivery excluded) for all non-cancelled orders; its orders count every status. Net = delivered items (AL-Adwaa excluded) + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
+    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن) لكل الطلبات غير الملغاة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
+    en: "Gross = bookstore products value (delivery excluded) for all non-cancelled orders; its orders count every status. Net = delivered items + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
   },
   repGenerated: { ar: "أُنشئ في", en: "Generated" },
   repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },

@@ -2,15 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, LineChart, Megaphone, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, formatDateTimeEg, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
 import { parseStockFile, snapshotTakenAt, type StockSnapshot } from "@/lib/import/parse-stock";
-import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
-import { parseAdsFile, type ParsedAdReport } from "@/lib/import/parse-ads";
 import { parseCustomersFile, type CustomerRow } from "@/lib/import/parse-customers";
 import { parseCustomerStatsFile, type CustomerStatsRow } from "@/lib/import/parse-customer-stats";
 import { parseProductSalesFile, type ProductSaleRow } from "@/lib/import/parse-product-sales";
@@ -62,23 +60,14 @@ type UploadType =
   | "stock_ecom"
   | "stock_sap"
   | "costs"
-  | "ga4_pages"
-  | "ga4_tx"
-  | "ga4_items"
-  | "ads"
   | "custom_lists"
   | "abandoned_carts"
   | "abandoned_items"
   | "abandoned_daily";
 
-const GA4_EXPECTED: Record<string, "pages" | "transactions" | "items"> = {
-  ga4_pages: "pages",
-  ga4_tx: "transactions",
-  ga4_items: "items",
-};
-
 // Downloadable templates showing the exact columns each upload expects.
-// GA4 templates keep the "# Start/End date" comment lines the parser needs.
+// GA4 and Meta ads no longer upload here — both sync via their APIs
+// (Traffic page cron + Ads Center live pull).
 const TEMPLATES: Record<string, string> = {
   orders:
     "Order number,Customer ID,Order Date,Order status,Delivery status,Payment method,Full Customer name,Customer phone number,Product name,Product Sku,Items Prices,City,Area,Total Order Amount,COD amount,Actual Delivery Fees,Original Delivery Fees,Cancellation Reason,Source\r\n" +
@@ -115,22 +104,6 @@ const TEMPLATES: Record<string, string> = {
     "SKU,cost\r\n" +
     "SKU001,45\r\n" +
     "SKU002,60",
-  ga4_pages:
-    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
-    "Page path and screen class,Views,Active users,Views per active user,Average engagement time per active user,Event count,Add to carts,Key events,Total revenue,Bounce rate,Engagement rate\r\n" +
-    "/ar/products,19547,5079,3.85,71.5,50273,2705,0,0,0.12,0.87",
-  ga4_tx:
-    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
-    "Transaction ID,Ecommerce purchases,Purchase revenue\r\n" +
-    "NM000012345,1,200.00",
-  ga4_items:
-    "# Start date: 20260601\r\n# End date: 20260630\r\n" +
-    "Item name,Items viewed,Items added to cart,Items purchased,Item revenue\r\n" +
-    "Book A,759,285,79,9480.00",
-  ads:
-    "Campaign name,Ad set name,Ad name,Reach,Impressions,Amount spent (EGP),Purchases,Cost per purchase,Purchases conversion value,Frequency,Clicks (all),Link clicks,Link (ad settings),Reporting starts,Reporting ends\r\n" +
-    "CON | Book A,adv,Book A creative,91341,279920,7457.57,23,324.24,16936.67,3.06,2371,1488,https://nahdetmisrbookstore.com/ar/products/list/my-list,2026-06-01,2026-06-22\r\n" +
-    '# "Link (ad settings)" is optional — when present, ads connect to their custom list automatically.',
   custom_lists:
     "sku,name,list_id,product_type,order\r\n" +
     "main_C010924220964P,Book A,82,main,1\r\n" +
@@ -175,8 +148,6 @@ interface Pending {
   stock?: StockSnapshot;
   stockTakenAt?: string;
   costs?: CostRow[];
-  ga4?: Ga4AnyParsed;
-  ads?: ParsedAdReport;
   abandoned?: AbandonedParsed;
   customLists?: ParsedCustomLists;
   count: number;
@@ -235,10 +206,6 @@ export default function DataCenterPage() {
     { key: "stock_ecom", icon: Boxes, title: t("uploadStockEcom"), hint: t("uploadStockEcomHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock_sap", icon: Warehouse, title: t("uploadStockSap"), hint: t("uploadStockSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
-    { key: "ga4_pages", icon: LineChart, title: t("uploadGa4Pages"), hint: t("uploadGa4PagesHint"), accept: ".csv" },
-    { key: "ga4_tx", icon: LineChart, title: t("uploadGa4Tx"), hint: t("uploadGa4TxHint"), accept: ".csv" },
-    { key: "ga4_items", icon: LineChart, title: t("uploadGa4Items"), hint: t("uploadGa4ItemsHint"), accept: ".csv" },
-    { key: "ads", icon: Megaphone, title: t("uploadAdsHere"), hint: t("adsImportHint"), accept: ".csv,.xlsx" },
     { key: "custom_lists", icon: ListTree, title: t("uploadCustomLists"), hint: t("uploadCustomListsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_carts", icon: ShoppingBasket, title: t("uploadAbandonedCarts"), hint: t("uploadAbandonedCartsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_items", icon: PackageSearch, title: t("uploadAbandonedItems"), hint: t("uploadAbandonedItemsHint"), accept: ".xlsx,.xls,.csv" },
@@ -369,24 +336,6 @@ export default function DataCenterPage() {
         const rows = parseCostsFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "costs", fileName: file.name, costs: rows, count: rows.length });
-      } else if (activeType.startsWith("ga4")) {
-        const text = await file.text();
-        const parsed = parseGa4Any(text);
-        if (!parsed) throw new Error(t("invalidFile"));
-        // strict per-card validation: right report type. Multi-month (all-time)
-        // files are allowed: transactions merge by id; pages/items are stored
-        // under their start month as an "all period" bucket.
-        if (parsed.kind !== GA4_EXPECTED[activeType]) throw new Error(t("wrongFileForCard"));
-        const count =
-          parsed.kind === "pages" ? parsed.rows.length : parsed.kind === "transactions" ? parsed.transactions.length : parsed.items.length;
-        if (!count) throw new Error(t("invalidFile"));
-        setPending({
-          type: activeType,
-          fileName: file.name,
-          ga4: parsed,
-          count,
-          extra: `${parsed.month.slice(0, 7)} · ${parsed.kind}`,
-        });
       } else if (activeType.startsWith("abandoned")) {
         const buffer = await file.arrayBuffer();
         const parsed = parseAbandonedAny(buffer);
@@ -403,20 +352,7 @@ export default function DataCenterPage() {
           extra: parsed.kind === "daily" ? (parsed.metric === "avg" ? t("abDailyAvgDetected") : t("abDailyLostDetected")) : undefined,
         });
       } else {
-        const buffer = await file.arrayBuffer();
-        const report = parseAdsFile(buffer, file.name);
-        if (!report.rows.length) throw new Error(t("invalidFile"));
-        // the account label and reporting period decide which stored period is
-        // replaced — if the file doesn't state them, the Ads page is the place
-        // to fix them by hand before importing
-        if (!report.periodStart || !report.periodEnd) throw new Error(t("adsNeedPeriod"));
-        setPending({
-          type: "ads",
-          fileName: file.name,
-          ads: report,
-          count: report.rows.length,
-          extra: `${report.account} · ${report.periodStart} → ${report.periodEnd}`,
-        });
+        throw new Error(t("invalidFile"));
       }
       setPhase("ready");
     } catch (e) {
@@ -510,8 +446,11 @@ export default function DataCenterPage() {
           setProcessed(done);
           setProgress(total ? Math.round((done / total) * 100) : 100);
         });
-        if (res.productsFailed) throw new Error(t("productsSaveFailed"));
-        if (res.stockFailed) throw new Error(t("stockSyncFailed"));
+        // "Forbidden" is the only real role failure; show anything else as-is
+        if (res.productsFailed)
+          throw new Error(res.productsError === "Forbidden" ? t("productsSaveFailed") : (res.productsError ?? t("productsSaveFailed")));
+        if (res.stockFailed)
+          throw new Error(res.stockError === "Forbidden" ? t("stockSyncFailed") : (res.stockError ?? t("stockSyncFailed")));
         setProcessed(pending.products.length);
         setProgress(100);
         await recordUpload(pending.fileName, pending.products.length, pending.products.length, 0);
@@ -574,41 +513,6 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.costs.length) * 100));
         }
         await recordUpload(pending.fileName, pending.costs.length, ok, 0);
-      } else if (pending.type.startsWith("ga4") && pending.ga4) {
-        const g = pending.ga4;
-        let ok = 0;
-        if (g.kind === "pages") {
-          // replace this month's rows (safe re-upload)
-          await supabase.from("ga4_pages").delete().eq("period_month", g.month);
-          for (let i = 0; i < g.rows.length; i += 500) {
-            const chunk = g.rows.slice(i, i + 500);
-            const { error } = await supabase.from("ga4_pages").insert(chunk);
-            if (error) throw new Error(error.message);
-            ok += chunk.length;
-            setProcessed(ok);
-            setProgress(Math.round((ok / g.rows.length) * 100));
-          }
-        } else if (g.kind === "transactions") {
-          for (let i = 0; i < g.transactions.length; i += 1000) {
-            const chunk = g.transactions.slice(i, i + 1000);
-            const { error } = await supabase.from("ga4_transactions").upsert(chunk, { onConflict: "transaction_id" });
-            if (error) throw new Error(error.message);
-            ok += chunk.length;
-            setProcessed(ok);
-            setProgress(Math.round((ok / g.transactions.length) * 100));
-          }
-        } else {
-          await supabase.from("ga4_items").delete().eq("period_month", g.month);
-          for (let i = 0; i < g.items.length; i += 1000) {
-            const chunk = g.items.slice(i, i + 1000);
-            const { error } = await supabase.from("ga4_items").insert(chunk);
-            if (error) throw new Error(error.message);
-            ok += chunk.length;
-            setProcessed(ok);
-            setProgress(Math.round((ok / g.items.length) * 100));
-          }
-        }
-        await recordUpload(pending.fileName, pending.count, ok, 0);
       } else if (pending.type.startsWith("abandoned") && pending.abandoned) {
         const ab = pending.abandoned;
         let ok = 0;
@@ -658,24 +562,6 @@ export default function DataCenterPage() {
         setProcessed(pending.count);
         setProgress(100);
         await recordUpload(pending.fileName, pending.count, pending.count, pending.customLists.skipped);
-      } else if (pending.type === "ads" && pending.ads) {
-        const res = await fetch("/api/ads", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "import",
-            account: pending.ads.account,
-            periodStart: pending.ads.periodStart,
-            periodEnd: pending.ads.periodEnd,
-            fileName: pending.fileName,
-            rows: pending.ads.rows,
-          }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error ?? "failed");
-        setProcessed(pending.ads.rows.length);
-        setProgress(100);
-        await recordUpload(pending.fileName, pending.ads.rows.length, pending.ads.rows.length, 0);
       }
       setPhase("done");
       loadHistory();
@@ -806,9 +692,6 @@ export default function DataCenterPage() {
                 {formatNumber(pending.count)} {t("rowsReady")}
                 {pending.extra && (
                   <span className="ms-2 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" dir="ltr">
-                    {/* only the GA4 cards detect a *month*; the others report
-                        an account, a list name, or which export was recognised */}
-                    {pending.type.startsWith("ga4") ? `${t("monthDetected")}: ` : ""}
                     {pending.extra}
                   </span>
                 )}
