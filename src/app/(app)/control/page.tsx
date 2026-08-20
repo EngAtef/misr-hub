@@ -19,7 +19,7 @@ import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
 import { ActivityInsights } from "@/components/activity-insights";
-import { formatDateTime, formatNumber, toCsv, downloadCsv, cn, sanitizeSearch } from "@/lib/utils";
+import { formatDateTimeEg, formatNumber, toCsv, downloadCsv, cn, sanitizeSearch, EGYPT_TZ } from "@/lib/utils";
 import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 const PAGE_SIZE = 50;
@@ -142,6 +142,18 @@ export default function ControlCenterPage() {
   const [ownerState, setOwnerState] = useState<"checking" | "owner" | "denied">("checking");
   const [tab, setTab] = useState<TabKey>("activity");
 
+  // live Egypt clock — every timestamp on this page is Egypt time
+  const egClock = useCallback(
+    () => new Date().toLocaleString("en-GB", { timeZone: EGYPT_TZ, weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    []
+  );
+  const [egNow, setEgNow] = useState("");
+  useEffect(() => {
+    setEgNow(egClock()); // set after mount so SSR/client markup can't disagree
+    const id = setInterval(() => setEgNow(egClock()), 1000);
+    return () => clearInterval(id);
+  }, [egClock]);
+
   // UI-level owner gate (data itself is guarded server-side by RLS / RPCs)
   useEffect(() => {
     let cancelled = false;
@@ -195,7 +207,16 @@ export default function ControlCenterPage() {
       <PageHeader
         title={t("controlCenter")}
         subtitle={t("controlSubtitle")}
-        actions={<ShieldCheck size={20} className="text-emerald-600" />}
+        actions={
+          <div className="flex items-center gap-3">
+            {egNow && (
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600" dir="ltr">
+                🇪🇬 {t("egyptTime")}: {egNow}
+              </span>
+            )}
+            <ShieldCheck size={20} className="text-emerald-600" />
+          </div>
+        }
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -333,7 +354,7 @@ function ActivityTab() {
       .range(0, 9999);
     const list = (data as ActivityRow[]) ?? [];
     const csvRows = list.map((r) => ({
-      time: formatDateTime(r.created_at),
+      time: formatDateTimeEg(r.created_at),
       user: r.user_email ?? "",
       kind: r.kind,
       page: r.page ?? "",
@@ -498,7 +519,7 @@ function ActivityTab() {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="text-xs text-slate-500" dir="ltr">
-                    {formatDateTime(r.created_at)}
+                    {formatDateTimeEg(r.created_at)}
                   </td>
                   <td dir="ltr">{r.user_email ?? "—"}</td>
                   <td>
@@ -637,13 +658,13 @@ function SessionsTab() {
                   <div className="min-w-36">
                     <div className="text-[11px] font-semibold uppercase text-slate-400">{t("signedInAt")}</div>
                     <div className="text-slate-600 text-xs" dir="ltr">
-                      {formatDateTime(s.created_at)}
+                      {formatDateTimeEg(s.created_at)}
                     </div>
                   </div>
                   <div className="min-w-36">
                     <div className="text-[11px] font-semibold uppercase text-slate-400">{t("lastSeen")}</div>
                     <div className="text-slate-600 text-xs" dir="ltr">
-                      {formatDateTime(s.updated_at)}
+                      {formatDateTimeEg(s.updated_at)}
                     </div>
                   </div>
                   <div className="ms-auto">
@@ -911,7 +932,7 @@ function TrashTab() {
                       {r.deleted_by_email ?? "—"}
                     </td>
                     <td className="text-xs text-slate-500" dir="ltr">
-                      {formatDateTime(r.deleted_at)}
+                      {formatDateTimeEg(r.deleted_at)}
                     </td>
                     <td>
                       <div className="flex justify-end gap-2">

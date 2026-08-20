@@ -919,7 +919,7 @@ export function BotAnalytics() {
             {fallbackMessages.map((e) => (
               <div key={e.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5">
                 <span className="flex-1 text-sm" dir="auto">{e.message}</span>
-                <span className="text-[10px] text-slate-400 shrink-0">{new Date(e.created_at).toLocaleDateString()}</span>
+                <span className="text-[10px] text-slate-400 shrink-0">{new Date(e.created_at).toLocaleDateString("en-GB", { timeZone: "Africa/Cairo" })}</span>
                 <button
                   type="button"
                   className="btn-secondary !py-1 text-xs shrink-0"

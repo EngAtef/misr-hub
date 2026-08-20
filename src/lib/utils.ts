@@ -40,8 +40,14 @@ export function formatPercent(part: number, total: number): string {
   return `${((part / total) * 100).toFixed(1)}%`;
 }
 
-// Order timestamps are stored as the Egypt-local wall-clock time in UTC form
-// (the exports carry no timezone), so display them in UTC to avoid a +2/+3h shift.
+// The app runs on Egypt time everywhere. Two kinds of timestamps exist:
+// - Order/export timestamps are stored as the Egypt-local wall-clock time in
+//   UTC form (the exports carry no timezone), so formatDate/formatDateTime
+//   display them in UTC — that already reads as Egypt time.
+// - Real timestamps (Postgres now(): created_at, updated_at, sync times…)
+//   are true UTC, so formatDateEg/formatDateTimeEg shift them to Africa/Cairo.
+export const EGYPT_TZ = "Africa/Cairo";
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
@@ -60,6 +66,28 @@ export function formatDateTime(value: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "UTC",
+  });
+}
+
+// Real (true-UTC) timestamps rendered as Egypt local time.
+export function formatDateEg(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: EGYPT_TZ });
+}
+
+export function formatDateTimeEg(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: EGYPT_TZ,
   });
 }
 

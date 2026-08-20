@@ -178,6 +178,18 @@ const S = {
   sourceCol: { ar: "المصدر", en: "Source" },
   monthlyReport: { ar: "CSV", en: "CSV" },
   designedReport: { ar: "تقرير الشهر (طباعة/PDF)", en: "Monthly report (print/PDF)" },
+  okrReport: { ar: "تقرير OKR الشهري", en: "Monthly OKR report" },
+  okrTitle: { ar: "تقرير OKR الشهري", en: "Monthly OKR Report" },
+  okrGross: { ar: "الإجمالي (Gross)", en: "Gross" },
+  okrNet: { ar: "الصافي (Net)", en: "Net" },
+  okrMetric: { ar: "المؤشر", en: "Metric" },
+  okrRevenue: { ar: "الإيراد (ج.م)", en: "Revenue (EGP)" },
+  okrOrders: { ar: "الطلبات", en: "Orders" },
+  okrThrough: { ar: "حتى", en: "Through" },
+  okrDefs: {
+    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الأضواء وبدون الشحن) لكل الطلبات غير الملغاة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة (بدون الأضواء) + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
+    en: "Gross = bookstore products value (AL-Adwaa and delivery excluded) for all non-cancelled orders; its orders count every status. Net = delivered items (AL-Adwaa excluded) + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
+  },
   repGenerated: { ar: "أُنشئ في", en: "Generated" },
   repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },
   repScopeTitle: { ar: "نطاق التقرير", en: "Report scope" },
@@ -416,12 +428,26 @@ interface SourceReport {
   };
 }
 
-// current month first (the one being fixed), then 13 back
+// fn_gaps_okr_report — totals only, no gaps / no Adwaa sections
+interface OkrReport {
+  month: string;
+  through: string;
+  sessions: number;
+  spend: number;
+  gross: { revenue: number; orders: number; cancelled: number; cr: number | null; roas: number | null };
+  net: { revenue: number; orders: number; cr: number | null; roas: number | null };
+}
+
+// current month first (the one being fixed), then 13 back.
+// "current" follows Egypt time, not the device or UTC.
 function monthOptions(): string[] {
-  const now = new Date();
+  const [y, m] = new Date()
+    .toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" })
+    .split("-")
+    .map(Number);
   const list: string[] = [];
   for (let i = 0; i <= 13; i++) {
-    list.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 10));
+    list.push(new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 10));
   }
   return list;
 }
@@ -690,11 +716,71 @@ export default function GapsPage() {
       : ""
   }
 
-  <div class="footer"><span>NM Smart App — GAPS</span><span>${tx(S.repGenerated)}: ${new Date().toISOString().slice(0, 10)}</span></div>
+  <div class="footer"><span>NM Smart App — GAPS</span><span>${tx(S.repGenerated)}: ${new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" })}</span></div>
 </div></body></html>`;
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     window.open(URL.createObjectURL(blob), "_blank");
   }, [supabase, month, tx, lang, report]);
+
+  // Monthly OKR report — totals only (spend, gross/net revenue, CR, ROAS).
+  // Deliberately carries no tracking-gaps and no AL-Adwaa sections.
+  const openOkrReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_okr_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as OkrReport;
+    const ar = lang === "ar";
+    const nf = (n: number | null | undefined) =>
+      n === null || n === undefined || isNaN(n) ? "—" : new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const pc = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}%`);
+    const x = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}×`);
+    const html = `<!doctype html><html dir="${ar ? "rtl" : "ltr"}" lang="${ar ? "ar" : "en"}"><head><meta charset="utf-8">
+<title>${tx(S.okrTitle)} — ${monthLabelFor(r.month, lang)}</title>
+<style>
+  :root { --navy:#1f3864; --navy2:#2f5496; --line:#d9dce6; --soft:#eef1f8; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:#1a1f2e; margin:0; background:#f4f5f9; }
+  .page { max-width:760px; margin:24px auto; background:#fff; padding:40px 48px; box-shadow:0 2px 14px rgba(30,40,90,.12); }
+  h1 { color:var(--navy); font-size:24px; margin:0 0 2px; }
+  .sub { color:#5a6478; font-size:12.5px; margin-bottom:6px; }
+  .scope { background:var(--soft); border-inline-start:4px solid var(--navy2); padding:10px 14px; font-size:12px; color:#3a4358; border-radius:6px; margin:14px 0 22px; line-height:1.7; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { background:var(--navy); color:#fff; padding:9px 12px; text-align:start; font-weight:600; }
+  td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:start; direction:ltr; font-weight:600; }
+  td.s { direction:${ar ? "rtl" : "ltr"}; color:#2a3145; }
+  tbody tr:nth-child(even) { background:#f7f8fc; }
+  td.span { text-align:center; background:var(--soft); }
+  .footer { margin-top:30px; font-size:10.5px; color:#9aa0b2; border-top:1px solid var(--line); padding-top:10px; display:flex; justify-content:space-between; }
+  .printbtn { position:fixed; top:14px; inset-inline-end:14px; background:var(--navy2); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+  @media print { body{background:#fff} .page{box-shadow:none; margin:0; padding:10mm 12mm; max-width:none} .printbtn{display:none} }
+</style></head><body>
+<button class="printbtn" onclick="window.print()">${tx(S.repPrint)}</button>
+<div class="page">
+  <h1>${tx(S.okrTitle)}</h1>
+  <div class="sub">${monthLabelFor(r.month, lang)} (${tx(S.okrThrough)} ${r.through}) — NM Smart App</div>
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.okrDefs)}.</div>
+
+  <table>
+    <thead><tr><th>${tx(S.okrMetric)}</th><th>${tx(S.okrGross)}</th><th>${tx(S.okrNet)}</th></tr></thead>
+    <tbody>
+      <tr><td class="s">${tx(S.repSpend)}</td><td class="span" colspan="2">${nf(r.spend)}</td></tr>
+      <tr><td class="s">${tx(S.repSessions)}</td><td class="span" colspan="2">${nf(r.sessions)}</td></tr>
+      <tr><td class="s">${tx(S.okrRevenue)}</td><td>${nf(r.gross.revenue)}</td><td>${nf(r.net.revenue)}</td></tr>
+      <tr><td class="s">${tx(S.okrOrders)}</td><td>${nf(r.gross.orders)}</td><td>${nf(r.net.orders)}</td></tr>
+      <tr><td class="s">CR</td><td>${pc(r.gross.cr)}</td><td>${pc(r.net.cr)}</td></tr>
+      <tr><td class="s">ROAS</td><td>${x(r.gross.roas)}</td><td>${x(r.net.roas)}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer"><span>NM Smart App — OKR</span><span>${tx(S.repGenerated)}: ${new Date().toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+</div></body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }, [supabase, month, tx, lang]);
 
   const runLookup = useCallback(async () => {
     const q = lookupQuery.trim();
@@ -942,7 +1028,7 @@ export default function GapsPage() {
   // the banner just says so, and shows when GA4 last pulled
   const syncLag = isCurrentMonth && !!ga4Through;
   const fmtSync = (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleString(lang === "ar" ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+    iso ? new Date(iso).toLocaleString(lang === "ar" ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" }) : "—";
 
   const visibleUntracked = showAllUntracked ? untracked : untracked.slice(0, 12);
   const sortedBooks = [...gapRows].sort((a, b) => b.spend - a.spend);
@@ -987,6 +1073,13 @@ export default function GapsPage() {
               className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50"
             >
               <FileText size={14} /> {tx(S.designedReport)}
+            </button>
+            <button
+              onClick={openOkrReport}
+              disabled={reportBusy}
+              className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <FileText size={14} /> {tx(S.okrReport)}
             </button>
             <button
               onClick={downloadMonthlyReport}

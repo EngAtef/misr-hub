@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTimeEg } from "@/lib/utils";
 
 interface AuditRow {
   id: number;
@@ -65,7 +65,7 @@ export default function AuditPage() {
             <tbody>
               {sortedRows.map((r) => (
                 <tr key={r.id}>
-                  <td className="text-xs text-slate-500">{formatDateTime(r.created_at)}</td>
+                  <td className="text-xs text-slate-500">{formatDateTimeEg(r.created_at)}</td>
                   <td dir="ltr">{r.user_email ?? "—"}</td>
                   <td>
                     <span className="inline-block rounded-full bg-brand-50 text-brand-700 px-2.5 py-0.5 text-xs font-semibold">

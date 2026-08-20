@@ -5,7 +5,7 @@ import { UserPlus, X, Pencil, Trash2, Crown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
-import { formatDateTime, cn } from "@/lib/utils";
+import { formatDateTimeEg, cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 import { confirmDialog } from "@/components/dialog";
 import { PasswordField } from "@/components/password-field";
@@ -159,7 +159,7 @@ export default function UsersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="text-xs text-slate-500">{formatDateTime(u.created_at)}</td>
+                  <td className="text-xs text-slate-500">{formatDateTimeEg(u.created_at)}</td>
                   <td>
                     <div className="flex gap-1 justify-end">
                       <button className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={() => setEditing(u)}>

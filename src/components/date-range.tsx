@@ -13,21 +13,31 @@ export interface DateRange {
 type Preset = "7d" | "30d" | "90d" | "month" | "lastMonth" | "all" | "custom";
 export type ComparePreset = "off" | "prev" | "year" | "custom";
 
-// These are calendar days in the reader's own timezone, so they must be
-// written from local parts. toISOString() converts to UTC first, and in
-// Cairo (UTC+3) local midnight on the 1st is still the last day of the
-// previous month there — "this month" used to start on 31 July.
+// These are calendar days on Egypt time, whatever the device is set to.
+// toISOString() converts to UTC first, and in Cairo (UTC+3) local midnight
+// on the 1st is still the last day of the previous month there — "this
+// month" used to start on 31 July. So build the Y-M-D from Cairo's clock
+// and format from local parts only.
 const isoLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// a Date whose local Y-M-D equals today's date in Egypt
+const cairoToday = () => {
+  const [y, m, d] = new Date()
+    .toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" })
+    .split("-")
+    .map(Number);
+  return new Date(y, m - 1, d);
+};
+
 const shiftDays = (n: number) => {
-  const d = new Date();
+  const d = cairoToday();
   d.setDate(d.getDate() + n);
   return d;
 };
 
 export function presetToRange(preset: Preset): DateRange {
-  const now = new Date();
+  const now = cairoToday();
   // `to` is the exclusive upper bound, so tomorrow means "through today"
   const end = isoLocal(shiftDays(1));
   switch (preset) {
@@ -96,7 +106,7 @@ export function useDateRange(initial: Preset = "month") {
   // It runs after mount, not in the initial state, because the server
   // prerenders in UTC and would disagree with Cairo about which day it is.
   useEffect(() => {
-    if (initial !== "month" || new Date().getDate() !== 1) return;
+    if (initial !== "month" || cairoToday().getDate() !== 1) return;
     setPreset("lastMonth");
     setRange(presetToRange("lastMonth"));
   }, [initial]);

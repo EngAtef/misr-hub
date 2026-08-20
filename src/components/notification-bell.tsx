@@ -9,7 +9,7 @@ import { useLang } from "@/lib/i18n";
 import { sanitizeHtml } from "@/lib/rich-text";
 import { RichComposer } from "@/components/rich-composer";
 import { MultiSelect } from "@/components/multi-select";
-import { formatDateTime, cn } from "@/lib/utils";
+import { formatDateTimeEg, cn } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
 
 interface Notification {
@@ -219,7 +219,7 @@ export function NotificationBell({ profile, canCompose = true }: { profile: Prof
                     />
                     <div className="mt-1 text-[11px] text-slate-400" dir="ltr">
                       {n.sender_email ? `${n.sender_email} · ` : ""}
-                      {formatDateTime(n.created_at)}
+                      {formatDateTimeEg(n.created_at)}
                     </div>
                   </button>
                 ))

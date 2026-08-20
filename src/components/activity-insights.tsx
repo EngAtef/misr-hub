@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { Spinner, EmptyState } from "@/components/ui";
-import { formatNumber, formatDateTime, cn } from "@/lib/utils";
+import { formatNumber, formatDateTimeEg, cn } from "@/lib/utils";
 
 interface InsightsData {
   users: {
@@ -118,7 +118,7 @@ export function ActivityInsights() {
                   />
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400" dir="ltr">
-                  {formatNumber(Number(u.visits))} {t("visitKind")} · {formatNumber(Number(u.clicks))} {t("clickKind")} · {formatNumber(Number(u.actions))} {t("actionKind")} · {t("lastSeen")}: {formatDateTime(u.last_seen)}
+                  {formatNumber(Number(u.visits))} {t("visitKind")} · {formatNumber(Number(u.clicks))} {t("clickKind")} · {formatNumber(Number(u.actions))} {t("actionKind")} · {t("lastSeen")}: {formatDateTimeEg(u.last_seen)}
                 </div>
               </div>
             ))}

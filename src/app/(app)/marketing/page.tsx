@@ -10,7 +10,7 @@ import type { MarketingPlan, AdConfig } from "@/lib/marketing/director";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, KpiCard, EmptyState } from "@/components/ui";
-import { formatMoney, formatNumber, formatDateTime, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatDateTimeEg, cn } from "@/lib/utils";
 import { parseEpub } from "@/lib/marketing/epub";
 import {
   renderAsset, loadImage, ASSET_DIMS, ASSET_LABELS, STYLE_NAMES, LAYOUT_NAMES,
@@ -1194,7 +1194,7 @@ export default function MarketingPage() {
                           <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">🏆 {t("mktWinner")}</span>
                         )}
                       </div>
-                      <div className="mt-0.5 text-xs text-slate-400">{formatDateTime(p.created_at)}</div>
+                      <div className="mt-0.5 text-xs text-slate-400">{formatDateTimeEg(p.created_at)}</div>
                       {p.publish_error && <div className="mt-1 text-xs text-red-600">{p.publish_error}</div>}
                       {rowError[p.id] && <div className="mt-1 text-xs text-red-600">{rowError[p.id]}</div>}
                     </div>
@@ -1347,7 +1347,7 @@ export default function MarketingPage() {
                       <td>{formatNumber(ig.likes ?? 0)}/{formatNumber(ig.comments ?? 0)}</td>
                       <td>{p.ad?.insights ? formatMoney(p.ad.insights.spend ?? 0, lang) : "—"}</td>
                       <td>{p.ad?.insights ? formatNumber(p.ad.insights.results ?? 0) : "—"}</td>
-                      <td className="text-xs text-slate-400">{p.insights_at ? formatDateTime(p.insights_at) : "—"}</td>
+                      <td className="text-xs text-slate-400">{p.insights_at ? formatDateTimeEg(p.insights_at) : "—"}</td>
                     </tr>
                   );
                 })}

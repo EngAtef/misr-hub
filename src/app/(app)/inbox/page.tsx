@@ -12,7 +12,7 @@ import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner } from "@/components/ui";
 import { RichComposer } from "@/components/rich-composer";
 import { sanitizeHtml, htmlToText } from "@/lib/rich-text";
-import { formatDateTime, cn } from "@/lib/utils";
+import { formatDateTimeEg, cn } from "@/lib/utils";
 import { notifyDialog, confirmDialog } from "@/components/dialog";
 
 type Msg = {
@@ -74,6 +74,10 @@ function initialsOf(name: string): string {
 }
 function formatSize(bytes: number): string {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+// day boundaries follow Egypt time, whatever the viewer's device is set to
+function cairoDayKey(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
 }
 
 export default function InboxPage() {
@@ -456,18 +460,18 @@ export default function InboxPage() {
   // the creator or any admin can rename, add/remove members, or delete a group
   const canManage = (c: Conversation) => c.kind === "group" && (c.created_by === myId || myRole === "admin");
   const dayLabel = (iso: string) => {
+    // day boundaries follow Egypt time, whatever the viewer's device is set to
+    const cairoDay = (dt: Date) => dt.toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
     const d = new Date(iso);
-    const today = new Date();
-    const y = new Date(today);
-    y.setDate(today.getDate() - 1);
-    const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-    if (same(d, today)) return t("today");
-    if (same(d, y)) return t("yesterday");
+    const now = new Date();
+    if (cairoDay(d) === cairoDay(now)) return t("today");
+    if (cairoDay(d) === cairoDay(new Date(now.getTime() - 24 * 3600 * 1000))) return t("yesterday");
     return d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB", {
       weekday: "short",
       day: "numeric",
       month: "short",
-      year: d.getFullYear() === today.getFullYear() ? undefined : "numeric",
+      year: cairoDay(d).slice(0, 4) === cairoDay(now).slice(0, 4) ? undefined : "numeric",
+      timeZone: "Africa/Cairo",
     });
   };
   const DaySep = ({ iso }: { iso: string }) => (
@@ -541,7 +545,7 @@ export default function InboxPage() {
                   <span className="truncate text-sm font-semibold text-slate-800">{t("announcementsLbl")}</span>
                   {lastAnn && (
                     <span dir="ltr" className="shrink-0 text-[10px] text-slate-400">
-                      {formatDateTime(lastAnn.created_at)}
+                      {formatDateTimeEg(lastAnn.created_at)}
                     </span>
                   )}
                 </span>
@@ -611,7 +615,7 @@ export default function InboxPage() {
                       <span className="truncate text-sm font-semibold text-slate-800">{convTitle(c)}</span>
                       {c.last && (
                         <span dir="ltr" className="shrink-0 text-[10px] text-slate-400">
-                          {formatDateTime(c.last.created_at)}
+                          {formatDateTimeEg(c.last.created_at)}
                         </span>
                       )}
                     </span>
@@ -658,7 +662,7 @@ export default function InboxPage() {
                   announcements.map((a, i) => {
                     const mine = a.sender_id === myId;
                     const prev = announcements[i - 1];
-                    const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(a.created_at).toDateString();
+                    const newDay = !prev || cairoDayKey(prev.created_at) !== cairoDayKey(a.created_at);
                     return (
                       <div key={a.id}>
                         {newDay && <DaySep iso={a.created_at} />}
@@ -666,7 +670,7 @@ export default function InboxPage() {
                         {!mine && <div className={cn("mb-0.5 text-[11px] font-semibold", nameColor(a.sender_id))}>{senderName(a.sender_id)}</div>}
                         <div dir="auto" className={bubble(mine)} dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body) }} />
                         <div className="mt-0.5 text-[10px] text-slate-400" dir="ltr">
-                          {formatDateTime(a.created_at)}
+                          {formatDateTimeEg(a.created_at)}
                         </div>
                         </div>
                       </div>
@@ -722,7 +726,7 @@ export default function InboxPage() {
                   thread.map((m, i) => {
                     const mine = m.sender_id === myId;
                     const prev = thread[i - 1];
-                    const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
+                    const newDay = !prev || cairoDayKey(prev.created_at) !== cairoDayKey(m.created_at);
                     const sameSender = !!prev && !newDay && prev.sender_id === m.sender_id;
                     const isGroup = selectedConv.kind === "group";
                     return (
@@ -742,7 +746,7 @@ export default function InboxPage() {
                           <div dir="auto" className={bubble(mine)} dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.body) }} />
                         )}
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400">
-                          <span dir="ltr">{formatDateTime(m.created_at)}</span>
+                          <span dir="ltr">{formatDateTimeEg(m.created_at)}</span>
                           {mine && selectedConv.kind === "dm" && (
                             <CheckCheck size={13} className={readByOther(selectedConv, m) ? "text-sky-500" : "text-slate-400"} />
                           )}

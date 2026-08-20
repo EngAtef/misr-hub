@@ -1564,7 +1564,7 @@ export default function AdsPage() {
                         {p.file_name ?? "—"}
                       </td>
                       <td className="text-xs text-slate-500">
-                        {new Date(p.imported_at).toLocaleDateString("en-GB")}
+                        {new Date(p.imported_at).toLocaleDateString("en-GB", { timeZone: "Africa/Cairo" })}
                         {p.imported_by_email && <div className="text-[11px] text-slate-400">{p.imported_by_email}</div>}
                       </td>
                       <td>

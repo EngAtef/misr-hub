@@ -6,7 +6,7 @@ import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
-import { formatDateTime, formatNumber, cn } from "@/lib/utils";
+import { formatDateTime, formatDateTimeEg, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
 import { parseStockFile, snapshotTakenAt, type StockSnapshot } from "@/lib/import/parse-stock";
 import { parseGa4Any, type Ga4AnyParsed } from "@/lib/import/parse-ga4";
@@ -899,7 +899,7 @@ export default function DataCenterPage() {
                       {h.status}
                     </span>
                   </td>
-                  <td className="text-xs text-slate-500">{formatDateTime(h.created_at)}</td>
+                  <td className="text-xs text-slate-500">{formatDateTimeEg(h.created_at)}</td>
                 </tr>
               ))}
             </tbody>
