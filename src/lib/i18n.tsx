@@ -1273,6 +1273,10 @@ const dict = {
   viewsChart30: { ar: "المشاهدات — آخر ٣٠ يوماً", en: "Views — last 30 days" },
   noViewsYet: { ar: "لا توجد مشاهدات بعد", en: "No views yet" },
   topBooks30: { ar: "الأكثر مشاهدة — آخر ٣٠ يوماً", en: "Most viewed — last 30 days" },
+  perPage: { ar: "لكل صفحة", en: "per page" },
+  ofWord: { ar: "من", en: "of" },
+  prevPage: { ar: "السابق", en: "Previous" },
+  nextPage: { ar: "التالي", en: "Next" },
   // Control Center — storage tab
   storageTab: { ar: "التخزين", en: "Storage" },
   storageTotalBooks: { ar: "الكتب المستضافة", en: "Hosted books" },

@@ -268,6 +268,16 @@ async function signAndUpload(
   }
 }
 
+// Compact page list for the pager: 1 … around-current … last.
+function pageNumbers(current: number, total: number): (number | "…")[] {
+  const out: (number | "…")[] = [];
+  for (let p = 1; p <= total; p++) {
+    if (p === 1 || p === total || Math.abs(p - current) <= 1) out.push(p);
+    else if (out[out.length - 1] !== "…") out.push("…");
+  }
+  return out;
+}
+
 // Tiny dependency-free bar chart for the last-30-days views.
 function ViewsChart({ days, noDataText }: { days: { day: string; views: number }[]; noDataText: string }) {
   const max = Math.max(...days.map((d) => d.views), 1);
@@ -302,6 +312,8 @@ export default function StudioPage() {
   const [qrId, setQrId] = useState("");
   const [qrData, setQrData] = useState("");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(100);
   const [renameId, setRenameId] = useState("");
   const [renameVal, setRenameVal] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -671,6 +683,11 @@ export default function StudioPage() {
   const shown = norm
     ? books.filter((b) => (b.title || "").toLowerCase().includes(norm) || b.id.toLowerCase().includes(norm))
     : books;
+  // client-side pagination — safePage self-corrects if a delete/search shrinks the list
+  const totalPages = Math.max(1, Math.ceil(shown.length / perPage));
+  const safePage = Math.min(page, totalPages);
+  const paged = shown.slice((safePage - 1) * perPage, safePage * perPage);
+  const nf = (n: number) => n.toLocaleString(lang === "ar" ? "ar-EG" : "en-GB");
 
   return (
     <div>
@@ -792,22 +809,52 @@ export default function StudioPage() {
         )}
 
         {books.length > 0 && (
-          <div className="relative mb-4 max-w-md">
-            <Search size={15} className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ltr:left-3 rtl:right-3" />
-            <input
-              className="input !ps-9"
-              placeholder={t("searchBooksPh")}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {query && (
-              <button
-                className="absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 ltr:right-3 rtl:left-3"
-                onClick={() => setQuery("")}
-                aria-label="clear"
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[220px] max-w-md flex-1">
+              <Search size={15} className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ltr:left-3 rtl:right-3" />
+              <input
+                className="input !ps-9"
+                placeholder={t("searchBooksPh")}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+              />
+              {query && (
+                <button
+                  className="absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 ltr:right-3 rtl:left-3"
+                  onClick={() => {
+                    setQuery("");
+                    setPage(1);
+                  }}
+                  aria-label="clear"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">
+              <select
+                className="input !w-auto !py-1.5 !text-xs"
+                value={perPage}
+                onChange={(e) => {
+                  setPerPage(Number(e.target.value));
+                  setPage(1);
+                }}
               >
-                <X size={14} />
-              </button>
+                {[25, 50, 100, 200, 500].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              {t("perPage")}
+            </label>
+            {shown.length > 0 && (
+              <span className="text-xs text-slate-400">
+                {nf((safePage - 1) * perPage + 1)}–{nf(Math.min(shown.length, safePage * perPage))} {t("ofWord")} {nf(shown.length)}
+              </span>
             )}
           </div>
         )}
@@ -820,7 +867,7 @@ export default function StudioPage() {
           <p className="py-4 text-center text-sm text-slate-400">{t("searchNoBooks")}</p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {shown.map((b) => (
+            {paged.map((b) => (
               <li key={b.id} className="py-2.5">
                 <div className="flex items-center gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
@@ -1004,6 +1051,41 @@ export default function StudioPage() {
               </li>
             ))}
           </ul>
+        )}
+        {!loadingBooks && totalPages > 1 && (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
+            <button
+              className="btn-secondary !px-2.5 !py-1.5 !text-xs"
+              onClick={() => setPage(safePage - 1)}
+              disabled={safePage === 1}
+            >
+              {t("prevPage")}
+            </button>
+            {pageNumbers(safePage, totalPages).map((p, i) =>
+              p === "…" ? (
+                <span key={`gap-${i}`} className="px-1 text-xs text-slate-400">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={p}
+                  className={`min-w-[2rem] rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    p === safePage ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                  onClick={() => setPage(p)}
+                >
+                  {nf(p)}
+                </button>
+              )
+            )}
+            <button
+              className="btn-secondary !px-2.5 !py-1.5 !text-xs"
+              onClick={() => setPage(safePage + 1)}
+              disabled={safePage === totalPages}
+            >
+              {t("nextPage")}
+            </button>
+          </div>
         )}
         <datalist id="book-categories">
           {[...new Set(books.map((b) => b.category).filter(Boolean))].map((c) => (
