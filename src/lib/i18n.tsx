@@ -1469,6 +1469,7 @@ const dict = {
   controlSubtitle: { ar: "نشاط المستخدمين والجلسات وسلة المحذوفات — للمالك فقط", en: "User activity, sessions and trash — owner only" },
   egyptTime: { ar: "توقيت مصر", en: "Egypt time" },
   catalogUploadInDataCenter: { ar: "رفع ملف المنتجات من مركز البيانات", en: "Upload the products file in the Data Center" },
+  trafficLoadFail: { ar: "تعذّر تحميل بيانات الزيارات — البيانات محفوظة، أعد المحاولة", en: "Couldn't load the traffic data — it is still saved, try again" },
   activityTab: { ar: "سجل النشاط", en: "Activity Log" },
   sessionsTab: { ar: "الجلسات والأجهزة", en: "Sessions & Devices" },
   trashTab: { ar: "سلة المحذوفات", en: "Trash" },

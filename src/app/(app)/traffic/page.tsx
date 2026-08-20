@@ -75,6 +75,7 @@ export default function TrafficPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [months, setMonths] = useState<MonthRow[]>([]);
+  const [monthsError, setMonthsError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [compareMonth, setCompareMonth] = useState<string>("");
   const [prevSummary, setPrevSummary] = useState<Summary | null>(null);
@@ -140,9 +141,12 @@ export default function TrafficPage() {
   }, [months, supabase]);
 
   useEffect(() => {
-    supabase.rpc("fn_ga4_months").then(({ data }) => {
+    // a failed months query must read as an error, never as "no data" —
+    // that mistake once made a timeout look like the GA4 data was gone
+    supabase.rpc("fn_ga4_months").then(({ data, error }) => {
       const list = (data as MonthRow[]) ?? [];
       setMonths(list);
+      setMonthsError(error && !list.length ? error.message : null);
       if (list.length) setSelected(list[0].period_month);
       setLoading(false);
     });
@@ -325,6 +329,22 @@ export default function TrafficPage() {
   );
 
   if (loading) return <div><PageHeader title={t("traffic")} /><Spinner /></div>;
+
+  if (monthsError) {
+    return (
+      <div>
+        <PageHeader title={t("traffic")} subtitle={t("trafficSubtitle")} />
+        <div className="card p-12 text-center space-y-4">
+          <RefreshCw className="mx-auto h-12 w-12 text-slate-300" />
+          <p className="text-slate-500">{t("trafficLoadFail")}</p>
+          <p className="text-xs text-slate-400" dir="ltr">{monthsError}</p>
+          <button className="btn-primary inline-flex" onClick={() => { setLoading(true); setMonthsError(null); setReloadKey((k) => k + 1); }}>
+            <RefreshCw size={14} /> {t("retry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!months.length) {
     return (
