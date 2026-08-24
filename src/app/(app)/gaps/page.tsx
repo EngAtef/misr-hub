@@ -190,6 +190,20 @@ const S = {
     ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن) مع استبعاد إيراد الطلبات الملغاة والمرتجعة/الفاشلة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
     en: "Gross = bookstore products value (delivery excluded) with cancelled and returned/failed revenue removed; its orders count every status. Net = delivered items + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
   },
+  netReport: { ar: "تقرير الصافي (مسلَّم)", en: "Net report (delivered)" },
+  netTitle: { ar: "تقرير المصادر — إجمالي وصافي", en: "Source Report — Gross & Net" },
+  netDefs: {
+    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن وبدون الأضواء) مع استبعاد إيراد الملغاة والمرتجعة/الفاشلة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف. الإسناد = آخر نقرة GA4؛ حدود الشهر بتوقيت مصر",
+    en: "Gross = bookstore products value (delivery and AL-Adwaa excluded) with cancelled and returned/failed revenue removed. Net = delivered items + those orders' delivery fees — the same basis as the Targets page. Attribution = GA4 last-click; month boundaries on Egypt local time",
+  },
+  colGrossRevenue: { ar: "إيراد إجمالي", en: "Gross revenue" },
+  colNetRevenue: { ar: "إيراد صافي", en: "Net revenue" },
+  colDelivered: { ar: "مسلَّمة", en: "Delivered" },
+  colPending: { ar: "قيد التسليم", en: "In transit" },
+  netPendingNote: {
+    ar: "الصافي لا يحسب الطلب إلا بعد تسليمه؛ في الشهر الجاري توجد طلبات قيد التسليم فيظهر الصافي منخفضًا ويرتفع تدريجيًا مع اكتمال التسليم — قارن الصافي بين الشهور المقفولة فقط.",
+    en: "Net counts an order only after delivery; in a running month, in-transit orders make net look low and it keeps rising as they deliver — compare net only between closed months.",
+  },
   repGenerated: { ar: "أُنشئ في", en: "Generated" },
   repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },
   repScopeTitle: { ar: "نطاق التقرير", en: "Report scope" },
@@ -442,6 +456,30 @@ interface OkrReport {
   spend: number;
   gross: { revenue: number; orders: number; cancelled: number; returned: number; cr: number | null; roas: number | null };
   net: { revenue: number; orders: number; cr: number | null; roas: number | null };
+}
+
+// fn_gaps_net_source_report — gross + net per source (net = delivered items +
+// those orders' delivery fees, the Targets basis)
+interface NetSourceReport {
+  month: string;
+  through: string;
+  totals: {
+    sessions: number;
+    spend: number;
+    gross: { revenue: number; orders: number; cancelled: number; returned: number; cr: number | null; roas: number | null };
+    net: { revenue: number; orders: number; cr: number | null; roas: number | null };
+    pending: { orders: number; book_value: number };
+  };
+  rows: {
+    bucket: string;
+    sessions: number | null;
+    orders: number;
+    gross_revenue: number;
+    delivered: number;
+    net_revenue: number;
+    pending: number;
+    pending_value: number;
+  }[];
 }
 
 // current month first (the one being fixed), then 13 back.
@@ -790,6 +828,102 @@ export default function GapsPage() {
     window.open(URL.createObjectURL(blob), "_blank");
   }, [supabase, month, tx, lang]);
 
+  // Net source report — gross + net totals side by side, per-source delivered detail.
+  const openNetReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_net_source_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as NetSourceReport;
+    const ar = lang === "ar";
+    const nf = (n: number | null | undefined) =>
+      n === null || n === undefined || isNaN(n) ? "—" : new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const pc = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}%`);
+    const x = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}×`);
+    const bucketLabel = (b: string) =>
+      ({
+        meta_tagged: tx(S.bMetaTagged),
+        meta_untagged: tx(S.bMetaUntagged),
+        bitly: tx(S.bShortlinks),
+        google_ads: tx(S.bGoogleAds),
+        direct: tx(S.bDirect),
+        seo: tx(S.bSeo),
+        appstore: tx(S.bAppstore),
+        other: tx(S.bOtherMalformed),
+        untracked: tx(S.bUntracked),
+      })[b] ?? b;
+    const t = r.totals;
+    const srcRows = r.rows
+      .map(
+        (row) => `<tr${row.bucket === "untracked" ? ' class="warn"' : ""}>
+          <td class="s">${bucketLabel(row.bucket)}</td>
+          <td>${row.sessions === null ? "—" : nf(row.sessions)}</td>
+          <td>${nf(row.orders)}</td>
+          <td>${nf(row.gross_revenue)}</td>
+          <td>${nf(row.delivered)}</td>
+          <td>${nf(row.net_revenue)}</td>
+          <td>${nf(row.pending)}</td></tr>`
+      )
+      .join("");
+    const html = `<!doctype html><html dir="${ar ? "rtl" : "ltr"}" lang="${ar ? "ar" : "en"}"><head><meta charset="utf-8">
+<title>${tx(S.netTitle)} — ${monthLabelFor(r.month, lang)}</title>
+<style>
+  :root { --navy:#1f3864; --navy2:#2f5496; --line:#d9dce6; --soft:#eef1f8; --warn:#fdecec; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:#1a1f2e; margin:0; background:#f4f5f9; }
+  .page { max-width:900px; margin:24px auto; background:#fff; padding:40px 48px; box-shadow:0 2px 14px rgba(30,40,90,.12); }
+  h1 { color:var(--navy); font-size:24px; margin:0 0 2px; }
+  .sub { color:#5a6478; font-size:12.5px; margin-bottom:6px; }
+  .scope { background:var(--soft); border-inline-start:4px solid var(--navy2); padding:10px 14px; font-size:12px; color:#3a4358; border-radius:6px; margin:14px 0 22px; line-height:1.7; }
+  h2 { color:var(--navy2); font-size:15.5px; margin:26px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { background:var(--navy); color:#fff; padding:8px 10px; text-align:start; font-weight:600; }
+  td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:start; direction:ltr; }
+  td.s { direction:${ar ? "rtl" : "ltr"}; font-weight:600; color:#2a3145; }
+  td.span { text-align:center; background:var(--soft); }
+  tbody tr:nth-child(even) { background:#f7f8fc; }
+  tr.warn td { background:var(--warn); }
+  tr.total td { background:var(--soft); font-weight:700; border-top:2px solid var(--navy2); }
+  .note { font-size:11px; color:#7a8296; margin-top:6px; line-height:1.6; }
+  .footer { margin-top:30px; font-size:10.5px; color:#9aa0b2; border-top:1px solid var(--line); padding-top:10px; display:flex; justify-content:space-between; }
+  .printbtn { position:fixed; top:14px; inset-inline-end:14px; background:var(--navy2); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+  @media print { body{background:#fff} .page{box-shadow:none; margin:0; padding:10mm 12mm; max-width:none} .printbtn{display:none} }
+</style></head><body>
+<button class="printbtn" onclick="window.print()">${tx(S.repPrint)}</button>
+<div class="page">
+  <h1>${tx(S.netTitle)}</h1>
+  <div class="sub">${monthLabelFor(r.month, lang)} (${tx(S.okrThrough)} ${r.through}) — NM Smart App</div>
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.netDefs)}.</div>
+
+  <h2>${tx(S.okrGross)} / ${tx(S.okrNet)}</h2>
+  <table>
+    <thead><tr><th>${tx(S.okrMetric)}</th><th>${tx(S.okrGross)}</th><th>${tx(S.okrNet)}</th></tr></thead>
+    <tbody>
+      <tr><td class="s">${tx(S.repSpend)}</td><td class="span" colspan="2">${nf(t.spend)}</td></tr>
+      <tr><td class="s">${tx(S.repSessions)}</td><td class="span" colspan="2">${nf(t.sessions)}</td></tr>
+      <tr><td class="s">${tx(S.okrRevenue)}</td><td>${nf(t.gross.revenue)}</td><td>${nf(t.net.revenue)}</td></tr>
+      <tr><td class="s">${tx(S.okrOrders)}</td><td>${nf(t.gross.orders)}</td><td>${nf(t.net.orders)}</td></tr>
+      <tr><td class="s">${tx(S.repCancelled)} / ${tx(S.repReturned)}</td><td>${nf(t.gross.cancelled)} / ${nf(t.gross.returned)}</td><td>—</td></tr>
+      <tr><td class="s">CR</td><td>${pc(t.gross.cr)}</td><td>${pc(t.net.cr)}</td></tr>
+      <tr><td class="s">ROAS</td><td>${x(t.gross.roas)}</td><td>${x(t.net.roas)}</td></tr>
+      <tr><td class="s">${tx(S.colPending)}</td><td class="span" colspan="2">${nf(t.pending.orders)} (${nf(t.pending.book_value)} EGP)</td></tr>
+    </tbody>
+  </table>
+  <p class="note">${tx(S.netPendingNote)}</p>
+
+  <h2>${tx(S.repBySource)}</h2>
+  <table><thead><tr><th>${tx(S.repSource)}</th><th>${tx(S.repSessions)}</th><th>${tx(S.repOrders)}</th><th>${tx(S.colGrossRevenue)}</th><th>${tx(S.colDelivered)}</th><th>${tx(S.colNetRevenue)}</th><th>${tx(S.colPending)}</th></tr></thead>
+  <tbody>${srcRows}<tr class="total"><td class="s">${tx(S.repTotal)}</td><td>${nf(t.sessions)}</td><td>${nf(t.gross.orders)}</td><td>${nf(t.gross.revenue)}</td><td>${nf(t.net.orders)}</td><td>${nf(t.net.revenue)}</td><td>${nf(t.pending.orders)}</td></tr></tbody></table>
+
+  <div class="footer"><span>NM Smart App — GAPS</span><span>${tx(S.repGenerated)}: ${new Date().toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+</div></body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }, [supabase, month, tx, lang]);
+
   const runLookup = useCallback(async () => {
     const q = lookupQuery.trim();
     if (q.length < 3) return;
@@ -1088,6 +1222,13 @@ export default function GapsPage() {
               className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
             >
               <FileText size={14} /> {tx(S.okrReport)}
+            </button>
+            <button
+              onClick={openNetReport}
+              disabled={reportBusy}
+              className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <FileText size={14} /> {tx(S.netReport)}
             </button>
             <button
               onClick={downloadMonthlyReport}
