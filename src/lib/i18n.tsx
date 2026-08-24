@@ -1038,6 +1038,7 @@ const dict = {
   targetMonth: { ar: "الشهر", en: "Month" },
   totalTargetLabel: { ar: "الهدف الإجمالي (ج.م)", en: "Total target (EGP)" },
   piecesTargetLabel: { ar: "هدف القطع (نسخ)", en: "Pieces target (copies)" },
+  lastYearLabel: { ar: "السنة الماضية", en: "Last year" },
   piecesTargetCol: { ar: "هدف القطع", en: "Pieces target" },
   piecesSold: { ar: "قطع مُسلَّمة", en: "Pieces delivered" },
   remainingPieces: { ar: "قطع متبقية", en: "Remaining pieces" },

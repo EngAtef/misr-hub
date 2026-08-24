@@ -16,6 +16,8 @@ interface TargetRow {
   kids_target: number;
   cultural_target: number;
   pieces_target: number;
+  ly_revenue: number;
+  ly_pieces: number;
   actual_revenue: number;
   actual_orders: number;
   orders_placed: number;
@@ -62,6 +64,8 @@ interface Bucket {
   delivered: number;
   piecesTarget: number;
   pieces: number;
+  lyRevenue: number;
+  lyPieces: number;
   partial: boolean;
   future: boolean;
 }
@@ -102,6 +106,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
         delivered: 0,
         piecesTarget: 0,
         pieces: 0,
+        lyRevenue: 0,
+        lyPieces: 0,
         partial: false,
         future: true,
       };
@@ -113,6 +119,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
     b.delivered += Number(r.actual_orders) || 0;
     b.piecesTarget += Number(r.pieces_target) || 0;
     b.pieces += Number(r.actual_pieces) || 0;
+    b.lyRevenue += Number(r.ly_revenue) || 0;
+    b.lyPieces += Number(r.ly_pieces) || 0;
     const mk = iso.slice(0, 7);
     // the month in progress makes its whole bucket incomplete, and a bucket
     // still entirely ahead of us has nothing to compare rather than -100%
@@ -173,7 +181,11 @@ export default function TargetsPage() {
     const actual = yearRows.reduce((s, r) => s + Number(r.actual_revenue), 0);
     const piecesTarget = yearRows.reduce((s, r) => s + Number(r.pieces_target), 0);
     const pieces = yearRows.reduce((s, r) => s + Number(r.actual_pieces), 0);
+    const lyRevenue = yearRows.reduce((s, r) => s + Number(r.ly_revenue), 0);
+    const lyPieces = yearRows.reduce((s, r) => s + Number(r.ly_pieces), 0);
     return {
+      lyRevenue,
+      lyPieces,
       target,
       actual,
       pct: target > 0 ? (actual / target) * 100 : 0,
@@ -239,6 +251,11 @@ export default function TargetsPage() {
           <span>{t("achieved")}: <b>{formatMoney(annual.actual, lang)}</b></span>
           <span>{t("monthlyTarget")}: <b>{formatMoney(annual.target, lang)}</b></span>
         </div>
+        {annual.lyRevenue > 0 && (
+          <div className="mt-1 text-xs text-slate-400">
+            {t("lastYearLabel")}: {formatMoney(annual.lyRevenue, lang)} · {formatNumber(annual.lyPieces)} {t("piecesSold")}
+          </div>
+        )}
         {annual.piecesTarget > 0 && (
           <>
             <div className="mt-3 flex items-center justify-between mb-1">
@@ -288,6 +305,11 @@ export default function TargetsPage() {
                 </span>
                 <span className="text-slate-400">/ {r.pieces_target > 0 ? formatNumber(r.pieces_target) : "—"}</span>
               </div>
+              {r.ly_revenue > 0 && (
+                <div className="mt-1 text-[11px] text-slate-400">
+                  {t("lastYearLabel")}: {formatMoney(r.ly_revenue, lang)} · {formatNumber(r.ly_pieces)}
+                </div>
+              )}
             </div>
           );
         })}
@@ -371,6 +393,7 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
               <th className="text-end">{t("piecesTargetCol")}</th>
               <th className="text-end">{t("piecesSold")}</th>
               <th className="text-end">{t("vsPrevPeriod")}</th>
+              <th className="text-end">{t("lastYearLabel")}</th>
               <th className="text-end">{t("vsLastYear")}</th>
             </tr>
           </thead>
@@ -424,7 +447,19 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
                     )}
                   </td>
                   <td className="text-end">{pctCell(delta(b.actual, prev?.actual), b.future || !prev)}</td>
-                  <td className="text-end">{pctCell(delta(b.actual, lastYear?.actual), b.future || !lastYear)}</td>
+                  <td className="text-end text-slate-500">
+                    {b.lyRevenue > 0
+                      ? formatMoney(b.lyRevenue, lang)
+                      : lastYear
+                        ? formatMoney(lastYear.actual, lang)
+                        : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="text-end">
+                    {pctCell(
+                      delta(b.actual, b.lyRevenue > 0 ? b.lyRevenue : lastYear?.actual),
+                      b.future || (b.lyRevenue <= 0 && !lastYear)
+                    )}
+                  </td>
                 </tr>
               );
             })}
