@@ -204,6 +204,31 @@ const S = {
     ar: "الصافي لا يحسب الطلب إلا بعد تسليمه؛ في الشهر الجاري توجد طلبات قيد التسليم فيظهر الصافي منخفضًا ويرتفع تدريجيًا مع اكتمال التسليم — قارن الصافي بين الشهور المقفولة فقط.",
     en: "Net counts an order only after delivery; in a running month, in-transit orders make net look low and it keeps rising as they deliver — compare net only between closed months.",
   },
+  seoReport: { ar: "تقرير SEO", en: "SEO report" },
+  seoTitle: { ar: "أداء البحث المجاني (SEO)", en: "SEO Organic Performance" },
+  seoDefs: {
+    ar: "SEO = البحث المجاني على الويب فقط (جوجل/بينج/ياهو) بدون تطبيق جوجل بلاي؛ الإيراد المحتسب = منتجات المكتبة فقط (بدون الشحن وبدون الأضواء) مع استبعاد الملغاة والمرتجعة؛ أرقام GA4 الخام تشمل التطبيق والأضواء والطلبات الميتة — السلم أدناه يوصل بين الرقمين",
+    en: "SEO = web organic search only (Google/Bing/Yahoo), Google Play app excluded; scorecard revenue = bookstore products only (no delivery, no AL-Adwaa) with cancelled and returned removed; raw GA4 numbers include the app, AL-Adwaa and dead orders — the ladder below connects the two",
+  },
+  seoLadder: { ar: "من رقم GA4 إلى رقم التطبيق", en: "From GA4's number to the Hub's" },
+  lGa4: { ar: "إيراد GA4 المجاني (ويب + تطبيق)", en: "GA4 organic revenue (web + app)" },
+  lApp: { ar: "− تطبيق جوجل بلاي (ليس SEO ويب)", en: "− Google Play app organic (not web SEO)" },
+  lCancelled: { ar: "− طلبات ملغاة", en: "− cancelled orders" },
+  lReturned: { ar: "− طلبات مرتجعة/فاشلة", en: "− returned / failed orders" },
+  lResidual: { ar: "− فروق توقيت وقيم GA4", en: "− GA4 timing & value differences" },
+  lAlive: { ar: "= قيمة منتجات الطلبات الحية", en: "= product value of alive SEO orders" },
+  lAdwaa: { ar: "منها الأضواء (مستبعدة بقاعدة الشركة)", en: "of which AL-Adwaa (excluded by company rule)" },
+  lBook: { ar: "= إيراد المكتبة المحتسب لـ SEO", en: "= bookstore revenue credited to SEO" },
+  seoScorecard: { ar: "مؤشرات SEO — الشهر مقابل السابق", en: "SEO scorecard — month vs previous" },
+  perDay: { ar: "يوميًا", en: "/day" },
+  mImpr: { ar: "ظهور في نتائج جوجل (GSC)", en: "Google Search impressions (GSC)" },
+  mClicks: { ar: "نقرات من نتائج جوجل (GSC)", en: "Google Search clicks (GSC)" },
+  mSessions: { ar: "جلسات البحث المجاني (ويب)", en: "Organic web sessions" },
+  mTotalMoney: { ar: "إجمالي ما دفعه عملاء SEO", en: "Total customer money via SEO" },
+  seoUseNote: {
+    ar: "للتقييم مقارنةً بباقي القنوات استخدم إيراد المكتبة (الأساس الإجمالي). إجمالي ما دفعه العملاء (كتب + أضواء + شحن) معلومة إضافية تُظهر القيمة التجارية الكاملة للقناة — الأضواء غير محتسبة في أرقام القنوات بقاعدة الشركة.",
+    en: "For channel-vs-channel evaluation use the bookstore revenue (gross basis). Total customer money (books + AL-Adwaa + delivery) is extra context showing the channel's full commercial value — AL-Adwaa is excluded from all channel numbers by company rule.",
+  },
   repGenerated: { ar: "أُنشئ في", en: "Generated" },
   repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },
   repScopeTitle: { ar: "نطاق التقرير", en: "Report scope" },
@@ -480,6 +505,34 @@ interface NetSourceReport {
     pending: number;
     pending_value: number;
   }[];
+}
+
+// fn_gaps_seo_report — one month of web-organic (SEO) stats + the previous month
+interface SeoMonth {
+  month: string;
+  through: string;
+  days: number;
+  gsc_impressions: number;
+  gsc_clicks: number;
+  sessions: number;
+  orders: number;
+  cancelled: number;
+  returned: number;
+  book_revenue: number;
+  adwaa_revenue: number;
+  delivery_fees: number;
+  cancelled_value: number;
+  returned_value: number;
+  delivered: number;
+  net_revenue: number;
+  pending: number;
+  ga4_web_revenue: number;
+  ga4_app_revenue: number;
+}
+interface SeoReport {
+  month: string;
+  cur: SeoMonth;
+  prev: SeoMonth;
 }
 
 // current month first (the one being fixed), then 13 back.
@@ -924,6 +977,98 @@ export default function GapsPage() {
     window.open(URL.createObjectURL(blob), "_blank");
   }, [supabase, month, tx, lang]);
 
+  // SEO report — ladder from raw GA4 organic to the Hub's scorecard number,
+  // plus a month-vs-previous scorecard with per-day columns.
+  const openSeoReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_seo_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as SeoReport;
+    const c = r.cur;
+    const p = r.prev;
+    const ar = lang === "ar";
+    const nf = (n: number | null | undefined) =>
+      n === null || n === undefined || isNaN(n) ? "—" : new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const perDay = (n: number, days: number, dp = 0) => (days > 0 ? nf(+(n / days).toFixed(dp)) : "—");
+    const cr = (m: SeoMonth) => (m.sessions > 0 ? `${((m.orders * 100) / m.sessions).toFixed(2)}%` : "—");
+    const ga4Total = c.ga4_web_revenue + c.ga4_app_revenue;
+    const alive = c.book_revenue + c.adwaa_revenue;
+    const residual = c.ga4_web_revenue - c.cancelled_value - c.returned_value - alive;
+    const totalMoney = (m: SeoMonth) => m.book_revenue + m.adwaa_revenue + m.delivery_fees;
+    const row = (label: string, pv: string, cv: string, pd = "", cd = "", cls = "") =>
+      `<tr${cls ? ` class="${cls}"` : ""}><td class="s">${label}</td><td>${pv}</td><td>${cv}</td><td>${pd}</td><td>${cd}</td></tr>`;
+    const html = `<!doctype html><html dir="${ar ? "rtl" : "ltr"}" lang="${ar ? "ar" : "en"}"><head><meta charset="utf-8">
+<title>${tx(S.seoTitle)} — ${monthLabelFor(c.month, lang)}</title>
+<style>
+  :root { --navy:#1f3864; --navy2:#2f5496; --line:#d9dce6; --soft:#eef1f8; --hl:#e9f7f0; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:#1a1f2e; margin:0; background:#f4f5f9; }
+  .page { max-width:900px; margin:24px auto; background:#fff; padding:40px 48px; box-shadow:0 2px 14px rgba(30,40,90,.12); }
+  h1 { color:var(--navy); font-size:24px; margin:0 0 2px; }
+  .sub { color:#5a6478; font-size:12.5px; margin-bottom:6px; }
+  .scope { background:var(--soft); border-inline-start:4px solid var(--navy2); padding:10px 14px; font-size:12px; color:#3a4358; border-radius:6px; margin:14px 0 22px; line-height:1.7; }
+  h2 { color:var(--navy2); font-size:15.5px; margin:26px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { background:var(--navy); color:#fff; padding:8px 10px; text-align:start; font-weight:600; }
+  td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:start; direction:ltr; }
+  td.s { direction:${ar ? "rtl" : "ltr"}; font-weight:600; color:#2a3145; }
+  tbody tr:nth-child(even) { background:#f7f8fc; }
+  tr.total td { background:var(--soft); font-weight:700; border-top:2px solid var(--navy2); }
+  tr.hl td { background:var(--hl); font-weight:700; }
+  tr.info td { color:#6a7288; }
+  .note { font-size:11px; color:#7a8296; margin-top:6px; line-height:1.6; }
+  .footer { margin-top:30px; font-size:10.5px; color:#9aa0b2; border-top:1px solid var(--line); padding-top:10px; display:flex; justify-content:space-between; }
+  .printbtn { position:fixed; top:14px; inset-inline-end:14px; background:var(--navy2); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+  @media print { body{background:#fff} .page{box-shadow:none; margin:0; padding:10mm 12mm; max-width:none} .printbtn{display:none} }
+</style></head><body>
+<button class="printbtn" onclick="window.print()">${tx(S.repPrint)}</button>
+<div class="page">
+  <h1>${tx(S.seoTitle)}</h1>
+  <div class="sub">${monthLabelFor(c.month, lang)} (${tx(S.okrThrough)} ${c.through}) — NM Smart App</div>
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.seoDefs)}.</div>
+
+  <h2>${tx(S.seoLadder)}</h2>
+  <table><tbody>
+    <tr><td class="s">${tx(S.lGa4)}</td><td>${nf(ga4Total)}</td></tr>
+    <tr><td class="s">${tx(S.lApp)}</td><td>−${nf(c.ga4_app_revenue)}</td></tr>
+    <tr><td class="s">${tx(S.lCancelled)} (${nf(c.cancelled)})</td><td>−${nf(c.cancelled_value)}</td></tr>
+    <tr><td class="s">${tx(S.lReturned)} (${nf(c.returned)})</td><td>−${nf(c.returned_value)}</td></tr>
+    <tr><td class="s">${tx(S.lResidual)}</td><td>−${nf(residual)}</td></tr>
+    <tr class="total"><td class="s">${tx(S.lAlive)}</td><td>${nf(alive)}</td></tr>
+    <tr class="info"><td class="s">${tx(S.lAdwaa)}</td><td>${nf(c.adwaa_revenue)}</td></tr>
+    <tr class="hl"><td class="s">${tx(S.lBook)}</td><td>${nf(c.book_revenue)}</td></tr>
+  </tbody></table>
+
+  <h2>${tx(S.seoScorecard)}</h2>
+  <table>
+    <thead><tr><th>${tx(S.okrMetric)}</th><th>${monthLabelFor(p.month, lang)}</th><th>${monthLabelFor(c.month, lang)}</th><th>${monthLabelFor(p.month, lang)} ${tx(S.perDay)}</th><th>${monthLabelFor(c.month, lang)} ${tx(S.perDay)}</th></tr></thead>
+    <tbody>
+      ${row(tx(S.mImpr), nf(p.gsc_impressions), nf(c.gsc_impressions), perDay(p.gsc_impressions, p.days), perDay(c.gsc_impressions, c.days))}
+      ${row(tx(S.mClicks), nf(p.gsc_clicks), nf(c.gsc_clicks), perDay(p.gsc_clicks, p.days), perDay(c.gsc_clicks, c.days))}
+      ${row(tx(S.mSessions), nf(p.sessions), nf(c.sessions), perDay(p.sessions, p.days), perDay(c.sessions, c.days))}
+      ${row(tx(S.repOrders), nf(p.orders), nf(c.orders), perDay(p.orders, p.days, 1), perDay(c.orders, c.days, 1))}
+      ${row("CR", cr(p), cr(c))}
+      ${row(tx(S.lBook), nf(p.book_revenue), nf(c.book_revenue), perDay(p.book_revenue, p.days), perDay(c.book_revenue, c.days), "hl")}
+      ${row(`${tx(S.colNetRevenue)} (${tx(S.colDelivered)})`, `${nf(p.net_revenue)} (${nf(p.delivered)})`, `${nf(c.net_revenue)} (${nf(c.delivered)})`)}
+      ${row(tx(S.colPending), nf(p.pending), nf(c.pending))}
+      ${row(tx(S.repAdwaaRevenue), nf(p.adwaa_revenue), nf(c.adwaa_revenue), perDay(p.adwaa_revenue, p.days), perDay(c.adwaa_revenue, c.days))}
+      ${row(tx(S.repDelivery), nf(p.delivery_fees), nf(c.delivery_fees))}
+      ${row(tx(S.mTotalMoney), nf(totalMoney(p)), nf(totalMoney(c)), perDay(totalMoney(p), p.days), perDay(totalMoney(c), c.days), "total")}
+    </tbody>
+  </table>
+  <p class="note">${tx(S.netPendingNote)}</p>
+  <p class="note">${tx(S.seoUseNote)}</p>
+
+  <div class="footer"><span>NM Smart App — GAPS</span><span>${tx(S.repGenerated)}: ${new Date().toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+</div></body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }, [supabase, month, tx, lang]);
+
   const runLookup = useCallback(async () => {
     const q = lookupQuery.trim();
     if (q.length < 3) return;
@@ -1229,6 +1374,13 @@ export default function GapsPage() {
               className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
             >
               <FileText size={14} /> {tx(S.netReport)}
+            </button>
+            <button
+              onClick={openSeoReport}
+              disabled={reportBusy}
+              className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <FileText size={14} /> {tx(S.seoReport)}
             </button>
             <button
               onClick={downloadMonthlyReport}
