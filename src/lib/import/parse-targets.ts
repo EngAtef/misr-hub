@@ -7,6 +7,7 @@ export interface TargetRowImport {
   total_target: number;
   kids_target: number;
   cultural_target: number;
+  pieces_target: number;
 }
 
 const MONTHS: Record<string, number> = {
@@ -77,6 +78,7 @@ export function parseTargetsFile(data: ArrayBuffer): TargetRowImport[] {
       total: col("total"),
       kids: col("kids"),
       cultural: col("cultural"),
+      pieces: col("pieces", "copies", "qty", "quantity", "نسخ", "قطع"),
     };
     if (idx.month === -1 || idx.total === -1) continue;
 
@@ -97,6 +99,7 @@ export function parseTargetsFile(data: ArrayBuffer): TargetRowImport[] {
         total_target: total,
         kids_target: idx.kids !== -1 ? parseMoney(row[idx.kids]) : 0,
         cultural_target: idx.cultural !== -1 ? parseMoney(row[idx.cultural]) : 0,
+        pieces_target: idx.pieces !== -1 ? parseMoney(row[idx.pieces]) : 0,
       });
     }
     if (out.length) return out;

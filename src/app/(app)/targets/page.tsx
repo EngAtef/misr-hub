@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud } from "lucide-react";
+import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
@@ -15,10 +15,13 @@ interface TargetRow {
   total_target: number;
   kids_target: number;
   cultural_target: number;
+  pieces_target: number;
   actual_revenue: number;
   actual_orders: number;
   orders_placed: number;
+  actual_pieces: number;
   progress_pct: number;
+  pieces_pct: number;
   aov: number;
   conv_rate: number;
 }
@@ -57,6 +60,8 @@ interface Bucket {
   actual: number;
   placed: number;
   delivered: number;
+  piecesTarget: number;
+  pieces: number;
   partial: boolean;
   future: boolean;
 }
@@ -95,6 +100,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
         actual: 0,
         placed: 0,
         delivered: 0,
+        piecesTarget: 0,
+        pieces: 0,
         partial: false,
         future: true,
       };
@@ -104,6 +111,8 @@ function buildBuckets(rows: TargetRow[], gran: Gran, lang: "ar" | "en"): Bucket[
     b.actual += Number(r.actual_revenue) || 0;
     b.placed += Number(r.orders_placed) || 0;
     b.delivered += Number(r.actual_orders) || 0;
+    b.piecesTarget += Number(r.pieces_target) || 0;
+    b.pieces += Number(r.actual_pieces) || 0;
     const mk = iso.slice(0, 7);
     // the month in progress makes its whole bucket incomplete, and a bucket
     // still entirely ahead of us has nothing to compare rather than -100%
@@ -162,7 +171,16 @@ export default function TargetsPage() {
   const annual = useMemo(() => {
     const target = yearRows.reduce((s, r) => s + Number(r.total_target), 0);
     const actual = yearRows.reduce((s, r) => s + Number(r.actual_revenue), 0);
-    return { target, actual, pct: target > 0 ? (actual / target) * 100 : 0 };
+    const piecesTarget = yearRows.reduce((s, r) => s + Number(r.pieces_target), 0);
+    const pieces = yearRows.reduce((s, r) => s + Number(r.actual_pieces), 0);
+    return {
+      target,
+      actual,
+      pct: target > 0 ? (actual / target) * 100 : 0,
+      piecesTarget,
+      pieces,
+      piecesPct: piecesTarget > 0 ? (pieces / piecesTarget) * 100 : 0,
+    };
   }, [yearRows]);
 
   if (loading) return <div><PageHeader title={t("targets")} /><Spinner /></div>;
@@ -221,6 +239,21 @@ export default function TargetsPage() {
           <span>{t("achieved")}: <b>{formatMoney(annual.actual, lang)}</b></span>
           <span>{t("monthlyTarget")}: <b>{formatMoney(annual.target, lang)}</b></span>
         </div>
+        {annual.piecesTarget > 0 && (
+          <>
+            <div className="mt-3 flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-slate-500">{t("piecesSold")}</span>
+              <span className={cn("text-xs font-bold", annual.piecesPct >= 70 ? "text-emerald-600" : annual.piecesPct >= 40 ? "text-amber-600" : "text-red-600")}>
+                {annual.piecesPct.toFixed(1)}%
+              </span>
+            </div>
+            <ProgressBar pct={annual.piecesPct} />
+            <div className="mt-2 flex justify-between text-sm text-slate-600">
+              <span>{t("piecesSold")}: <b>{formatNumber(annual.pieces)}</b></span>
+              <span>{t("piecesTargetCol")}: <b>{formatNumber(annual.piecesTarget)}</b></span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
@@ -247,6 +280,13 @@ export default function TargetsPage() {
               <div className="mt-2 flex justify-between text-xs text-slate-600">
                 <span>{formatMoney(r.actual_revenue, lang)}</span>
                 <span className="text-slate-400">/ {formatMoney(r.total_target, lang)}</span>
+              </div>
+              <div className="mt-1 flex justify-between text-xs text-slate-500">
+                <span>
+                  {t("piecesSold")}: {formatNumber(r.actual_pieces)}
+                  {r.pieces_target > 0 && <span className="text-slate-400"> ({r.pieces_pct}%)</span>}
+                </span>
+                <span className="text-slate-400">/ {r.pieces_target > 0 ? formatNumber(r.pieces_target) : "—"}</span>
               </div>
             </div>
           );
@@ -328,6 +368,8 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
               <th className="text-end">%</th>
               <th className="text-end">{t("ordersPlaced")}</th>
               <th className="text-end">{t("ordersDelivered")}</th>
+              <th className="text-end">{t("piecesTargetCol")}</th>
+              <th className="text-end">{t("piecesSold")}</th>
               <th className="text-end">{t("vsPrevPeriod")}</th>
               <th className="text-end">{t("vsLastYear")}</th>
             </tr>
@@ -367,6 +409,20 @@ function Comparisons({ rows }: { rows: TargetRow[] }) {
                   <td className="text-end text-slate-500">
                     {b.future ? <span className="text-slate-300">—</span> : formatNumber(b.delivered)}
                   </td>
+                  <td className="text-end text-slate-500">
+                    {b.piecesTarget > 0 ? formatNumber(b.piecesTarget) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="text-end">
+                    {b.future ? (
+                      <span className="text-slate-300">—</span>
+                    ) : b.piecesTarget > 0 ? (
+                      <span className={cn("font-semibold", (b.pieces / b.piecesTarget) * 100 >= 70 ? "text-emerald-600" : (b.pieces / b.piecesTarget) * 100 >= 40 ? "text-amber-600" : "text-red-600")}>
+                        {formatNumber(b.pieces)}
+                      </span>
+                    ) : (
+                      formatNumber(b.pieces)
+                    )}
+                  </td>
                   <td className="text-end">{pctCell(delta(b.actual, prev?.actual), b.future || !prev)}</td>
                   <td className="text-end">{pctCell(delta(b.actual, lastYear?.actual), b.future || !lastYear)}</td>
                 </tr>
@@ -386,6 +442,7 @@ function TargetModal({ target, onClose, onSaved }: { target: TargetRow | null; o
   const [form, setForm] = useState({
     month: target ? target.period_month.slice(0, 7) : new Date().toISOString().slice(0, 7),
     total: target?.total_target?.toString() ?? "",
+    pieces: target?.pieces_target ? target.pieces_target.toString() : "",
     kids: target?.kids_target?.toString() ?? "",
     cultural: target?.cultural_target?.toString() ?? "",
     aov: target?.aov?.toString() ?? "550",
@@ -412,6 +469,7 @@ function TargetModal({ target, onClose, onSaved }: { target: TargetRow | null; o
         quarter,
         label: form.label || null,
         total_target: Number(form.total) || 0,
+        pieces_target: Number(form.pieces) || 0,
         kids_target: Number(form.kids) || 0,
         cultural_target: Number(form.cultural) || 0,
         aov: Number(form.aov) || 550,
@@ -442,9 +500,15 @@ function TargetModal({ target, onClose, onSaved }: { target: TargetRow | null; o
           <label className="block text-sm font-semibold mb-1">{t("targetMonth")}</label>
           <input type="month" className="input" required value={form.month} onChange={(e) => set("month", e.target.value)} />
         </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1">{t("totalTargetLabel")}</label>
-          <input type="number" min={0} className="input" dir="ltr" required value={form.total} onChange={(e) => set("total", e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("totalTargetLabel")}</label>
+            <input type="number" min={0} className="input" dir="ltr" required value={form.total} onChange={(e) => set("total", e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t("piecesTargetLabel")}</label>
+            <input type="number" min={0} className="input" dir="ltr" value={form.pieces} onChange={(e) => set("pieces", e.target.value)} />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -595,11 +659,20 @@ function StepsToAchieve({ row }: { row: TargetRow }) {
       hint: "ROAS 3x",
     },
   ];
+  if (row.pieces_target > 0) {
+    const remainingPieces = Math.max(row.pieces_target - row.actual_pieces, 0);
+    steps.push({
+      icon: BookOpen,
+      label: t("remainingPieces"),
+      value: formatNumber(remainingPieces),
+      hint: `${formatNumber(row.actual_pieces)} / ${formatNumber(row.pieces_target)} (${row.pieces_pct}%)`,
+    });
+  }
 
   return (
     <div>
       <h2 className="mb-3 text-lg font-bold">{t("stepsToAchieve")} — {monthName(row.period_month, lang)}</h2>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className={cn("grid gap-4 sm:grid-cols-2", steps.length === 6 ? "xl:grid-cols-6" : "xl:grid-cols-5")}>
         {steps.map((s, i) => {
           const Icon = s.icon;
           return (
