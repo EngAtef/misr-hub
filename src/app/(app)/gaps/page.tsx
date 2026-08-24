@@ -187,8 +187,8 @@ const S = {
   okrOrders: { ar: "الطلبات", en: "Orders" },
   okrThrough: { ar: "حتى", en: "Through" },
   okrDefs: {
-    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن) لكل الطلبات غير الملغاة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
-    en: "Gross = bookstore products value (delivery excluded) for all non-cancelled orders; its orders count every status. Net = delivered items + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
+    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن) مع استبعاد إيراد الطلبات الملغاة والمرتجعة/الفاشلة، وطلباته = الطلبات المسجَّلة بأي حالة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف — وطلباته = المسلَّمة فقط. CR = الطلبات ÷ الجلسات، ROAS = الإيراد ÷ الإنفاق، والإنفاق مجموع على مستوى الإعلان فقط",
+    en: "Gross = bookstore products value (delivery excluded) with cancelled and returned/failed revenue removed; its orders count every status. Net = delivered items + those orders' delivery fees — the same basis as the Targets page — and its orders are the delivered subset. CR = orders ÷ sessions, ROAS = revenue ÷ spend, spend summed at ad level only",
   },
   repGenerated: { ar: "أُنشئ في", en: "Generated" },
   repPrint: { ar: "طباعة / حفظ PDF", en: "Print / Save PDF" },
@@ -203,8 +203,8 @@ const S = {
   repGapsTitle: { ar: "فجوات التتبع", en: "Tracking gaps" },
   repTitle: { ar: "تقرير المصادر والإيراد الشهري", en: "Monthly Source & Revenue Report" },
   repDefs: {
-    ar: "الإيراد = قيمة منتجات المكتبة فقط (بدون الشحن وبدون الأضواء)؛ الطلبات الملغاة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط",
-    en: "Revenue = bookstore products value only (delivery and AL-Adwaa excluded); cancelled orders counted but revenue removed; attribution = GA4 last-click matched to order records; spend summed at ad level only",
+    ar: "الإيراد = قيمة منتجات المكتبة فقط (بدون الشحن وبدون الأضواء)؛ الطلبات الملغاة والمرتجعة/الفاشلة محسوبة كعدد ومستبعدة من الإيراد؛ الإسناد = آخر نقرة GA4 مطابقة لسجلات الطلبات؛ الإنفاق مجموع على مستوى الإعلان فقط؛ حدود الشهر بتوقيت مصر",
+    en: "Revenue = bookstore products value only (delivery and AL-Adwaa excluded); cancelled and returned/failed orders counted but their revenue removed; attribution = GA4 last-click matched to order records; spend summed at ad level only; month boundaries on Egypt local time",
   },
   repOnePool: {
     ar: "كل حسابات ميتا إعلانات للمكتبة ككل — أسماء الحسابات لا تعني فئات منتجات",
@@ -223,6 +223,8 @@ const S = {
   repSessions: { ar: "الجلسات", en: "Sessions" },
   repOrders: { ar: "الطلبات", en: "Orders" },
   repCancelled: { ar: "ملغاة", en: "Cancelled" },
+  repReturned: { ar: "مرتجعة/فاشلة", en: "Returned / failed" },
+  repReturnedRemoved: { ar: "إيراد مرتجع (مستبعد)", en: "Returned revenue (excluded)" },
   repRevenue: { ar: "الإيراد (ج.م)", en: "Revenue (EGP)" },
   repDelivery: { ar: "رسوم الشحن (مستبعدة)", en: "Delivery fees (excluded)" },
   repCR: { ar: "معدل التحويل", en: "Conversion rate" },
@@ -393,6 +395,8 @@ interface SourceReport {
     sessions: number;
     orders: number;
     cancelled: number;
+    returned: number;
+    returned_revenue: number;
     revenue: number;
     revenue_incl_adwaa: number;
     delivery_fees: number;
@@ -407,6 +411,8 @@ interface SourceReport {
     sessions: number | null;
     orders: number;
     cancelled: number;
+    returned: number;
+    returned_revenue: number;
     revenue: number;
     adwaa_revenue: number;
     cr: number | null;
@@ -434,7 +440,7 @@ interface OkrReport {
   through: string;
   sessions: number;
   spend: number;
-  gross: { revenue: number; orders: number; cancelled: number; cr: number | null; roas: number | null };
+  gross: { revenue: number; orders: number; cancelled: number; returned: number; cr: number | null; roas: number | null };
   net: { revenue: number; orders: number; cr: number | null; roas: number | null };
 }
 
@@ -518,6 +524,8 @@ export default function GapsPage() {
       line(tx(S.repSessions), t.sessions),
       line(tx(S.repOrders), t.orders),
       line(tx(S.repCancelled), t.cancelled),
+      line(tx(S.repReturned), t.returned),
+      line(tx(S.repReturnedRemoved), t.returned_revenue),
       line(tx(S.repRevenue), t.revenue),
       line(tx(S.repDelivery), t.delivery_fees),
       line(tx(S.repCR), t.cr !== null ? `${t.cr}%` : ""),
@@ -537,9 +545,9 @@ export default function GapsPage() {
       line(tx(S.repAdwaaFromAds), `${r.adwaa.from_ads_revenue} (${r.adwaa.from_ads_orders} ${tx(S.uniqueOrders)})`),
       line(tx(S.repInclAdwaa), r.totals.revenue_incl_adwaa),
       "",
-      line(tx(S.repSource), tx(S.repSessions), tx(S.repOrders), tx(S.repCancelled), "CR %", tx(S.repRevenue), tx(S.repAOV)),
-      ...r.rows.map((row) => line(bucketLabel(row.bucket), row.sessions, row.orders, row.cancelled, row.cr, row.revenue, row.aov)),
-      line(tx(S.repTotal), t.sessions, t.orders, t.cancelled, t.cr, t.revenue, t.aov),
+      line(tx(S.repSource), tx(S.repSessions), tx(S.repOrders), tx(S.repCancelled), tx(S.repReturned), "CR %", tx(S.repRevenue), tx(S.repAOV)),
+      ...r.rows.map((row) => line(bucketLabel(row.bucket), row.sessions, row.orders, row.cancelled, row.returned, row.cr, row.revenue, row.aov)),
+      line(tx(S.repTotal), t.sessions, t.orders, t.cancelled, t.returned, t.cr, t.revenue, t.aov),
       "",
       line(tx(S.repCampaignBlock)),
       line(tx(S.repOrdersWithCampaign), `${r.campaigns.orders_with_campaign} (${r.campaigns.pct_of_orders ?? 0}%)`),
@@ -645,12 +653,12 @@ export default function GapsPage() {
 <div class="page">
   <h1>${tx(S.repTitle)}</h1>
   <div class="sub">${monthLabelFor(r.month, lang)} — NM Smart App</div>
-  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.repDefs)}. ${tx(S.repDelivery)}: ${nf(t.delivery_fees)} EGP.
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.repDefs)}. ${tx(S.repDelivery)}: ${nf(t.delivery_fees)} EGP. ${tx(S.repReturnedRemoved)}: ${nf(t.returned_revenue)} EGP.
   ${trackedPctR !== null ? ` ${trackedPctR.toFixed(1)}% ${tx(S.repTrackedShare)}.` : ""}</div>
 
   <div class="kpis">
     ${kpi(tx(S.repSessions), nf(t.sessions))}
-    ${kpi(tx(S.repOrders), nf(t.orders), `${tx(S.repCancelled)}: ${nf(t.cancelled)}`)}
+    ${kpi(tx(S.repOrders), nf(t.orders), `${tx(S.repCancelled)}: ${nf(t.cancelled)} · ${tx(S.repReturned)}: ${nf(t.returned)}`)}
     ${kpi(tx(S.repRevenue), nf(t.revenue), `${tx(S.repInclAdwaa)}: ${nf(t.revenue_incl_adwaa)}`)}
     ${kpi(tx(S.repCR), pc(t.cr))}
     ${kpi(tx(S.repAOV), nf(t.aov))}
