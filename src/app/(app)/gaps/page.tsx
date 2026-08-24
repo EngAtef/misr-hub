@@ -204,6 +204,17 @@ const S = {
     ar: "الصافي لا يحسب الطلب إلا بعد تسليمه؛ في الشهر الجاري توجد طلبات قيد التسليم فيظهر الصافي منخفضًا ويرتفع تدريجيًا مع اكتمال التسليم — قارن الصافي بين الشهور المقفولة فقط.",
     en: "Net counts an order only after delivery; in a running month, in-transit orders make net look low and it keeps rising as they deliver — compare net only between closed months.",
   },
+  okrPiecesReport: { ar: "تقرير OKR + القطع", en: "OKR + pieces report" },
+  okrPiecesTitle: { ar: "تقرير OKR الشهري — الإيراد والقطع", en: "Monthly OKR — Revenue & Pieces" },
+  okrPiecesDefs: {
+    ar: "الإجمالي = قيمة منتجات المكتبة (بدون الشحن وبدون الأضواء) مع استبعاد إيراد الملغاة والمرتجعة/الفاشلة، وطلباته = كل الطلبات المسجَّلة. الصافي = الأصناف المسلَّمة + رسوم شحن تلك الطلبات — نفس أساس صفحة الأهداف. القطع = عدد النسخ بدون الأضواء: الإجمالي للطلبات الحية والصافي للمسلَّم. نسب التحقيق تُقاس على الأساس الصافي. حدود الشهر بتوقيت مصر",
+    en: "Gross = bookstore products value (delivery and AL-Adwaa excluded) with cancelled and returned/failed revenue removed; its orders count every status. Net = delivered items + those orders' delivery fees — the same basis as the Targets page. Pieces = copies ex-AL-Adwaa: gross for alive placed orders, net for delivered. Attainment is measured on the net basis. Month boundaries on Egypt local time",
+  },
+  okrPieces: { ar: "القطع (نسخ)", en: "Pieces (copies)" },
+  okrTargetRow: { ar: "هدف الشهر", en: "Month target" },
+  okrAttainment: { ar: "نسبة التحقيق (صافي)", en: "Attainment (net)" },
+  okrLastYear: { ar: "السنة الماضية", en: "Last year" },
+  okrMoneyCol: { ar: "الإيراد (ج.م)", en: "Money (EGP)" },
   seoReport: { ar: "تقرير SEO", en: "SEO report" },
   seoTitle: { ar: "أداء البحث المجاني (SEO)", en: "SEO Organic Performance" },
   seoDefs: {
@@ -481,6 +492,24 @@ interface OkrReport {
   spend: number;
   gross: { revenue: number; orders: number; cancelled: number; returned: number; cr: number | null; roas: number | null };
   net: { revenue: number; orders: number; cr: number | null; roas: number | null };
+}
+
+// fn_gaps_okr_pieces_report — OKR totals with pieces on both bases + month target
+interface OkrPiecesReport {
+  month: string;
+  through: string;
+  sessions: number;
+  spend: number;
+  gross: { revenue: number; orders: number; cancelled: number; returned: number; pieces: number; cr: number | null; roas: number | null };
+  net: { revenue: number; orders: number; pieces: number; cr: number | null; roas: number | null };
+  target: {
+    revenue: number;
+    pieces: number;
+    ly_revenue: number;
+    ly_pieces: number;
+    revenue_pct: number | null;
+    pieces_pct: number | null;
+  } | null;
 }
 
 // fn_gaps_net_source_report — gross + net per source (net = delivered items +
@@ -977,6 +1006,85 @@ export default function GapsPage() {
     window.open(URL.createObjectURL(blob), "_blank");
   }, [supabase, month, tx, lang]);
 
+  // OKR + pieces — the OKR totals with copies on both bases and target attainment.
+  const openOkrPiecesReport = useCallback(async () => {
+    setReportBusy(true);
+    const { data, error } = await supabase.rpc("fn_gaps_okr_pieces_report", { p_month: month });
+    setReportBusy(false);
+    if (error || !data) {
+      setLoadError(error?.message ?? "report failed");
+      return;
+    }
+    const r = data as OkrPiecesReport;
+    const ar = lang === "ar";
+    const nf = (n: number | null | undefined) =>
+      n === null || n === undefined || isNaN(n) ? "—" : new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(n);
+    const pc = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}%`);
+    const x = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n}×`);
+    const tg = r.target;
+    const html = `<!doctype html><html dir="${ar ? "rtl" : "ltr"}" lang="${ar ? "ar" : "en"}"><head><meta charset="utf-8">
+<title>${tx(S.okrPiecesTitle)} — ${monthLabelFor(r.month, lang)}</title>
+<style>
+  :root { --navy:#1f3864; --navy2:#2f5496; --line:#d9dce6; --soft:#eef1f8; --hl:#e9f7f0; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:#1a1f2e; margin:0; background:#f4f5f9; }
+  .page { max-width:760px; margin:24px auto; background:#fff; padding:40px 48px; box-shadow:0 2px 14px rgba(30,40,90,.12); }
+  h1 { color:var(--navy); font-size:24px; margin:0 0 2px; }
+  .sub { color:#5a6478; font-size:12.5px; margin-bottom:6px; }
+  .scope { background:var(--soft); border-inline-start:4px solid var(--navy2); padding:10px 14px; font-size:12px; color:#3a4358; border-radius:6px; margin:14px 0 22px; line-height:1.7; }
+  h2 { color:var(--navy2); font-size:15.5px; margin:26px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { background:var(--navy); color:#fff; padding:9px 12px; text-align:start; font-weight:600; }
+  td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:start; direction:ltr; font-weight:600; }
+  td.s { direction:${ar ? "rtl" : "ltr"}; color:#2a3145; }
+  tbody tr:nth-child(even) { background:#f7f8fc; }
+  td.span { text-align:center; background:var(--soft); }
+  tr.hl td { background:var(--hl); }
+  .footer { margin-top:30px; font-size:10.5px; color:#9aa0b2; border-top:1px solid var(--line); padding-top:10px; display:flex; justify-content:space-between; }
+  .printbtn { position:fixed; top:14px; inset-inline-end:14px; background:var(--navy2); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+  @media print { body{background:#fff} .page{box-shadow:none; margin:0; padding:10mm 12mm; max-width:none} .printbtn{display:none} }
+</style></head><body>
+<button class="printbtn" onclick="window.print()">${tx(S.repPrint)}</button>
+<div class="page">
+  <h1>${tx(S.okrPiecesTitle)}</h1>
+  <div class="sub">${monthLabelFor(r.month, lang)} (${tx(S.okrThrough)} ${r.through}) — NM Smart App</div>
+  <div class="scope"><b>${tx(S.repScopeTitle)}:</b> ${tx(S.okrPiecesDefs)}.</div>
+
+  <table>
+    <thead><tr><th>${tx(S.okrMetric)}</th><th>${tx(S.okrGross)}</th><th>${tx(S.okrNet)}</th></tr></thead>
+    <tbody>
+      <tr><td class="s">${tx(S.repSpend)}</td><td class="span" colspan="2">${nf(r.spend)}</td></tr>
+      <tr><td class="s">${tx(S.repSessions)}</td><td class="span" colspan="2">${nf(r.sessions)}</td></tr>
+      <tr><td class="s">${tx(S.okrRevenue)}</td><td>${nf(r.gross.revenue)}</td><td>${nf(r.net.revenue)}</td></tr>
+      <tr><td class="s">${tx(S.okrOrders)}</td><td>${nf(r.gross.orders)}</td><td>${nf(r.net.orders)}</td></tr>
+      <tr class="hl"><td class="s">${tx(S.okrPieces)}</td><td>${nf(r.gross.pieces)}</td><td>${nf(r.net.pieces)}</td></tr>
+      <tr><td class="s">${tx(S.repCancelled)} / ${tx(S.repReturned)}</td><td>${nf(r.gross.cancelled)} / ${nf(r.gross.returned)}</td><td>—</td></tr>
+      <tr><td class="s">CR</td><td>${pc(r.gross.cr)}</td><td>${pc(r.net.cr)}</td></tr>
+      <tr><td class="s">ROAS</td><td>${x(r.gross.roas)}</td><td>${x(r.net.roas)}</td></tr>
+    </tbody>
+  </table>
+
+  ${
+    tg
+      ? `<h2>${tx(S.okrTargetRow)}</h2>
+  <table>
+    <thead><tr><th>${tx(S.okrMetric)}</th><th>${tx(S.okrMoneyCol)}</th><th>${tx(S.okrPieces)}</th></tr></thead>
+    <tbody>
+      <tr><td class="s">${tx(S.okrTargetRow)}</td><td>${nf(tg.revenue)}</td><td>${nf(tg.pieces)}</td></tr>
+      <tr class="hl"><td class="s">${tx(S.okrAttainment)}</td><td>${pc(tg.revenue_pct)}</td><td>${pc(tg.pieces_pct)}</td></tr>
+      <tr><td class="s">${tx(S.okrLastYear)}</td><td>${nf(tg.ly_revenue)}</td><td>${nf(tg.ly_pieces)}</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:11px;color:#7a8296;line-height:1.6">${tx(S.netPendingNote)}</p>`
+      : ""
+  }
+
+  <div class="footer"><span>NM Smart App — OKR</span><span>${tx(S.repGenerated)}: ${new Date().toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+</div></body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }, [supabase, month, tx, lang]);
+
   // SEO report — ladder from raw GA4 organic to the Hub's scorecard number,
   // plus a month-vs-previous scorecard with per-day columns.
   const openSeoReport = useCallback(async () => {
@@ -1374,6 +1482,13 @@ export default function GapsPage() {
               className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
             >
               <FileText size={14} /> {tx(S.netReport)}
+            </button>
+            <button
+              onClick={openOkrPiecesReport}
+              disabled={reportBusy}
+              className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50"
+            >
+              <FileText size={14} /> {tx(S.okrPiecesReport)}
             </button>
             <button
               onClick={openSeoReport}
