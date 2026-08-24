@@ -12,6 +12,7 @@ import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, KpiCard, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, formatDateTimeEg, cn } from "@/lib/utils";
 import { parseEpub } from "@/lib/marketing/epub";
+import { parsePdf } from "@/lib/marketing/pdf";
 import {
   renderAsset, loadImage, ASSET_DIMS, ASSET_LABELS, STYLE_NAMES, LAYOUT_NAMES,
   type AssetFmt, type AssetStyle, type AssetLayout,
@@ -99,6 +100,7 @@ export default function MarketingPage() {
   const [mode, setMode] = useState<SourceMode>("library");
   const [books, setBooks] = useState<HostedBook[]>([]);
   const [booksLoading, setBooksLoading] = useState(false);
+  const [booksError, setBooksError] = useState<string | null>(null);
   const [bookSearch, setBookSearch] = useState("");
   const [flipbookId, setFlipbookId] = useState<string | null>(null);
   const [selBooks, setSelBooks] = useState<HostedBook[]>([]);
@@ -228,17 +230,28 @@ export default function MarketingPage() {
     }
   }
 
-  useEffect(() => {
-    if (tab !== "advisor" || advisor || advisorLoading) return;
+  const [advisorError, setAdvisorError] = useState<string | null>(null);
+  const loadAdvisor = useCallback(() => {
     setAdvisorLoading(true);
+    setAdvisorError(null);
     fetch(`/api/marketing/advisor?lang=${lang}`)
-      .then((r) => r.json())
-      .then((d) => setAdvisor(d as AdvisorData))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<AdvisorData>;
+      })
+      .then((d) => setAdvisor(d))
+      .catch((e) => setAdvisorError(e instanceof Error ? e.message : "load failed"))
       .finally(() => setAdvisorLoading(false));
-  }, [tab, advisor, advisorLoading, lang]);
+  }, [lang]);
+
+  // A failed load stops and shows a retry button — never a silent refetch loop.
+  useEffect(() => {
+    if (tab !== "advisor" || advisor || advisorLoading || advisorError) return;
+    loadAdvisor();
+  }, [tab, advisor, advisorLoading, advisorError, loadAdvisor]);
 
   // Occasions text is localized server-side — refetch on UI language switch.
-  useEffect(() => { setAdvisor(null); }, [lang]);
+  useEffect(() => { setAdvisor(null); setAdvisorError(null); }, [lang]);
 
   // The free-first-chapter reader link (library books only), UTM-tagged so
   // GA4 shows the funnel.
@@ -247,20 +260,39 @@ export default function MarketingPage() {
     return `${window.location.origin}/reader/${flipbookId}?utm_source=social&utm_medium=organic&utm_campaign=mkt-free-chapter`;
   }, [freeChapter, flipbookId]);
 
-  useEffect(() => {
-    if (mode !== "library" || books.length || booksLoading) return;
-    let cancelled = false;
+  // The picker reads the flipbooks metadata table directly — one indexed query
+  // instead of /api/flipbooks, which lists the entire storage bucket plus every
+  // view counter and can time out on a large library. A failed load shows an
+  // error with a retry button instead of refetching in a silent loop.
+  const loadLibrary = useCallback(async () => {
     setBooksLoading(true);
-    fetch("/api/flipbooks")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        setBooks(((d.books ?? []) as { id: string; title: string; buyUrl: string | null; category: string | null }[])
-          .map((b) => ({ id: b.id, title: b.title, buyUrl: b.buyUrl, category: b.category })));
-      })
-      .finally(() => { if (!cancelled) setBooksLoading(false); });
-    return () => { cancelled = true; };
-  }, [mode, books.length, booksLoading]);
+    setBooksError(null);
+    const { data, error } = await supabase
+      .from("flipbooks")
+      .select("path, title, buy_url, category")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) {
+      setBooksError(error.message);
+    } else {
+      setBooks(
+        ((data ?? []) as { path: string; title: string | null; buy_url: string | null; category: string | null }[]).map((r) => ({
+          id: r.path.replace(/\.(html|json)$/, ""),
+          title: r.title || r.path.replace(/\.(html|json)$/, ""),
+          buyUrl: r.buy_url,
+          category: r.category,
+        }))
+      );
+    }
+    setBooksLoading(false);
+  }, [supabase]);
+
+  const libraryRequested = useRef(false);
+  useEffect(() => {
+    if (mode !== "library" || libraryRequested.current) return;
+    libraryRequested.current = true;
+    loadLibrary();
+  }, [mode, loadLibrary]);
 
   const filteredBooks = useMemo(() => {
     const q = bookSearch.trim().toLowerCase();
@@ -313,18 +345,23 @@ export default function MarketingPage() {
     applySelection([...selBooks, full ?? { id: s.id, title: s.title, buyUrl: null, category: null }]);
   }
 
-  async function handleEpub(file: File) {
+  async function handleSourceFile(file: File) {
     setParsing(true);
     setGenError(null);
+    setNotice(null);
     try {
-      const parsed = await parseEpub(file);
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+      const parsed = isPdf ? await parsePdf(file) : await parseEpub(file);
       setTitle(parsed.title);
       setEpubText(parsed.text);
       setFlipbookId(null);
       setSelBooks([]);
       setCoverUrl(parsed.coverBlob ? URL.createObjectURL(parsed.coverBlob) : null);
+      // scanned PDFs have no text layer — cover and title still land, but the
+      // AI needs pasted text to write anything meaningful
+      if (isPdf && parsed.text.length < 200) setNotice(t("mktScannedPdf"));
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : "EPUB parse failed");
+      setGenError(e instanceof Error ? e.message : "file parse failed");
     }
     setParsing(false);
     if (epubRef.current) epubRef.current.value = "";
@@ -517,6 +554,9 @@ export default function MarketingPage() {
       });
       const d = await res.json();
       if (res.ok && d.pack) setPack(d.pack as PackDay[]);
+      else setGenError(d.message ?? d.error ?? "campaign pack failed");
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "campaign pack failed");
     } finally {
       setPackLoading(false);
     }
@@ -705,7 +745,12 @@ export default function MarketingPage() {
                   <Search size={15} className="absolute top-2.5 start-3 text-slate-400" />
                   <input className="input !ps-9" placeholder={t("mktSearchBook")} value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} />
                 </div>
-                {booksLoading ? <Spinner /> : (
+                {booksLoading ? <Spinner /> : booksError ? (
+                  <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <span className="min-w-0 flex-1 truncate">✗ {booksError}</span>
+                    <button className="btn-secondary !px-2.5 !py-1 !text-xs" onClick={loadLibrary}>{t("mktRetry")}</button>
+                  </div>
+                ) : (
                   <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3">
                     {filteredBooks.map((b) => {
                       const sel = selBooks.some((x) => x.id === b.id);
@@ -756,7 +801,7 @@ export default function MarketingPage() {
                 <UploadCloud className="h-9 w-9 text-brand-500" />
                 <div className="text-sm font-semibold text-slate-600">{parsing ? t("mktParsing") : t("mktDropEpub")}</div>
                 {epubText && <div className="text-xs text-emerald-600">{t("mktEpubLoaded")} — {formatNumber(epubText.length)} {t("mktChars")}</div>}
-                <input ref={epubRef} type="file" accept=".epub" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleEpub(f); }} />
+                <input ref={epubRef} type="file" accept=".epub,.pdf,application/pdf,application/epub+zip" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSourceFile(f); }} />
               </div>
             )}
 
@@ -1054,7 +1099,12 @@ export default function MarketingPage() {
 
       {/* ============ ADVISOR ============ */}
       {tab === "advisor" && (
-        advisorLoading || !advisor ? <Spinner /> : (
+        advisorError ? (
+          <div className="card flex items-center gap-3 p-4 text-sm text-red-700">
+            <span className="min-w-0 flex-1">✗ {advisorError}</span>
+            <button className="btn-secondary !px-2.5 !py-1 !text-xs" onClick={loadAdvisor}>{t("mktRetry")}</button>
+          </div>
+        ) : advisorLoading || !advisor ? <Spinner /> : (
           <div className="space-y-6">
             {/* Occasions */}
             {advisor.occasions.length > 0 && (
