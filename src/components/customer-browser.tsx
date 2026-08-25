@@ -11,6 +11,7 @@ import { ContactActions } from "@/components/contact-actions";
 import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AttrBadge } from "@/components/attr-badge";
 import { attrLabel } from "@/lib/attribution";
+import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
 
 // GA4 only exists from Sep 2025: a null first_source on an earlier first
 // order (or a customer with no orders) is "no data", not "untracked"
@@ -31,6 +32,7 @@ interface Filters {
   search: string;
   segments: string[];
   cities: string[];
+  markets: string[];
   states: string[];
   status: Status;
   minOrders: string;
@@ -49,7 +51,7 @@ interface Filters {
 }
 
 const EMPTY: Filters = {
-  search: "", segments: [], cities: [], states: [], status: "all",
+  search: "", segments: [], cities: [], markets: [], states: [], status: "all",
   minOrders: "", maxOrders: "", minSpent: "", maxSpent: "",
   lastFrom: "", lastTo: "", joinedFrom: "", joinedTo: "", birthMonth: "",
   hasEmail: false, hasPhone: false, mergedOnly: false, activeOnly: false,
@@ -94,6 +96,7 @@ export function CustomerBrowser({
       p_search: str(filters.search),
       p_segments: filters.segments.length ? filters.segments : null,
       p_cities: filters.cities.length ? filters.cities : null,
+      p_markets: filters.markets.length ? filters.markets : null,
       p_states: filters.states.length ? filters.states : null,
       p_status: filters.status === "all" ? null : filters.status,
       p_min_orders: num(filters.minOrders),
@@ -226,7 +229,7 @@ export function CustomerBrowser({
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const activeFilterCount =
-    (filters.segments.length ? 1 : 0) + (filters.cities.length ? 1 : 0) + (filters.states.length ? 1 : 0) +
+    (filters.segments.length ? 1 : 0) + (filters.cities.length ? 1 : 0) + (filters.markets.length ? 1 : 0) + (filters.states.length ? 1 : 0) +
     (filters.status !== "all" ? 1 : 0) + (filters.minOrders || filters.maxOrders ? 1 : 0) +
     (filters.minSpent || filters.maxSpent ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0) +
     (filters.joinedFrom || filters.joinedTo ? 1 : 0) + (filters.birthMonth ? 1 : 0) +
@@ -281,6 +284,14 @@ export function CustomerBrowser({
           values={filters.cities}
           onChange={(v) => patch({ cities: v })}
           placeholder={t("city")}
+        />
+        <MultiSelect
+          className="min-w-[10rem]"
+          options={FILTER_MARKETS}
+          values={filters.markets}
+          onChange={(v) => patch({ markets: v })}
+          placeholder={t("marketCountry")}
+          getLabel={(v) => marketLabel(v, lang)}
         />
         <MultiSelect
           className="min-w-[11rem]"

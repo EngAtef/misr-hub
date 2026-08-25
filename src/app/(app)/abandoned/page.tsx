@@ -17,7 +17,8 @@ import { DateRangeFilter, useDateRange } from "@/components/date-range";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
-import { abandonedCartLink, normalizeEgyptPhone } from "@/lib/whatsapp";
+import { abandonedCartLink, normalizePhoneIntl } from "@/lib/whatsapp";
+import { FILTER_MARKETS, marketFlag, marketLabel, dialFromKey } from "@/lib/markets";
 
 interface Summary {
   total_carts: number; total_value: number; avg_cart_value: number;
@@ -49,6 +50,7 @@ interface CartRow {
   lifetime_orders: number | null; lifetime_delivered_amount: number | null;
   full_count: number;
   weight_kg?: number | null; weight_missing?: number | null;
+  market?: string | null;
 }
 
 interface TrendRow { day: string; lost_value: number | null; avg_cart_value: number | null; carts: number; platform_lost: number | null }
@@ -56,6 +58,7 @@ interface TopProduct { sku: string; product_name: string | null; carts: number; 
 interface Repeater {
   phone_norm: string; full_name: string | null; email: string | null; customer_id: string | null;
   carts: number; total_value: number; last_abandoned: string | null; recovered: number; recall_status: string;
+  market?: string | null;
 }
 interface CartItem { item_key: string; sku: string | null; product_name: string | null; qty: number | null }
 interface Breakdowns {
@@ -63,6 +66,7 @@ interface Breakdowns {
   by_dow: { dow: number; carts: number; value: number }[];
   by_bucket: { bucket: string; carts: number; value: number }[];
   by_traffic: { source: string; carts: number; value: number; reachable: number }[];
+  by_market?: { market: string; carts: number; value: number; reachable: number }[];
 }
 interface RecallWeek { week: string; contacted: number; responded: number; recovered: number; recovered_value: number }
 interface HistoryCart {
@@ -149,6 +153,7 @@ export default function AbandonedPage() {
   const [segment, setSegment] = useState("all");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [trafficFilters, setTrafficFilters] = useState<string[]>([]);
+  const [marketFilters, setMarketFilters] = useState<string[]>([]);
   const [minValue, setMinValue] = useState("");
   const [maxValue, setMaxValue] = useState("");
   const [order, setOrder] = useState("newest");
@@ -178,7 +183,11 @@ export default function AbandonedPage() {
   const bounded = !!(range.from || range.to);
 
   const loadOverview = useCallback(async () => {
-    const period = { p_from: range.from, p_to: range.to };
+    const period = {
+      p_from: range.from,
+      p_to: range.to,
+      p_markets: marketFilters.length ? marketFilters : null,
+    };
     const [s, seg, tr, tp, rep, bd, an] = await Promise.all([
       supabase.rpc("fn_abandoned_summary", period),
       supabase.rpc("fn_abandoned_segments", period),
@@ -196,7 +205,7 @@ export default function AbandonedPage() {
     setBreakdowns((bd.data as Breakdowns) ?? null);
     setAnomalies((an.data as AnomalyReport) ?? null);
     setLoading(false);
-  }, [supabase, trendDays, range.from, range.to]);
+  }, [supabase, trendDays, range.from, range.to, marketFilters]);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
 
@@ -289,11 +298,11 @@ export default function AbandonedPage() {
     for (let off = 0; off < 30000; off += 1000) {
       const { data } = await supabase
         .from("customers")
-        .select("phone, email")
+        .select("phone, email, market")
         .gte("lifetime_delivered", 3)
         .range(off, off + 999);
-      const page = (data as { phone: string | null; email: string | null }[]) ?? [];
-      for (const r of page) rows.push({ full_name: null, phone: r.phone, phone_norm: normalizeEgyptPhone(r.phone), email: r.email, cart_value: null });
+      const page = (data as { phone: string | null; email: string | null; market: string | null }[]) ?? [];
+      for (const r of page) rows.push({ full_name: null, phone: r.phone, phone_norm: normalizePhoneIntl(r.phone, r.market), email: r.email, cart_value: null });
       if (page.length < 1000) break;
     }
     audienceCsv(rows, "lookalike-seed-best-buyers");
@@ -310,9 +319,10 @@ export default function AbandonedPage() {
     p_order: order,
     p_from: range.from,
     p_to: range.to,
+    p_markets: marketFilters.length ? marketFilters : null,
     p_limit: limit,
     p_offset: offset,
-  }), [segment, statusFilters, search, trafficFilters, minValue, maxValue, order, range.from, range.to]);
+  }), [segment, statusFilters, search, trafficFilters, marketFilters, minValue, maxValue, order, range.from, range.to]);
 
   const loadCarts = useCallback(async () => {
     setCartsLoading(true);
@@ -383,6 +393,7 @@ export default function AbandonedPage() {
       known_customer: c.customer_id ? "yes" : "no", past_orders: c.lifetime_orders,
       repeat_abandoner: c.is_repeat ? "yes" : "no", source: c.traffic_hint,
       recovered_order: c.recovered_order_number, city: c.customer_city,
+      country: c.market ?? "EG",
     }));
     downloadCsv(`abandoned-${segment}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
     setExporting(false);
@@ -397,7 +408,7 @@ export default function AbandonedPage() {
     const seen = new Set<string>();
     const rows: { email: string; phone: string }[] = [];
     for (const c of all) {
-      const phone = c.phone_norm ?? "";
+      const phone = dialFromKey(c.phone_norm, c.market) ?? "";
       const email = c.email ?? "";
       if (!phone && !email) continue;
       const k = phone + "|" + email;
@@ -722,6 +733,14 @@ export default function AbandonedPage() {
             <ChartCard title={t("abByTraffic")}>
               <DonutChart data={trafficData as unknown as Record<string, unknown>[]} nameKey="source" valueKey="carts" height={240} />
             </ChartCard>
+            {(breakdowns?.by_market?.length ?? 0) > 1 && (
+              <ChartCard title={t("marketByCountry")}>
+                <DonutChart
+                  data={(breakdowns?.by_market ?? []).map((m) => ({ country: marketLabel(m.market, lang), carts: m.carts })) as unknown as Record<string, unknown>[]}
+                  nameKey="country" valueKey="carts" height={240}
+                />
+              </ChartCard>
+            )}
           </div>
 
           {/* Segments */}
@@ -768,6 +787,14 @@ export default function AbandonedPage() {
               onChange={(v) => { setTrafficFilters(v); setPage(0); }}
               placeholder={t("abFilterTraffic")}
               getLabel={(v) => t(TRAFFIC_KEY[v] ?? "abTrafficUnknown")}
+              className="w-40"
+            />
+            <MultiSelect
+              options={FILTER_MARKETS}
+              values={marketFilters}
+              onChange={(v) => { setMarketFilters(v); setPage(0); }}
+              placeholder={t("marketCountry")}
+              getLabel={(v) => marketLabel(v, lang)}
               className="w-40"
             />
             <input type="number" min={0} value={minValue} onChange={(e) => { setMinValue(e.target.value); setPage(0); }}
@@ -823,7 +850,8 @@ export default function AbandonedPage() {
                         cartValue: c.cart_value,
                         promoCode,
                       },
-                      lang
+                      lang,
+                      c.market
                     );
                     return (
                       <Fragment key={c.cart_key}>
@@ -848,6 +876,11 @@ export default function AbandonedPage() {
                                   onClick={() => openHistory(c.phone_norm, c.customer_name ?? c.full_name)} title={t("abHistoryTitle")}>
                                   {t("abSegRepeat")}
                                 </button>
+                              )}
+                              {c.market && c.market !== "EG" && (
+                                <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800" title={marketLabel(c.market, lang)}>
+                                  {marketFlag(c.market)} {c.market}
+                                </span>
                               )}
                               {c.traffic_hint === "facebook" && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">FB</span>}
                               {c.is_anomaly && <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">{t("abExcludedFromStats")}</span>}
@@ -1041,7 +1074,10 @@ export default function AbandonedPage() {
                             <ShoppingBasket size={13} />
                             {r.full_name ?? "—"}
                           </button>
-                          <div className="text-xs text-slate-400" dir="ltr">+{r.phone_norm}</div>
+                          <div className="text-xs text-slate-400" dir="ltr">
+                            {r.market && r.market !== "EG" && <span className="me-1">{marketFlag(r.market)}</span>}
+                            +{dialFromKey(r.phone_norm, r.market) ?? r.phone_norm}
+                          </div>
                         </td>
                         <td className="font-bold">{formatNumber(r.carts)}</td>
                         <td>{formatMoney(r.total_value, lang)}</td>
@@ -1054,7 +1090,7 @@ export default function AbandonedPage() {
                                 <User size={14} />
                               </button>
                             )}
-                            <ContactActions phone={"+" + r.phone_norm} email={r.email} name={r.full_name} />
+                            <ContactActions phone={"+" + (dialFromKey(r.phone_norm, r.market) ?? r.phone_norm)} email={r.email} name={r.full_name} />
                           </div>
                         </td>
                       </tr>

@@ -11,6 +11,7 @@ import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, formatWeight, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { ATTR_BUCKETS, attrLabel } from "@/lib/attribution";
+import { FILTER_MARKETS, marketFlag, marketLabel } from "@/lib/markets";
 import { AttrBadge as Attr } from "@/components/attr-badge";
 
 function AttrBadge({ order, lang, size }: { order: Pick<Order, "attr_bucket" | "attr_source" | "attr_medium" | "attr_campaign">; lang: "ar" | "en"; size?: "sm" | "md" }) {
@@ -55,6 +56,7 @@ export default function OrdersPage() {
   const [status, setStatus] = useState<string[]>([]);
   const [payment, setPayment] = useState<string[]>([]);
   const [city, setCity] = useState<string[]>([]);
+  const [market, setMarket] = useState<string[]>([]);
   const [source, setSource] = useState<string[]>([]);
   const [attr, setAttr] = useState<string[]>([]);
   const [category, setCategory] = useState<string[]>([]);
@@ -144,6 +146,7 @@ export default function OrdersPage() {
       if (status.length) query = query.in("order_status", status);
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
+      if (market.length) query = query.in("market", market);
       if (source.length) query = query.in("source", source);
       if (attr.length) {
         const real = attr.filter((a) => a !== "untracked");
@@ -177,7 +180,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, view, range.from, range.to, status, payment, city, source, attr, category, subCategory, brand, promo, search, page, sort]);
+  }, [supabase, view, range.from, range.to, status, payment, city, market, source, attr, category, subCategory, brand, promo, search, page, sort]);
 
   // same filters, comparison period -> matching order count
   useEffect(() => {
@@ -196,6 +199,7 @@ export default function OrdersPage() {
       if (status.length) query = query.in("order_status", status);
       if (payment.length) query = query.in("payment_method", payment);
       if (city.length) query = query.in("city", city);
+      if (market.length) query = query.in("market", market);
       if (source.length) query = query.in("source", source);
       if (attr.length) {
         const real = attr.filter((a) => a !== "untracked");
@@ -223,7 +227,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, compare, status, payment, city, source, attr, category, subCategory, brand, promo, search]);
+  }, [supabase, compare, status, payment, city, market, source, attr, category, subCategory, brand, promo, search]);
 
   // buyers view: per-customer aggregates within the selected categories
   // and period (fn_category_buyers). PostgREST caps RPC results at
@@ -299,6 +303,8 @@ export default function OrdersPage() {
       }
       const city = sp.getAll("city").filter(Boolean);
       if (city.length) setCity(city);
+      const mk = sp.getAll("market").filter(Boolean);
+      if (mk.length) setMarket(mk);
       const status = sp.getAll("status").filter(Boolean);
       if (status.length) setStatus(status);
       const payment = sp.getAll("payment").filter(Boolean);
@@ -338,6 +344,7 @@ export default function OrdersPage() {
     for (const s of status) params.append("status", s);
     for (const p of payment) params.append("payment", p);
     for (const c of city) params.append("city", c);
+    for (const m of market) params.append("market", m);
     for (const s of source) params.append("source", s);
     for (const a of attr) params.append("attr", a);
     for (const c of category) params.append("category", c);
@@ -448,6 +455,13 @@ export default function OrdersPage() {
                 values={city}
                 onChange={(v) => { setCity(v); setPage(0); }}
                 placeholder={t("allCities")}
+              />
+              <MultiSelect
+                options={FILTER_MARKETS}
+                values={market}
+                onChange={(v) => { setMarket(v); setPage(0); }}
+                placeholder={t("marketCountry")}
+                getLabel={(v) => marketLabel(v, lang)}
               />
               <MultiSelect
                 options={[...ATTR_BUCKETS]}
@@ -578,7 +592,15 @@ export default function OrdersPage() {
                     <div className="font-medium">{o.customer_name ?? "—"}</div>
                     <div className="text-xs text-slate-400" dir="ltr">{o.customer_phone ?? ""}</div>
                   </td>
-                  <td>{o.city ?? "—"}</td>
+                  <td>
+                    {o.market && o.market !== "EG" ? (
+                      <span title={marketLabel(o.market, lang)}>
+                        {marketFlag(o.market)} {o.area ?? o.city ?? o.market}
+                      </span>
+                    ) : (
+                      o.city ?? "—"
+                    )}
+                  </td>
                   <td><StatusBadge status={o.order_status} /></td>
                   <td className="text-xs">{o.payment_method ?? "—"}</td>
                   <td><AttrBadge order={o} lang={lang} /></td>

@@ -145,6 +145,8 @@ const dict = {
   customer: { ar: "العميل", en: "Customer" },
   phone: { ar: "الهاتف", en: "Phone" },
   city: { ar: "المحافظة", en: "City" },
+  marketCountry: { ar: "الدولة", en: "Country" },
+  marketByCountry: { ar: "حسب الدولة", en: "By country" },
   area: { ar: "المنطقة", en: "Area" },
   status: { ar: "الحالة", en: "Status" },
   paymentMethod: { ar: "طريقة الدفع", en: "Payment" },

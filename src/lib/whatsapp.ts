@@ -1,14 +1,27 @@
 // WhatsApp deep-link helpers. No API account needed:
 // wa.me links open WhatsApp with a prefilled message.
 
-// Normalizes Egyptian phone numbers to international format (20...)
-export function normalizeEgyptPhone(phone: string | null | undefined): string | null {
+import { dialFromKey } from "@/lib/markets";
+
+// International-safe normalization. Egyptian numbers behave exactly as
+// before ('20' + 10 digits); Gulf mobiles (9 digits starting 5, optionally
+// 0- or 966/971-prefixed) resolve their country code from the row's market
+// so a KSA abandoner is never dialed as +20... by mistake.
+export function normalizePhoneIntl(
+  phone: string | null | undefined,
+  market?: string | null
+): string | null {
   if (!phone) return null;
   let digits = phone.replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.startsWith("0020")) digits = digits.slice(4);
-  else if (digits.startsWith("20") && digits.length >= 12) {
-    // already international
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  // Gulf national format: 5xxxxxxxx / 05xxxxxxxx
+  if (/^0?5\d{8}$/.test(digits)) {
+    return dialFromKey(digits.slice(-9), market);
+  }
+  if (/^(966|971|965|974|973|968|962)\d{7,9}$/.test(digits)) return digits;
+  if (digits.startsWith("20") && digits.length >= 12) {
+    // already international Egyptian
   } else if (digits.startsWith("0")) {
     digits = "20" + digits.slice(1);
   } else if (digits.startsWith("1") && digits.length === 10) {
@@ -16,6 +29,12 @@ export function normalizeEgyptPhone(phone: string | null | undefined): string | 
   }
   if (digits.length < 11) return null;
   return digits;
+}
+
+// Back-compat name — existing callers keep working (Egypt-only behavior
+// plus safe handling of Gulf shapes).
+export function normalizeEgyptPhone(phone: string | null | undefined): string | null {
+  return normalizePhoneIntl(phone);
 }
 
 export type FollowUpReason =
@@ -68,9 +87,10 @@ const TEMPLATES: Record<FollowUpReason, (i: TemplateInput) => { ar: string; en: 
 export function abandonedCartLink(
   phone: string | null | undefined,
   input: { customerName: string | null; products: string[]; cartValue: number | null; promoCode?: string | null },
-  lang: "ar" | "en" = "ar"
+  lang: "ar" | "en" = "ar",
+  market?: string | null
 ): string | null {
-  const normalized = normalizeEgyptPhone(phone);
+  const normalized = normalizePhoneIntl(phone, market);
   if (!normalized) return null;
   const list = input.products.slice(0, 3).join("، ");
   const listEn = input.products.slice(0, 3).join(", ");
@@ -89,9 +109,10 @@ export function whatsappLink(
   phone: string | null | undefined,
   reason: FollowUpReason,
   input: TemplateInput,
-  lang: "ar" | "en" = "ar"
+  lang: "ar" | "en" = "ar",
+  market?: string | null
 ): string | null {
-  const normalized = normalizeEgyptPhone(phone);
+  const normalized = normalizePhoneIntl(phone, market);
   if (!normalized) return null;
   const message = TEMPLATES[reason](input)[lang];
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;

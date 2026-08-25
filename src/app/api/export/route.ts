@@ -14,6 +14,7 @@ const EXPORT_COLUMNS = [
   "customer_phone",
   "city",
   "area",
+  "market",
   "total_order_amount",
   "cod_amount",
   "online_paid_amount",
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
   const status = params.getAll("status").filter(Boolean);
   const payment = params.getAll("payment").filter(Boolean);
   const city = params.getAll("city").filter(Boolean);
+  const market = params.getAll("market").filter(Boolean);
   const source = params.getAll("source").filter(Boolean);
   const attr = params.getAll("attr").filter(Boolean);
   const category = params.getAll("category").filter(Boolean);
@@ -82,6 +84,7 @@ export async function GET(request: NextRequest) {
     if (status.length) query = query.in("order_status", status);
     if (payment.length) query = query.in("payment_method", payment);
     if (city.length) query = query.in("city", city);
+    if (market.length) query = query.in("market", market);
     if (source.length) query = query.in("source", source);
     if (attr.length) {
       const real = attr.filter((a) => a !== "untracked");

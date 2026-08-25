@@ -53,6 +53,8 @@ export interface Order {
   // lines with no known weight, so the figure is a floor when > 0
   weight_kg?: number | null;
   weight_missing?: number | null;
+  // country code derived from City/phone (migration 117): EG/SA/AE/GF/...
+  market?: string | null;
 }
 
 export interface OrderItem {

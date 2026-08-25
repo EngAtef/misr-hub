@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
+import { MultiSelect } from "@/components/multi-select";
+import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
 import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, DeltaBadge } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
 import { TrafficKpis } from "@/components/traffic-growth";
@@ -45,11 +48,13 @@ import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 export default function OverviewPage() {
   const { t, lang } = useLang();
   const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const [markets, setMarkets] = useState<string[]>([]);
+  const marketParam = { p_markets: markets.length ? markets : null };
+  const params = { ...rangeParams(range), ...marketParam };
+  const deps = [range.from, range.to, markets];
 
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
-  const prevKpis = useRpc<Kpis>("fn_kpis", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare);
+  const prevKpis = useRpc<Kpis>("fn_kpis", compare ? { ...rangeParams(compare), ...marketParam } : {}, [compare?.from, compare?.to, markets], !compare);
   const pk = compare ? prevKpis.data : null;
   const money = (n: number) => formatMoney(n, lang);
   const byDay = useRpc<DayRow[]>("fn_orders_by_day", params, deps);
@@ -65,17 +70,27 @@ export default function OverviewPage() {
       <PageHeader
         title={t("overview")}
         actions={
-          <DateRangeFilter
-            preset={preset}
-            setPreset={setPreset}
-            range={range}
-            setRange={setRange}
-            comparePreset={comparePreset}
-            setComparePreset={setComparePreset}
-            customCompare={customCompare}
-            setCustomCompare={setCustomCompare}
-            compare={compare}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <MultiSelect
+              options={FILTER_MARKETS}
+              values={markets}
+              onChange={setMarkets}
+              placeholder={t("marketCountry")}
+              getLabel={(v) => marketLabel(v, lang)}
+              className="w-40"
+            />
+            <DateRangeFilter
+              preset={preset}
+              setPreset={setPreset}
+              range={range}
+              setRange={setRange}
+              comparePreset={comparePreset}
+              setComparePreset={setComparePreset}
+              customCompare={customCompare}
+              setCustomCompare={setCustomCompare}
+              compare={compare}
+            />
+          </div>
         }
       />
 

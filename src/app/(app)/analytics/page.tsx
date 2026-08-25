@@ -6,6 +6,8 @@ import { useDateRange, DateRangeFilter, type DateRange } from "@/components/date
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { PageHeader, ChartCard, KpiCard, Spinner, SortTh, useSort, DeltaBadge } from "@/components/ui";
 import { TrendChart, DonutChart, BarsChart } from "@/components/charts";
+import { MultiSelect } from "@/components/multi-select";
+import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
 import { formatMoney, formatNumber, formatPercent, formatWeight, formatDateTime, cn } from "@/lib/utils";
 import type { Kpis, DayRow, BreakdownRow } from "@/lib/types";
 
@@ -22,8 +24,9 @@ const TABS: { key: Tab; labelKey: DictKey }[] = [
 ];
 
 export default function AnalyticsPage() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [tab, setTab] = useState<Tab>("sales");
+  const [markets, setMarkets] = useState<string[]>([]);
   const { preset, setPreset, range, setRange, comparePreset, setComparePreset, customCompare, setCustomCompare, compare } = useDateRange("month");
 
   return (
@@ -31,17 +34,27 @@ export default function AnalyticsPage() {
       <PageHeader
         title={t("analytics")}
         actions={
-          <DateRangeFilter
-            preset={preset}
-            setPreset={setPreset}
-            range={range}
-            setRange={setRange}
-            comparePreset={comparePreset}
-            setComparePreset={setComparePreset}
-            customCompare={customCompare}
-            setCustomCompare={setCustomCompare}
-            compare={compare}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <MultiSelect
+              options={FILTER_MARKETS}
+              values={markets}
+              onChange={setMarkets}
+              placeholder={t("marketCountry")}
+              getLabel={(v) => marketLabel(v, lang)}
+              className="w-40"
+            />
+            <DateRangeFilter
+              preset={preset}
+              setPreset={setPreset}
+              range={range}
+              setRange={setRange}
+              comparePreset={comparePreset}
+              setComparePreset={setComparePreset}
+              customCompare={customCompare}
+              setCustomCompare={setCustomCompare}
+              compare={compare}
+            />
+          </div>
         }
       />
 
@@ -60,38 +73,45 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {tab === "sales" && <SalesTab range={range} compare={compare} />}
-      {tab === "delivery" && <DeliveryTab range={range} compare={compare} />}
-      {tab === "payments" && <PaymentsTab range={range} compare={compare} />}
-      {tab === "geography" && <GeographyTab range={range} />}
-      {tab === "products" && <ProductsTab range={range} />}
-      {tab === "returns" && <ReturnsTab range={range} compare={compare} />}
-      {tab === "team" && <TeamTab range={range} />}
+      {tab === "sales" && <SalesTab range={range} compare={compare} markets={markets} />}
+      {tab === "delivery" && <DeliveryTab range={range} compare={compare} markets={markets} />}
+      {tab === "payments" && <PaymentsTab range={range} compare={compare} markets={markets} />}
+      {tab === "geography" && <GeographyTab range={range} markets={markets} />}
+      {tab === "products" && <ProductsTab range={range} markets={markets} />}
+      {tab === "returns" && <ReturnsTab range={range} compare={compare} markets={markets} />}
+      {tab === "team" && <TeamTab range={range} markets={markets} />}
     </div>
   );
 }
 
-type RangeProp = { range: { from: string | null; to: string | null }; compare?: DateRange | null };
+type RangeProp = { range: { from: string | null; to: string | null }; compare?: DateRange | null; markets?: string[] };
+
+const marketsParam = (markets?: string[]) => ({ p_markets: markets && markets.length ? markets : null });
 
 // fn_kpis for the comparison period (null when compare is off)
-function useCompareKpis(compare: DateRange | null | undefined) {
-  const res = useRpc<Kpis>("fn_kpis", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare);
+function useCompareKpis(compare: DateRange | null | undefined, markets?: string[]) {
+  const res = useRpc<Kpis>(
+    "fn_kpis",
+    compare ? { ...rangeParams(compare), ...marketsParam(markets) } : {},
+    [compare?.from, compare?.to, markets],
+    !compare
+  );
   return compare ? res.data : null;
 }
 
-function SalesTab({ range, compare }: RangeProp) {
+function SalesTab({ range, compare, markets }: RangeProp) {
   const { t, lang } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const byDay = useRpc<DayRow[]>("fn_orders_by_day", params, deps);
   const bySource = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "source", ...params, p_limit: 10 }, deps);
   const customers = useRpc<{ total_customers: number; repeat_customers: number; avg_orders_per_customer: number; avg_spend_per_customer: number }>(
     "fn_customer_insights", params, deps
   );
-  const pk = useCompareKpis(compare);
+  const pk = useCompareKpis(compare, markets);
   const prevCustomers = useRpc<{ total_customers: number; repeat_customers: number }>(
-    "fn_customer_insights", compare ? rangeParams(compare) : {}, [compare?.from, compare?.to], !compare
+    "fn_customer_insights", compare ? { ...rangeParams(compare), ...marketsParam(markets) } : {}, [compare?.from, compare?.to, markets], !compare
   );
   const pc = compare ? prevCustomers.data : null;
   const money = (n: number) => formatMoney(n, lang);
@@ -159,14 +179,14 @@ function SalesTab({ range, compare }: RangeProp) {
   );
 }
 
-function DeliveryTab({ range, compare }: RangeProp) {
+function DeliveryTab({ range, compare, markets }: RangeProp) {
   const { t } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const buckets = useRpc<{ bucket: string; bucket_order: number; orders: number }[]>("fn_delivery_buckets", params, deps);
   const byDeliveryStatus = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "delivery_status", ...params, p_limit: 12 }, deps);
-  const pk = useCompareKpis(compare);
+  const pk = useCompareKpis(compare, markets);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -235,13 +255,13 @@ function DeliveryTab({ range, compare }: RangeProp) {
   );
 }
 
-function PaymentsTab({ range, compare }: RangeProp) {
+function PaymentsTab({ range, compare, markets }: RangeProp) {
   const { t, lang } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const byPayment = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "payment_method", ...params, p_limit: 10 }, deps);
-  const pk = useCompareKpis(compare);
+  const pk = useCompareKpis(compare, markets);
   const money = (n: number) => formatMoney(n, lang);
 
   if (kpis.loading) return <Spinner />;
@@ -293,17 +313,29 @@ function PaymentsTab({ range, compare }: RangeProp) {
   );
 }
 
-function GeographyTab({ range }: RangeProp) {
-  const { t } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+function GeographyTab({ range, markets }: RangeProp) {
+  const { t, lang } = useLang();
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const byCity = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "city", ...params, p_limit: 30 }, deps);
   const byArea = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "area", ...params, p_limit: 20 }, deps);
+  const byMarket = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "market", ...params, p_limit: 10 }, deps);
 
   if (byCity.loading) return <Spinner />;
+  const marketRows = (byMarket.data ?? []).map((r) => ({ ...r, label: marketLabel(r.label, lang) }));
 
   return (
     <div className="space-y-6">
+      {marketRows.length > 1 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ChartCard title={t("marketByCountry")}>
+            <DonutChart data={marketRows as unknown as Record<string, unknown>[]} nameKey="label" valueKey="orders" />
+          </ChartCard>
+          <ChartCard title={`${t("marketByCountry")} — ${t("revenue")}`}>
+            <BreakdownTable rows={marketRows} compact />
+          </ChartCard>
+        </div>
+      )}
       <ChartCard title={t("ordersByCity")}>
         <BarsChart
           data={(byCity.data ?? []).slice(0, 15) as unknown as Record<string, unknown>[]}
@@ -336,10 +368,10 @@ function GeographyTab({ range }: RangeProp) {
   );
 }
 
-function ProductsTab({ range }: RangeProp) {
+function ProductsTab({ range, markets }: RangeProp) {
   const { t, lang } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const top = useRpc<{ product_name: string; sku: string; quantity: number; revenue: number }[]>(
     "fn_top_products", { ...params, p_limit: 30 }, deps
   );
@@ -400,13 +432,13 @@ function ProductsTab({ range }: RangeProp) {
   );
 }
 
-function ReturnsTab({ range, compare }: RangeProp) {
+function ReturnsTab({ range, compare, markets }: RangeProp) {
   const { t } = useLang();
-  const params = rangeParams(range);
-  const deps = [range.from, range.to];
+  const params = { ...rangeParams(range), ...marketsParam(markets) };
+  const deps = [range.from, range.to, markets];
   const kpis = useRpc<Kpis>("fn_kpis", params, deps);
   const reasons = useRpc<BreakdownRow[]>("fn_breakdown", { p_dim: "cancellation_reason", ...params, p_limit: 15 }, deps);
-  const pk = useCompareKpis(compare);
+  const pk = useCompareKpis(compare, markets);
 
   if (kpis.loading) return <Spinner />;
   const k = kpis.data;
@@ -454,6 +486,7 @@ function ReturnsTab({ range, compare }: RangeProp) {
 }
 
 function TeamTab({ range }: RangeProp) {
+  // team activity is not market-specific — the country filter doesn't apply here
   const { t } = useLang();
   const params = rangeParams(range);
   const deps = [range.from, range.to];
