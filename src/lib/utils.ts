@@ -4,9 +4,38 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
-export function formatMoney(value: number | null | undefined, lang: "ar" | "en" = "ar"): string {
+// ---- Display currency (migration 118) ----
+// All RPC money is EGP-normalized; the user picks a display currency
+// (EGP/USD/SAR) in the sidebar and every formatMoney call converts on the
+// fly. The module state is set by LangProvider during render, so a currency
+// change re-renders every consumer with the new rates.
+export type Currency = "EGP" | "USD" | "SAR";
+let _display: Currency = "EGP";
+let _usdEgp = 48.5;
+let _sarEgp = 12.95;
+
+export function setMoneyConfig(display: Currency, usdEgp: number, sarEgp: number) {
+  _display = display;
+  if (usdEgp > 0) _usdEgp = usdEgp;
+  if (sarEgp > 0) _sarEgp = sarEgp;
+}
+
+const egpRate = (c: Currency) => (c === "USD" ? _usdEgp : c === "SAR" ? _sarEgp : 1);
+
+// `src` = the currency the raw value is stored in (orders table rows carry
+// their own currency; RPC outputs are always EGP).
+export function formatMoney(
+  value: number | null | undefined,
+  lang: "ar" | "en" = "ar",
+  src: Currency = "EGP"
+): string {
   if (value === null || value === undefined || isNaN(value)) return "—";
-  const formatted = new Intl.NumberFormat("en-EG", { maximumFractionDigits: 0 }).format(value);
+  const v = (value * egpRate(src)) / egpRate(_display);
+  const formatted = new Intl.NumberFormat("en-EG", {
+    maximumFractionDigits: _display === "EGP" ? 0 : Math.abs(v) < 100 ? 2 : 0,
+  }).format(v);
+  if (_display === "USD") return `$${formatted}`;
+  if (_display === "SAR") return lang === "ar" ? `${formatted} ر.س` : `SAR ${formatted}`;
   return lang === "ar" ? `${formatted} ج.م` : `EGP ${formatted}`;
 }
 

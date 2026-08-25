@@ -605,7 +605,7 @@ export default function OrdersPage() {
                   <td className="text-xs">{o.payment_method ?? "—"}</td>
                   <td><AttrBadge order={o} lang={lang} /></td>
                   <td><SourceBadge source={o.source} /></td>
-                  <td className="font-semibold">{formatMoney(o.total_order_amount, lang)}</td>
+                  <td className="font-semibold">{formatMoney(o.total_order_amount, lang, (o.currency as "EGP" | "USD" | "SAR") ?? "EGP")}</td>
                   <td>
                     {o.applied_offer ? (
                       <span className="inline-block rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700" dir="ltr">
@@ -660,6 +660,8 @@ function promoValueLabel(p: PromoCode, lang: "ar" | "en", labels: { freeDelivery
 
 function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, lang } = useLang();
+  // the raw amounts on this order (and its lines) are in the order's own currency
+  const cur = (order.currency as "EGP" | "USD" | "SAR") ?? "EGP";
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [events, setEvents] = useState<OrderEvent[]>([]);
@@ -768,7 +770,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                   )}
                 </div>
                 <div>{order.payment_method ?? "—"}</div>
-                <div className="font-bold text-lg">{formatMoney(order.total_order_amount, lang)}</div>
+                <div className="font-bold text-lg">{formatMoney(order.total_order_amount, lang, cur)}</div>
                 <div className="text-xs text-slate-600" title={order.weight_missing ? t("weightApproxHint") : undefined}>
                   <span className="font-semibold text-slate-500">{t("weightCol")}:</span>{" "}
                   <span dir="ltr">{formatWeight(order.weight_kg, lang, !!order.weight_missing)}</span>
@@ -777,7 +779,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                   ) : null}
                 </div>
                 {order.cod_amount != null && order.cod_amount > 0 && (
-                  <div className="text-xs text-amber-700">COD: {formatMoney(order.cod_amount, lang)}</div>
+                  <div className="text-xs text-amber-700">COD: {formatMoney(order.cod_amount, lang, cur)}</div>
                 )}
                 {order.applied_offer && (
                   <div className="rounded-lg bg-violet-50 border border-violet-100 px-2.5 py-1.5 text-xs text-violet-900 space-y-0.5">
@@ -805,7 +807,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                     )}
                     {order.promo_amount != null && order.promo_amount > 0 && (
                       <div className="text-violet-600">
-                        {t("promoDiscountLbl")}: {formatMoney(order.promo_amount, lang)}
+                        {t("promoDiscountLbl")}: {formatMoney(order.promo_amount, lang, cur)}
                       </div>
                     )}
                   </div>
@@ -887,10 +889,10 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                                 ? formatWeight((l.quantity ?? 1) * (weights[l.sku] as number), lang)
                                 : "—"}
                             </td>
-                            <td className="text-xs">{formatMoney(l.unit_price, lang)}</td>
-                            <td>{formatMoney(l.price, lang)}</td>
+                            <td className="text-xs">{formatMoney(l.unit_price, lang, cur)}</td>
+                            <td>{formatMoney(l.price, lang, cur)}</td>
                             <td className="font-semibold text-emerald-700">
-                              {formatMoney(l.price_after_discount ?? l.price, lang)}
+                              {formatMoney(l.price_after_discount ?? l.price, lang, cur)}
                             </td>
                           </tr>
                         ))}
@@ -901,8 +903,8 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                           <td className="text-center">{formatNumber(lineTotals.qty)}</td>
                           <td className="whitespace-nowrap text-xs" dir="ltr">{formatWeight(lineTotals.weight, lang)}</td>
                           <td />
-                          <td>{formatMoney(lineTotals.price, lang)}</td>
-                          <td className="text-emerald-700">{formatMoney(lineTotals.discounted, lang)}</td>
+                          <td>{formatMoney(lineTotals.price, lang, cur)}</td>
+                          <td className="text-emerald-700">{formatMoney(lineTotals.discounted, lang, cur)}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -922,7 +924,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
                             <td className="text-slate-400">{it.position}</td>
                             <td className="!whitespace-normal">{it.product_name ?? "—"}</td>
                             <td dir="ltr" className="text-xs text-slate-500">{it.sku ?? "—"}</td>
-                            <td>{formatMoney(it.price, lang)}</td>
+                            <td>{formatMoney(it.price, lang, cur)}</td>
                           </tr>
                         ))}
                       </tbody>

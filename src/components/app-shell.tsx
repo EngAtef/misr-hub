@@ -28,7 +28,7 @@ import type { Profile } from "@/lib/types";
 
 
 export function AppShell({ profile, children }: { profile: Profile; children: React.ReactNode }) {
-  const { t, lang, setLang } = useLang();
+  const { t, lang, setLang, currency, setCurrency, refreshFx } = useLang();
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -41,6 +41,12 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
   // desktop sidebar collapse — remembered per browser
   useEffect(() => {
     if (localStorage.getItem("nmSidebarCollapsed") === "1") setCollapsed(true);
+  }, []);
+
+  // load the editable FX rates once we're authenticated (Settings → currency)
+  useEffect(() => {
+    refreshFx();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleSidebar() {
@@ -241,6 +247,22 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             {profile.full_name || profile.email}
           </div>
           <div className="text-xs text-brand-300">{t(profile.role as DictKey)}</div>
+        </div>
+        {/* display currency — converts every money figure in the app */}
+        <div className="flex items-center gap-1 px-3" title={t("currencyLbl")}>
+          {(["EGP", "USD", "SAR"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setCurrency(c)}
+              className={cn(
+                "flex-1 rounded-lg px-2 py-1.5 text-xs font-bold transition",
+                currency === c ? "bg-brand-700 text-white" : "text-brand-300 hover:bg-brand-800 hover:text-white"
+              )}
+              dir="ltr"
+            >
+              {c === "EGP" ? (lang === "ar" ? "ج.م" : "EGP") : c === "USD" ? "$" : lang === "ar" ? "ر.س" : "SAR"}
+            </button>
+          ))}
         </div>
         <button
           onClick={() => setLang(lang === "ar" ? "en" : "ar")}

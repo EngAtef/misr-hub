@@ -155,6 +155,8 @@ export default function SettingsPage() {
         )}
       </div>
 
+      <FxCard />
+
       <div className="mt-8 mb-3">
         <h2 className="text-lg font-bold">{t("integrations")}</h2>
         <p className="text-sm text-slate-500">{t("integrationsHint")}</p>
@@ -343,6 +345,89 @@ export default function SettingsPage() {
             { text: "Paste the key below and Save." },
           ]}
         />
+      </div>
+    </div>
+  );
+}
+
+// Currencies & FX rates (migration 118): Egyptian orders are EGP, foreign
+// orders use the global storefront currency. These rates normalize every
+// figure to EGP; the sidebar switch then displays EGP / USD / SAR.
+function FxCard() {
+  const { t, refreshFx } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [usd, setUsd] = useState("48.5");
+  const [sar, setSar] = useState("12.95");
+  const [globalCur, setGlobalCur] = useState("USD");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    supabase.rpc("fn_fx_rates").then(({ data }) => {
+      const r = data as { usd_egp?: number | string; sar_egp?: number | string; global_currency?: string } | null;
+      if (!r) return;
+      if (r.usd_egp != null) setUsd(String(r.usd_egp));
+      if (r.sar_egp != null) setSar(String(r.sar_egp));
+      if (r.global_currency) setGlobalCur(r.global_currency);
+    });
+  }, [supabase]);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    const { error } = await supabase.rpc("fn_fx_set", {
+      p_usd: Number(usd),
+      p_sar: Number(sar),
+      p_global: globalCur,
+    });
+    setSaving(false);
+    if (error) {
+      setMsg({ ok: false, text: error.message });
+      return;
+    }
+    setMsg({ ok: true, text: "Saved" });
+    refreshFx();
+  }
+
+  return (
+    <div className="card p-6 space-y-4 mt-8">
+      <div className="flex items-center gap-2 text-brand-700">
+        <Save size={18} />
+        <h3 className="font-bold">{t("fxTitle")}</h3>
+      </div>
+      <div className="flex items-start gap-2 rounded-lg bg-brand-50 border border-brand-100 px-4 py-3 text-sm text-brand-800">
+        <Info size={16} className="shrink-0 mt-0.5" />
+        <span>{t("fxHint")}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("fxUsd")}</label>
+          <input className="input" dir="ltr" type="number" step="0.01" min="0" value={usd} onChange={(e) => setUsd(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("fxSar")}</label>
+          <input className="input" dir="ltr" type="number" step="0.01" min="0" value={sar} onChange={(e) => setSar(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1">{t("fxGlobal")}</label>
+          <select className="input" value={globalCur} onChange={(e) => setGlobalCur(e.target.value)}>
+            <option value="USD">USD ($)</option>
+            <option value="SAR">SAR (ر.س)</option>
+            <option value="EGP">EGP (ج.م)</option>
+          </select>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button className="btn-primary" onClick={save} disabled={saving}>
+          <Save size={16} />
+          {t("saveSettings")}
+        </button>
+        {msg && (
+          <span className={`inline-flex items-center gap-1 text-sm ${msg.ok ? "text-emerald-600" : "text-red-600"}`}>
+            {msg.ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+            {msg.text}
+          </span>
+        )}
       </div>
     </div>
   );

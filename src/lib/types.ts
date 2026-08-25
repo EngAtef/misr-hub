@@ -55,6 +55,9 @@ export interface Order {
   weight_missing?: number | null;
   // country code derived from City/phone (migration 117): EG/SA/AE/GF/...
   market?: string | null;
+  // currency the raw amounts are stored in (migration 118): EGP for Egyptian
+  // orders, the global storefront currency (default USD) for foreign ones
+  currency?: string | null;
 }
 
 export interface OrderItem {

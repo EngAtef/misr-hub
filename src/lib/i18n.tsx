@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { setMoneyConfig, type Currency } from "@/lib/utils";
 
 export type Lang = "ar" | "en";
 
@@ -147,6 +149,12 @@ const dict = {
   city: { ar: "المحافظة", en: "City" },
   marketCountry: { ar: "الدولة", en: "Country" },
   marketByCountry: { ar: "حسب الدولة", en: "By country" },
+  currencyLbl: { ar: "عملة العرض", en: "Display currency" },
+  fxTitle: { ar: "العملات وأسعار الصرف", en: "Currencies & FX rates" },
+  fxHint: { ar: "طلبات مصر بالجنيه، وطلبات الخارج بعملة المتجر العالمي. كل الأرقام في التطبيق تتوحّد بالجنيه بهذه الأسعار، وزر العملة في القائمة الجانبية يعرضها بالجنيه أو الدولار أو الريال.", en: "Egyptian orders are in EGP; foreign orders are in the global store currency. All app figures are normalized to EGP using these rates, and the sidebar currency switch displays them in EGP, USD or SAR." },
+  fxUsd: { ar: "سعر الدولار (ج.م)", en: "USD rate (EGP)" },
+  fxSar: { ar: "سعر الريال (ج.م)", en: "SAR rate (EGP)" },
+  fxGlobal: { ar: "عملة المتجر العالمي", en: "Global store currency" },
   area: { ar: "المنطقة", en: "Area" },
   status: { ar: "الحالة", en: "Status" },
   paymentMethod: { ar: "طريقة الدفع", en: "Payment" },
@@ -2017,14 +2025,21 @@ const LangContext = createContext<{
   lang: Lang;
   setLang: (l: Lang) => void;
   t: (key: DictKey) => string;
-}>({ lang: "ar", setLang: () => {}, t: (k) => k });
+  currency: Currency;
+  setCurrency: (c: Currency) => void;
+  refreshFx: () => void;
+}>({ lang: "ar", setLang: () => {}, t: (k) => k, currency: "EGP", setCurrency: () => {}, refreshFx: () => {} });
 
 export function LangProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("ar");
+  const [currency, setCurrencyState] = useState<Currency>("EGP");
+  const [fx, setFx] = useState({ usd: 48.5, sar: 12.95 });
 
   useEffect(() => {
     const saved = typeof window !== "undefined" ? (localStorage.getItem("lang") as Lang | null) : null;
     if (saved === "en" || saved === "ar") setLangState(saved);
+    const savedCur = typeof window !== "undefined" ? (localStorage.getItem("nmCurrency") as Currency | null) : null;
+    if (savedCur === "EGP" || savedCur === "USD" || savedCur === "SAR") setCurrencyState(savedCur);
   }, []);
 
   useEffect(() => {
@@ -2037,9 +2052,35 @@ export function LangProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("lang", l);
   };
 
+  const setCurrency = (c: Currency) => {
+    setCurrencyState(c);
+    localStorage.setItem("nmCurrency", c);
+  };
+
+  // pulls the editable rates (Settings → currency card); called by AppShell
+  // once the user is authenticated
+  const refreshFx = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      const { data } = await supabase.rpc("fn_fx_rates");
+      const r = data as { usd_egp?: number | string; sar_egp?: number | string } | null;
+      if (r) setFx({ usd: Number(r.usd_egp) || 48.5, sar: Number(r.sar_egp) || 12.95 });
+    } catch {
+      // unauthenticated (login page) — defaults stay
+    }
+  }, []);
+
+  // module-level config consumed by formatMoney; set during render so every
+  // consumer that re-renders on this context sees the new currency
+  setMoneyConfig(currency, fx.usd, fx.sar);
+
   const t = (key: DictKey) => dict[key]?.[lang] ?? key;
 
-  return <LangContext.Provider value={{ lang, setLang, t }}>{children}</LangContext.Provider>;
+  return (
+    <LangContext.Provider value={{ lang, setLang, t, currency, setCurrency, refreshFx }}>
+      {children}
+    </LangContext.Provider>
+  );
 }
 
 export function useLang() {
