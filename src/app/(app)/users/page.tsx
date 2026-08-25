@@ -52,6 +52,7 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<ProfileRow | null>(null);
   const [error, setError] = useState("");
+  const [me, setMe] = useState<{ id: string; isOwner: boolean } | null>(null);
   const { sort, toggle, apply } = useSort<ProfileRow>();
 
   const sortedUsers = useMemo(
@@ -67,8 +68,12 @@ export default function UsersPage() {
   );
 
   const load = useCallback(async () => {
+    const { data: auth } = await supabase.auth.getUser();
     const { data } = await supabase.from("profiles").select("*").order("created_at");
-    setUsers((data as ProfileRow[]) ?? []);
+    const rows = (data as ProfileRow[]) ?? [];
+    setUsers(rows);
+    const mine = rows.find((r) => r.id === auth.user?.id);
+    if (mine) setMe({ id: mine.id, isOwner: !!mine.is_owner });
     setLoading(false);
   }, [supabase]);
 
@@ -99,6 +104,10 @@ export default function UsersPage() {
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       )}
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+        🛡️ {t("roleHierarchyNote")}
+      </div>
 
       <div className="card overflow-x-auto mb-8">
         {loading ? (
@@ -162,13 +171,23 @@ export default function UsersPage() {
                   <td className="text-xs text-slate-500">{formatDateTimeEg(u.created_at)}</td>
                   <td>
                     <div className="flex gap-1 justify-end">
-                      <button className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={() => setEditing(u)}>
-                        <Pencil size={15} />
-                      </button>
-                      {!u.is_owner && (
-                        <button className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => deleteUser(u)}>
-                          <Trash2 size={15} />
-                        </button>
+                      {/* migration 130 hierarchy: a non-owner admin cannot touch
+                          the owner row or fellow admins (self-edit stays open) */}
+                      {(u.is_owner || u.role === "admin") && !me?.isOwner && u.id !== me?.id ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-400" title={t("adminProtected")}>
+                          🛡️ {t("adminProtected")}
+                        </span>
+                      ) : (
+                        <>
+                          <button className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={() => setEditing(u)}>
+                            <Pencil size={15} />
+                          </button>
+                          {!u.is_owner && u.id !== me?.id && me?.isOwner && (
+                            <button className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => deleteUser(u)}>
+                              <Trash2 size={15} />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </td>
@@ -179,10 +198,12 @@ export default function UsersPage() {
         )}
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {showCreate && <CreateUserModal canGrantAdmin={!!me?.isOwner} onClose={() => setShowCreate(false)} onCreated={load} />}
       {editing && (
         <EditUserModal
           user={editing}
+          canGrantAdmin={!!me?.isOwner}
+          isSelf={editing.id === me?.id}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -194,7 +215,7 @@ export default function UsersPage() {
   );
 }
 
-function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateUserModal({ canGrantAdmin, onClose, onCreated }: { canGrantAdmin: boolean; onClose: () => void; onCreated: () => void }) {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [email, setEmail] = useState("");
@@ -270,7 +291,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
             <option value="viewer">{t("viewer")} — {t("roleViewerDesc")}</option>
             <option value="manager">{t("manager")} — {t("roleManagerDesc")}</option>
-            <option value="admin">{t("admin")} — {t("roleAdminDesc")}</option>
+            {canGrantAdmin && <option value="admin">{t("admin")} — {t("roleAdminDesc")}</option>}
           </select>
         </Field>
 
@@ -309,7 +330,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   );
 }
 
-function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: () => void; onSaved: () => void }) {
+function EditUserModal({ user, canGrantAdmin, isSelf, onClose, onSaved }: { user: ProfileRow; canGrantAdmin: boolean; isSelf: boolean; onClose: () => void; onSaved: () => void }) {
   const { t } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [fullName, setFullName] = useState(user.full_name ?? "");
@@ -402,14 +423,16 @@ function EditUserModal({ user, onClose, onSaved }: { user: ProfileRow; onClose: 
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t("role")}>
-            <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={user.is_owner}>
+            {/* the admin option appears only for the owner (or to display the
+                target's current admin role); self role changes are blocked */}
+            <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={user.is_owner || isSelf}>
               <option value="viewer">{t("viewer")}</option>
               <option value="manager">{t("manager")}</option>
-              <option value="admin">{t("admin")}</option>
+              {(canGrantAdmin || user.role === "admin") && <option value="admin">{t("admin")}</option>}
             </select>
           </Field>
           <Field label={t("status")}>
-            <select className="input" value={isActive ? "1" : "0"} onChange={(e) => setIsActive(e.target.value === "1")} disabled={user.is_owner}>
+            <select className="input" value={isActive ? "1" : "0"} onChange={(e) => setIsActive(e.target.value === "1")} disabled={user.is_owner || isSelf}>
               <option value="1">{t("active")}</option>
               <option value="0">{t("inactive")}</option>
             </select>

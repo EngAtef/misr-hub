@@ -50,18 +50,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "You cannot demote or deactivate yourself" }, { status: 400 });
     }
 
-    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (role && ["admin", "manager", "viewer"].includes(role)) updates.role = role;
-    if (typeof isActive === "boolean") updates.is_active = isActive;
-
-    const { error } = await db.from("profiles").update(updates).eq("id", userId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // migration 130: go through the guarded RPC so the full hierarchy applies —
+    // only the owner may touch the owner row, other admins, or grant admin.
+    // A raw profiles update here used to slip past those checks.
+    const nextRole = role && ["admin", "manager", "viewer"].includes(role) ? role : null;
+    const nextActive = typeof isActive === "boolean" ? isActive : null;
+    const { error } = await db.rpc("admin_update_user", {
+      p_user_id: userId,
+      p_role: nextRole,
+      p_is_active: nextActive,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     await db.from("audit_log").insert({
       user_id: user.id,
       user_email: user.email,
       action: "update_user",
-      details: { target_user: userId, ...updates },
+      details: { target_user: userId, role: nextRole ?? undefined, is_active: nextActive ?? undefined },
     });
 
     return NextResponse.json({ ok: true });

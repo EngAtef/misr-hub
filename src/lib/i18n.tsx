@@ -322,6 +322,11 @@ const dict = {
   creating: { ar: "جاري الإنشاء...", en: "Creating..." },
   userCreated: { ar: "تم إنشاء المستخدم", en: "User created" },
   roleAdminDesc: { ar: "كل الصلاحيات + إدارة المستخدمين", en: "Full access + user management" },
+  roleHierarchyNote: {
+    ar: "تسلسل الصلاحيات: المالك يدير الجميع بما فيهم الأدمن. الأدمن يدير المديرين والمشاهدين فقط — لا يمكنه تعديل حساب المالك أو أدمن آخر ولا منح صلاحية أدمن. المدير والمشاهد يريان ملفهما الشخصي فقط ولا صلاحية لهما على وصول الآخرين.",
+    en: "Access hierarchy: the owner manages everyone, including admins. Admins manage managers and viewers only — they cannot edit the owner, other admins, or grant the admin role. Managers and viewers see their own profile only and have no access management of any kind.",
+  },
+  adminProtected: { ar: "يديره المالك فقط", en: "Owner-managed" },
   roleManagerDesc: { ar: "رفع البيانات + كل التقارير", en: "Upload data + all reports" },
   roleViewerDesc: { ar: "عرض التقارير فقط", en: "View dashboards & reports only" },
   // Audit
