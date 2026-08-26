@@ -51,6 +51,9 @@ interface CartRow {
   full_count: number;
   weight_kg?: number | null; weight_missing?: number | null;
   market?: string | null;
+  // foreign cart with no platform value: cart_value is Σ USD prices of its
+  // SKUs (already EGP-converted) — shown with a ≈ prefix
+  value_estimated?: boolean;
 }
 
 interface TrendRow { day: string; lost_value: number | null; avg_cart_value: number | null; carts: number; platform_lost: number | null }
@@ -393,7 +396,7 @@ export default function AbandonedPage() {
       known_customer: c.customer_id ? "yes" : "no", past_orders: c.lifetime_orders,
       repeat_abandoner: c.is_repeat ? "yes" : "no", source: c.traffic_hint,
       recovered_order: c.recovered_order_number, city: c.customer_city,
-      country: c.market ?? "EG",
+      country: c.market ?? "EG", value_estimated: c.value_estimated ? "yes" : "",
     }));
     downloadCsv(`abandoned-${segment}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
     setExporting(false);
@@ -896,7 +899,9 @@ export default function AbandonedPage() {
                             </button>
                           </td>
                           <td>
-                            <div className="font-bold">{formatMoney(c.cart_value, lang)}</div>
+                            <div className="font-bold" title={c.value_estimated ? t("abEstValueHint") : undefined}>
+                              {c.value_estimated ? "≈ " : ""}{formatMoney(c.cart_value, lang)}
+                            </div>
                             <div className="text-[11px] text-slate-400" dir="ltr" title={c.weight_missing ? t("weightApproxHint") : t("weightCol")}>
                               {formatWeight(c.weight_kg, lang, !!c.weight_missing)}
                             </div>

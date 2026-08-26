@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree, DollarSign } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
@@ -15,6 +15,7 @@ import { parseProductSalesFile, type ProductSaleRow } from "@/lib/import/parse-p
 import { parseCatalogFile, parseCatalogHtml, type CatalogBook } from "@/lib/import/parse-catalog";
 import { syncCatalogUpload } from "@/lib/import/catalog-sync";
 import { parseCostsFile, type CostRow } from "@/lib/import/parse-costs";
+import { parseUsdPricesFile, type UsdPriceRow } from "@/lib/import/parse-usd-prices";
 import { parsePromosFile, type PromoRow } from "@/lib/import/parse-promos";
 import { parseAbandonedAny, type AbandonedParsed } from "@/lib/import/parse-abandoned";
 import { parseCustomListsFile, type ParsedCustomLists } from "@/lib/import/parse-custom-lists";
@@ -60,6 +61,7 @@ type UploadType =
   | "stock_ecom"
   | "stock_sap"
   | "costs"
+  | "usd_prices"
   | "custom_lists"
   | "abandoned_carts"
   | "abandoned_items"
@@ -104,6 +106,11 @@ const TEMPLATES: Record<string, string> = {
     "SKU,cost\r\n" +
     "SKU001,45\r\n" +
     "SKU002,60",
+  usd_prices:
+    "Customer - Search Term,Old Material #,الكتاب ,Amount,Currency\r\n" +
+    "300000045,SKU001,Book A,7.50,USD - United States Dollar\r\n" +
+    "# The global storefront price list (SAP export). A simple SKU,USD file works too.\r\n" +
+    "# Prices update products only — books missing from the file keep their last USD price.",
   custom_lists:
     "sku,name,list_id,product_type,order\r\n" +
     "main_C010924220964P,Book A,82,main,1\r\n" +
@@ -148,6 +155,7 @@ interface Pending {
   stock?: StockSnapshot;
   stockTakenAt?: string;
   costs?: CostRow[];
+  usdPrices?: UsdPriceRow[];
   abandoned?: AbandonedParsed;
   customLists?: ParsedCustomLists;
   count: number;
@@ -206,6 +214,7 @@ export default function DataCenterPage() {
     { key: "stock_ecom", icon: Boxes, title: t("uploadStockEcom"), hint: t("uploadStockEcomHint"), accept: ".xlsx,.xls,.csv" },
     { key: "stock_sap", icon: Warehouse, title: t("uploadStockSap"), hint: t("uploadStockSapHint"), accept: ".xlsx,.xls,.csv" },
     { key: "costs", icon: Coins, title: t("uploadCosts"), hint: t("uploadCostsHint"), accept: ".xlsx,.xls,.csv" },
+    { key: "usd_prices", icon: DollarSign, title: t("uploadUsdPrices"), hint: t("uploadUsdPricesHint"), accept: ".xlsx,.xls,.csv" },
     { key: "custom_lists", icon: ListTree, title: t("uploadCustomLists"), hint: t("uploadCustomListsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_carts", icon: ShoppingBasket, title: t("uploadAbandonedCarts"), hint: t("uploadAbandonedCartsHint"), accept: ".xlsx,.xls,.csv" },
     { key: "abandoned_items", icon: PackageSearch, title: t("uploadAbandonedItems"), hint: t("uploadAbandonedItemsHint"), accept: ".xlsx,.xls,.csv" },
@@ -336,6 +345,11 @@ export default function DataCenterPage() {
         const rows = parseCostsFile(buffer);
         if (!rows.length) throw new Error(t("invalidFile"));
         setPending({ type: "costs", fileName: file.name, costs: rows, count: rows.length });
+      } else if (activeType === "usd_prices") {
+        const buffer = await file.arrayBuffer();
+        const rows = parseUsdPricesFile(buffer);
+        if (!rows.length) throw new Error(t("invalidFile"));
+        setPending({ type: "usd_prices", fileName: file.name, usdPrices: rows, count: rows.length });
       } else if (activeType.startsWith("abandoned")) {
         const buffer = await file.arrayBuffer();
         const parsed = parseAbandonedAny(buffer);
@@ -513,6 +527,21 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.costs.length) * 100));
         }
         await recordUpload(pending.fileName, pending.costs.length, ok, 0);
+      } else if (pending.type === "usd_prices" && pending.usdPrices) {
+        // updates products.price_usd and refreshes the foreign-cart estimates
+        let ok = 0;
+        let missing = 0;
+        for (let i = 0; i < pending.usdPrices.length; i += 2000) {
+          const chunk = pending.usdPrices.slice(i, i + 2000);
+          const { data, error } = await supabase.rpc("fn_upsert_usd_prices", { p_rows: chunk });
+          if (error) throw new Error(error.message);
+          const res = data as { updated?: number; missing?: number } | null;
+          missing += Number(res?.missing ?? 0);
+          ok += chunk.length;
+          setProcessed(ok);
+          setProgress(Math.round((ok / pending.usdPrices.length) * 100));
+        }
+        await recordUpload(pending.fileName, pending.usdPrices.length, ok - missing, missing);
       } else if (pending.type.startsWith("abandoned") && pending.abandoned) {
         const ab = pending.abandoned;
         let ok = 0;

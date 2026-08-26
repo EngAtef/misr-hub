@@ -42,6 +42,8 @@ interface CatalogRow {
   unit_weight_kg?: number | null;
   weight_kg?: number | null;
   lifetime_weight_kg?: number | null;
+  // migration 119 — global storefront USD price (null = not sold globally)
+  price_usd?: number | null;
 }
 
 interface Totals {
@@ -67,6 +69,8 @@ const SCOPES = [
   { key: "ever", label: "scopeEver" },
   { key: "oos", label: "scopeOos" },
   { key: "instock", label: "scopeInstock" },
+  { key: "global", label: "scopeGlobal" },
+  { key: "not_global", label: "scopeNotGlobal" },
 ] as const;
 
 export default function ProductsPage() {
@@ -422,7 +426,14 @@ export default function ProductsPage() {
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>
                       <td className="!whitespace-normal max-w-[10rem] text-xs text-slate-600">{r.author ?? r.publisher ?? "—"}</td>
                       <td className="text-xs text-slate-500">{r.category ?? "—"}</td>
-                      <td className="whitespace-nowrap text-sm">{r.price === null ? "—" : formatMoney(Number(r.price), lang)}</td>
+                      <td className="whitespace-nowrap text-sm">
+                        {r.price === null ? "—" : formatMoney(Number(r.price), lang)}
+                        {r.price_usd != null && (
+                          <div className="text-[11px] text-emerald-700" dir="ltr" title={t("usdPriceCol")}>
+                            🌍 ${Number(r.price_usd).toFixed(2)}
+                          </div>
+                        )}
+                      </td>
                       <td>
                         <span
                           className={cn(

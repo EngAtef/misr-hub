@@ -155,6 +155,8 @@ const dict = {
   fxUsd: { ar: "سعر الدولار (ج.م)", en: "USD rate (EGP)" },
   fxSar: { ar: "سعر الريال (ج.م)", en: "SAR rate (EGP)" },
   fxGlobal: { ar: "عملة المتجر العالمي", en: "Global store currency" },
+  abEstValueHint: { ar: "قيمة تقديرية من أسعار الكتب بالدولار — المنصة لم ترسل قيمة لهذه السلة", en: "Estimated from the books' USD prices — the platform sent no value for this cart" },
+  usdPriceCol: { ar: "سعر $", en: "USD price" },
   area: { ar: "المنطقة", en: "Area" },
   status: { ar: "الحالة", en: "Status" },
   paymentMethod: { ar: "طريقة الدفع", en: "Payment" },
@@ -579,6 +581,8 @@ const dict = {
   scopeEver: { ar: "له تاريخ مبيعات", en: "Has sales history" },
   scopeOos: { ar: "بدون مخزون", en: "Out of stock" },
   scopeInstock: { ar: "متوفر", en: "In stock" },
+  scopeGlobal: { ar: "🌍 متاح عالمياً", en: "🌍 Sold globally" },
+  scopeNotGlobal: { ar: "بدون سعر عالمي", en: "No global price" },
   productsCount: { ar: "منتج", en: "products" },
   ltUnits: { ar: "نسخ (كل الفترات)", en: "Lifetime Units" },
   ltRevenue: { ar: "إيراد (كل الفترات)", en: "Lifetime Revenue" },
@@ -1410,6 +1414,8 @@ const dict = {
   // Costs upload
   uploadCosts: { ar: "ملف التكاليف", en: "Costs File" },
   uploadCostsHint: { ar: "ملف بسيط بعمودين: SKU و cost (تكلفة الكتاب)", en: "Simple file with two columns: SKU and cost" },
+  uploadUsdPrices: { ar: "أسعار المتجر العالمي ($)", en: "Global USD Prices" },
+  uploadUsdPricesHint: { ar: "قائمة أسعار الأبليكيشن بالدولار (ملف SAP للمتجر العالمي: Old Material # + Amount) — تُحدّث أسعار الكتب بالدولار وتُقدّر قيمة سلال الخارج المتروكة", en: "The global storefront USD price list (SAP export: Old Material # + Amount) — updates per-book USD prices and estimates foreign abandoned-cart values" },
   costsUpdated: { ar: "تكلفة تم تحديثها", en: "costs updated" },
   // Purchase Orders
   purchaseOrders: { ar: "أوامر الشراء", en: "Purchase Orders" },
