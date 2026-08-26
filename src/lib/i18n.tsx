@@ -662,6 +662,12 @@ const dict = {
   // Targets
   targets: { ar: "الأهداف", en: "Targets" },
   targetsSubtitle: { ar: "تتبع أهداف الإيراد الشهرية وخطوات تحقيقها", en: "Track monthly revenue targets and the steps to hit them" },
+  targetsTabEgypt: { ar: "مصر", en: "Egypt" },
+  targetsTabGlobal: { ar: "المتجر العالمي", en: "Global" },
+  globalTargetTitle: { ar: "الهدف العالمي", en: "Global target" },
+  globalTargetSubtitle: { ar: "هدف المتجر العالمي للسنة المالية — طلبات الخارج فقط، محوّلة للجنيه", en: "The global storefront's fiscal-year target — foreign orders only, converted to EGP" },
+  globalTargetNote: { ar: "طلبات مصر مستبعدة من هذا الهدف تماماً — المبالغ بالدولار محوّلة بسعر الصرف من الإعدادات", en: "Egypt orders are fully excluded from this target — USD amounts converted at the Settings FX rate" },
+  editGlobalTarget: { ar: "تعديل الهدف", en: "Edit target" },
   monthlyTarget: { ar: "هدف الشهر", en: "Monthly target" },
   achieved: { ar: "المحقق", en: "Achieved" },
   progress: { ar: "التقدم", en: "Progress" },

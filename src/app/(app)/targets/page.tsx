@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud, BookOpen } from "lucide-react";
+import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud, BookOpen, Globe, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 import { parseTargetsFile } from "@/lib/import/parse-targets";
+import { marketFlag, marketLabel } from "@/lib/markets";
 
 interface TargetRow {
   period_month: string;
@@ -135,7 +136,40 @@ function delta(now: number, then: number | undefined): number | null {
   return ((now - then) / then) * 100;
 }
 
+// The Egypt targets and the global-storefront target live on separate tabs:
+// Egypt actuals are EG orders only (fn_targets_overview filters by market),
+// and the global tab tracks one fiscal-year figure against foreign orders.
 export default function TargetsPage() {
+  const { t } = useLang();
+  const [tab, setTab] = useState<"egypt" | "global">("egypt");
+
+  const tabs = (
+    <div className="mb-4 flex gap-1 rounded-lg bg-slate-100 p-1 w-fit">
+      <button
+        onClick={() => setTab("egypt")}
+        className={cn(
+          "rounded-md px-4 py-1.5 text-sm font-semibold transition",
+          tab === "egypt" ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+        )}
+      >
+        🇪🇬 {t("targetsTabEgypt")}
+      </button>
+      <button
+        onClick={() => setTab("global")}
+        className={cn(
+          "rounded-md px-4 py-1.5 text-sm font-semibold transition",
+          tab === "global" ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+        )}
+      >
+        🌍 {t("targetsTabGlobal")}
+      </button>
+    </div>
+  );
+
+  return tab === "egypt" ? <EgyptTargets tabs={tabs} /> : <GlobalTarget tabs={tabs} />;
+}
+
+function EgyptTargets({ tabs }: { tabs: React.ReactNode }) {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<TargetRow[]>([]);
@@ -195,7 +229,7 @@ export default function TargetsPage() {
     };
   }, [yearRows]);
 
-  if (loading) return <div><PageHeader title={t("targets")} /><Spinner /></div>;
+  if (loading) return <div><PageHeader title={t("targets")} />{tabs}<Spinner /></div>;
 
   const addButton = (
     <div className="flex gap-2">
@@ -211,6 +245,7 @@ export default function TargetsPage() {
     return (
       <div>
         <PageHeader title={t("targets")} actions={addButton} />
+        {tabs}
         <EmptyState message={t("noData")} />
         {editing && <TargetModal target={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       </div>
@@ -219,6 +254,7 @@ export default function TargetsPage() {
   return (
     <div>
       <PageHeader title={t("targets")} subtitle={t("targetsSubtitle")} actions={addButton} />
+      {tabs}
 
       {years.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 w-fit">
@@ -327,6 +363,209 @@ export default function TargetsPage() {
             load();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+interface GlobalTargetData {
+  target_egp: number;
+  start_date: string;
+  end_date: string;
+  label: string;
+  orders_placed: number;
+  orders_delivered: number;
+  orders_cancelled: number;
+  placed_rev: number;
+  delivered_rev: number;
+  placed_pct: number;
+  delivered_pct: number;
+  by_market: { market: string; orders: number; revenue_egp: number }[];
+  by_month: { month: string; orders: number; placed_rev: number; delivered_rev: number }[];
+  fx: { usd_egp: number; global_currency: string };
+}
+
+// The global storefront gets one fiscal-year target (not monthly rows like
+// Egypt): foreign orders only, USD converted to EGP at the Settings FX rate.
+function GlobalTarget({ tabs }: { tabs: React.ReactNode }) {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [data, setData] = useState<GlobalTargetData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(() => {
+    supabase.rpc("fn_target_global").then(({ data: d }) => {
+      setData((d as GlobalTargetData) ?? null);
+      setLoading(false);
+    });
+  }, [supabase]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function saveTarget() {
+    const v = Number(draft);
+    if (!v || v <= 0) return;
+    setSaving(true);
+    setErr("");
+    const { error } = await supabase.rpc("fn_set_global_target", { p_target: v });
+    if (error) setErr(error.message);
+    else {
+      setEditing(false);
+      load();
+    }
+    setSaving(false);
+  }
+
+  if (loading) return <div><PageHeader title={t("targets")} />{tabs}<Spinner /></div>;
+  if (!data)
+    return (
+      <div>
+        <PageHeader title={t("targets")} />
+        {tabs}
+        <EmptyState message={t("noData")} />
+      </div>
+    );
+
+  const usd = (egp: number) => (data.fx?.usd_egp ? egp / data.fx.usd_egp : 0);
+
+  return (
+    <div>
+      <PageHeader title={t("targets")} subtitle={t("globalTargetSubtitle")} />
+      {tabs}
+
+      <div className="card p-5 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2">
+            <Globe size={18} className="text-brand-600" />
+            {t("globalTargetTitle")} — {data.label} (Jul {data.start_date.slice(0, 4)} – Jun {data.end_date.slice(0, 4)})
+          </h3>
+          <div className="flex items-center gap-3">
+            {editing ? (
+              <span className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  className="input w-40"
+                  dir="ltr"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  autoFocus
+                />
+                <button className="btn-primary" disabled={saving} onClick={saveTarget}>{t("save")}</button>
+                <button className="btn-secondary" onClick={() => setEditing(false)}><X size={14} /></button>
+              </span>
+            ) : (
+              <>
+                <span className="text-sm font-bold text-slate-700">{formatMoney(data.target_egp, lang)}</span>
+                <button
+                  className="text-slate-400 hover:text-brand-600"
+                  title={t("editGlobalTarget")}
+                  onClick={() => {
+                    setDraft(String(data.target_egp));
+                    setEditing(true);
+                  }}
+                >
+                  <Pencil size={14} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {err && <div className="mb-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{err}</div>}
+
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-500">{t("ordersPlaced")}</span>
+          <span className="text-xs font-bold text-slate-600">{data.placed_pct.toFixed(2)}%</span>
+        </div>
+        <ProgressBar pct={data.placed_pct} />
+        <div className="mt-2 flex justify-between text-sm text-slate-600">
+          <span>
+            {t("achieved")}: <b>{formatMoney(data.placed_rev, lang)}</b>
+            <span className="text-xs text-slate-400" dir="ltr"> (~${formatNumber(Math.round(usd(data.placed_rev)))})</span>
+          </span>
+          <span>{t("globalTargetTitle")}: <b>{formatMoney(data.target_egp, lang)}</b></span>
+        </div>
+
+        <div className="mt-3 mb-1 flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-500">{t("ordersDelivered")}</span>
+          <span className="text-xs font-bold text-slate-600">{data.delivered_pct.toFixed(2)}%</span>
+        </div>
+        <ProgressBar pct={data.delivered_pct} />
+        <div className="mt-2 text-sm text-slate-600">
+          {t("achieved")}: <b>{formatMoney(data.delivered_rev, lang)}</b>
+          <span className="text-xs text-slate-400" dir="ltr"> (~${formatNumber(Math.round(usd(data.delivered_rev)))})</span>
+        </div>
+
+        <p className="mt-3 text-xs text-slate-400">{t("globalTargetNote")} (1 USD = {data.fx?.usd_egp ?? "—"} EGP)</p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3 mb-6">
+        <div className="card p-4">
+          <div className="text-xs font-semibold text-slate-500">{t("ordersPlaced")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(data.orders_placed)}</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs font-semibold text-slate-500">{t("ordersDelivered")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(data.orders_delivered)}</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs font-semibold text-slate-500">{t("cancelledOrdersKpi")}</div>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(data.orders_cancelled)}</div>
+        </div>
+      </div>
+
+      {data.by_market.length > 0 && (
+        <div className="card overflow-x-auto mb-6">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>{t("marketCountry")}</th>
+                <th className="text-end">{t("ordersLabel")}</th>
+                <th className="text-end">{t("achieved")} (EGP)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.by_market.map((m) => (
+                <tr key={m.market}>
+                  <td className="font-semibold">{marketFlag(m.market)} {marketLabel(m.market, lang)}</td>
+                  <td className="text-end">{formatNumber(m.orders)}</td>
+                  <td className="text-end font-semibold">{formatMoney(m.revenue_egp, lang)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {data.by_month.length > 0 && (
+        <div className="card overflow-x-auto">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>{t("periodLbl")}</th>
+                <th className="text-end">{t("ordersLabel")}</th>
+                <th className="text-end">{t("ordersPlaced")} (EGP)</th>
+                <th className="text-end">{t("ordersDelivered")} (EGP)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.by_month.map((m) => (
+                <tr key={m.month}>
+                  <td className="font-semibold">{monthName(m.month, lang)}</td>
+                  <td className="text-end">{formatNumber(m.orders)}</td>
+                  <td className="text-end">{formatMoney(m.placed_rev, lang)}</td>
+                  <td className="text-end">{formatMoney(m.delivered_rev, lang)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
