@@ -354,7 +354,7 @@ export const INTENTS: Record<string, Intent> = {
       "أو من قسم «طلباتي» في حسابك على الموقع.\n\n" +
       "معلش، أنا مساعد آلي ومش قادر أشوف حالة طلب معيّن. لو محتاج مساعدة في طلب بالتحديد، " +
       "اكتب *0* واترك اسمك ورقم الطلب ورقم هاتفك — والفريق هيتواصل معاك أول ما الدوام يبدأ.\n\n" +
-      `وللأمور العاجلة: الخط الساخن ${HOTLINE} خلال مواعيد العمل.`,
+      `وللأمور العاجلة: الخط الساخن ${HOTLINE} (يوميًا 9 ص – 6 م ما عدا الجمعة).`,
     en:
       "📦 *Track your order*\n\n" +
       `You can check your order status any time here:\n${TRACK_URL}\n\n` +
@@ -362,7 +362,7 @@ export const INTENTS: Record<string, Intent> = {
       "I'm an automated assistant and can't see a specific order's status. If you need help " +
       "with a particular order, reply *0* and leave your name, order number, and phone — " +
       "the team will follow up as soon as we're back.\n\n" +
-      `For anything urgent: hotline ${HOTLINE} during working hours.`,
+      `For anything urgent: hotline ${HOTLINE} (daily 9 AM – 6 PM except Friday).`,
     variants: {
       confirmed: {
         keywords_ar: ["اتقبل", "اتاكد", "تاكيد الطلب", "اتعمل"],
@@ -472,7 +472,7 @@ export const INTENTS: Record<string, Intent> = {
       "🕘 *مواعيد العمل والتواصل*\n\n" +
       "• *المواعيد:* من الأحد إلى الخميس، 9 صباحًا – 6 مساءً\n" +
       "• *الإجازات:* الجمعة والسبت والعطلات الرسمية\n" +
-      `• *الخط الساخن:* ${HOTLINE}\n` +
+      `• *الخط الساخن:* ${HOTLINE} — يوميًا 9 ص – 6 م (ما عدا الجمعة)\n` +
       "• *البريد الإلكتروني:* Supportstore@nahdetmisr.com\n" +
       "• *فيسبوك:* https://www.facebook.com/NahdetMisrBookstore\n" +
       "• *إنستجرام:* https://www.instagram.com/nahdetmisrbookstore\n" +
@@ -481,7 +481,7 @@ export const INTENTS: Record<string, Intent> = {
       "🕘 *Working hours & contact*\n\n" +
       "• *Hours:* Sunday–Thursday, 9 AM – 6 PM\n" +
       "• *Closed:* Friday, Saturday, and public holidays\n" +
-      `• *Hotline:* ${HOTLINE}\n` +
+      `• *Hotline:* ${HOTLINE} — daily 9 AM – 6 PM (except Friday)\n` +
       "• *Email:* Supportstore@nahdetmisr.com\n" +
       "• *Facebook:* https://www.facebook.com/NahdetMisrBookstore\n" +
       "• *Instagram:* https://www.instagram.com/nahdetmisrbookstore\n" +
@@ -509,15 +509,15 @@ export const INTENTS: Record<string, Intent> = {
       "quote", "coupon", "promo"],
     ar:
       "🏫 *الطلبات بالجملة والمدارس والشركات*\n\n" +
-      `للاستفسار وطلب عرض سعر، تواصل مع الخط الساخن *${HOTLINE}* خلال مواعيد العمل ` +
-      "(الأحد – الخميس، 9 ص – 6 م).\n\n" +
+      `للاستفسار وطلب عرض سعر، تواصل مع الخط الساخن *${HOTLINE}* ` +
+      "يوميًا من 9 ص لـ 6 م (ما عدا الجمعة).\n\n" +
       "أو اكتب *0* واترك بياناتك والفريق هيتواصل معاك.\n\n" +
       "*بخصوص الكوبونات:* تقدر تدخل كود الخصم في خانة كود الخصم عند إتمام الطلب. " +
       "معلش، مش قادر أتأكد من صلاحية كود معيّن.",
     en:
       "🏫 *Bulk, school & corporate orders*\n\n" +
-      `To enquire or request a quote, please call our hotline *${HOTLINE}* during working ` +
-      "hours (Sun–Thu, 9 AM – 6 PM).\n\n" +
+      `To enquire or request a quote, please call our hotline *${HOTLINE}* ` +
+      "daily 9 AM – 6 PM (except Friday).\n\n" +
       "Or reply *0* to leave your details.\n\n" +
       "*Coupons:* enter your code in the discount-code field at checkout. " +
       "I can't confirm whether a specific code is valid.",
@@ -542,7 +542,7 @@ export const INTENTS: Record<string, Intent> = {
       "• *رقم الهاتف*\n" +
       "• سبب الإلغاء (اختياري)\n\n" +
       "الفريق هيتواصل معاك أول ما الدوام يبدأ (الأحد – الخميس، 9 ص – 6 م). " +
-      `وللأمور العاجلة: الخط الساخن ${HOTLINE}.\n\n` +
+      `وللأمور العاجلة: الخط الساخن ${HOTLINE} (يوميًا ما عدا الجمعة).\n\n` +
       "ملحوظة: مش متاح تعديل الطلب بعد تأكيده — تقدر تلغيه وتعمل طلب جديد. " +
       "ولو الطلب وصلك بالفعل، تقدر تسترجعه خلال 14 يوم — اكتب *3* للتفاصيل.",
     en:
@@ -552,7 +552,7 @@ export const INTENTS: Record<string, Intent> = {
       "• *Phone number*\n" +
       "• The reason (optional)\n\n" +
       "The team will contact you as soon as we're back (Sun–Thu, 9 AM – 6 PM). " +
-      `Urgent? Hotline ${HOTLINE}.\n\n` +
+      `Urgent? Hotline ${HOTLINE} (daily except Friday).\n\n` +
       "Note: orders can't be changed once placed — you can cancel and place a new one. " +
       "If the order already arrived, you can return it within 14 days — reply *3* for details.",
     variants: {
@@ -726,7 +726,7 @@ export const HANDOFF_AR =
   "• *رقم الهاتف*\n" +
   "• *رقم الطلب* (لو عندك)\n" +
   "• استفسارك باختصار\n\n" +
-  `وللأمور العاجلة: الخط الساخن *${HOTLINE}* خلال مواعيد العمل.`;
+  `وللأمور العاجلة: الخط الساخن *${HOTLINE}* — يوميًا 9 ص – 6 م (ما عدا الجمعة).`;
 
 export const HANDOFF_EN =
   "I'm sorry — no agent is available right now 🙏 The team works Sun–Thu, 9 AM – 6 PM.\n" +
@@ -735,7 +735,7 @@ export const HANDOFF_EN =
   "• *Phone number*\n" +
   "• *Order number* (if you have one)\n" +
   "• Your question, briefly\n\n" +
-  `Urgent? Call our hotline *${HOTLINE}* during working hours.`;
+  `Urgent? Call our hotline *${HOTLINE}* — daily 9 AM – 6 PM (except Friday).`;
 
 export const FALLBACK_AR =
   "سؤال حلو بس خارج معرفتي أنا 🙏 وصّلت رسالتك للفريق، وهيردوا عليك في مواعيد العمل " +
