@@ -80,10 +80,12 @@ export const INTENTS: Record<string, Intent> = {
       "بورسعيد", "الاسماعيليه", "السويس", "الدقهليه", "الشرقيه", "الغربيه", "المنوفيه",
       "البحيره", "كفر الشيخ", "دمياط", "الفيوم", "بني سويف", "المنيا", "اسيوط",
       "سوهاج", "قنا", "الاقصر", "مطروح", "سيناء", "الوادي الجديد", "البحر الاحمر",
-      "الغردقه", "شرم الشيخ", "الزقازيق", "المحله", "توصلوا", "بتوصلوا", "الشحن كام"],
+      "الغردقه", "شرم الشيخ", "الزقازيق", "المحله", "توصلوا", "بتوصلوا", "الشحن كام",
+      "مده", "هياخد", "يستغرق"],
     keywords_en: ["shipping", "delivery", "deliver", "ship", "postage", "free shipping",
       "aswan", "luxor", "sohag", "minya", "asyut", "qena", "fayoum", "suez", "ismailia",
-      "port said", "damietta", "tanta", "mansoura", "matrouh", "sinai", "hurghada"],
+      "port said", "damietta", "tanta", "mansoura", "matrouh", "sinai", "hurghada",
+      "how long", "take to arrive", "delivery time"],
     ar:
       "🚚 *الشحن والتوصيل*\n\n" +
       "*الشحن المجاني:* للطلبات من 999 جنيهًا فأكثر — للقاهرة والجيزة والإسكندرية فقط. " +
@@ -341,9 +343,10 @@ export const INTENTS: Record<string, Intent> = {
     title_en: "Track order",
     keywords_ar: ["فين طلبي", "طلبي", "تتبع", "اتتبع", "شحنتي", "وصل", "الاوردر", "اوردر",
       "حاله الطلب", "امتي يوصل", "اتاخر", "متاخر", "تاخر", "تاخير", "موصلش", "وصلش",
-      "مستني", "رقم الطلب", "رقم الاوردر"],
+      "مستني", "رقم الطلب", "رقم الاوردر", "اتقبل", "اتاكد", "تاكيد الطلب", "رجع الطلب"],
     keywords_en: ["where is my order", "track", "tracking", "my order", "order status",
-      "delayed", "late", "not arrived", "hasn't arrived", "didn't arrive"],
+      "delayed", "late", "not arrived", "hasn't arrived", "didn't arrive",
+      "confirmed", "went through"],
     ar:
       "📦 *تتبّع الطلب*\n\n" +
       "تقدر تتابع حالة طلبك في أي وقت من هنا:\n" +
@@ -360,6 +363,20 @@ export const INTENTS: Record<string, Intent> = {
       "with a particular order, reply *0* and leave your name, order number, and phone — " +
       "the team will follow up as soon as we're back.\n\n" +
       `For anything urgent: hotline ${HOTLINE} during working hours.`,
+    variants: {
+      confirmed: {
+        keywords_ar: ["اتقبل", "اتاكد", "تاكيد الطلب", "اتعمل"],
+        keywords_en: ["confirmed", "went through", "accepted"],
+        ar:
+          "✅ لو طلبك اتم بنجاح، بيوصلك *رقم طلب* — وتقدر تتبع حالته بيه من هنا:\n" +
+          `${TRACK_URL}\n` +
+          "لو موصلكش رقم طلب، اكتب *0* واترك بياناتك والفريق هيتأكدلك.",
+        en:
+          "✅ If your order went through, you received an *order number* — track it here:\n" +
+          `${TRACK_URL}\n` +
+          "No order number? Reply *0* with your details and the team will check.",
+      },
+    },
   },
   categories: {
     menu: "5",
@@ -367,9 +384,13 @@ export const INTENTS: Record<string, Intent> = {
     title_en: "Categories",
     keywords_ar: ["كتب", "كتاب", "اقسام", "قسم", "انجليزي", "فرنساوي", "فرنسي", "اطفال",
       "كوميكس", "ديزني", "مارفل", "روايات", "ترشيح", "اقترح", "سن", "سنه", "سنين",
-      "سلسله", "اجزاء", "روايه", "قصص", "قصه"],
+      "سلسله", "اجزاء", "روايه", "قصص", "قصه",
+      "pdf", "بي دي اف", "الكترونيه", "مجله", "مجلات", "ناشونال", "جيوغرافيك",
+      "اعداد قديمه", "انشر", "نشر", "تاليف", "مولف"],
     keywords_en: ["books", "category", "categories", "english", "french", "kids", "children",
-      "comics", "disney", "marvel", "recommend", "suggestion"],
+      "comics", "disney", "marvel", "recommend", "suggestion",
+      "pdf", "ebook", "magazine", "magazines", "nat geo", "national geographic",
+      "back issues", "publish", "manuscript"],
     ar:
       "📚 *الأقسام واللغات*\n\n" +
       "*الأقسام:* كتب الأطفال والناشئة • الأدب والروايات • الكتب الثقافية والعامة • " +
@@ -406,6 +427,35 @@ export const INTENTS: Record<string, Intent> = {
           "Can't find it, or want to be sure first? Reply *0* with the book's name and your " +
           "details — the team will confirm during working hours.",
       },
+      pdf: {
+        keywords_ar: ["pdf", "بي دي اف", "الكترونيه", "نسخه الكترونيه"],
+        keywords_en: ["pdf", "ebook", "digital copy"],
+        ar: "📄 معلش — النسخ الإلكترونية / PDF غير متاحة، كل كتبنا ورقية 🙏",
+        en: "📄 Sorry — PDF / digital copies aren't available; all our books are print only 🙏",
+      },
+      magazines: {
+        keywords_ar: ["مجله", "مجلات", "ناشونال", "جيوغرافيك", "اعداد قديمه", "اشتراك"],
+        keywords_en: ["magazine", "magazines", "nat geo", "national geographic",
+          "back issues", "subscription"],
+        ar:
+          "📰 *المجلات وناشونال جيوغرافيك*\n\n" +
+          `للاشتراكات والأعداد القديمة والموزعين، كلمنا على الخط الساخن *${HOTLINE}* ` +
+          "(يوميًا 9 ص – 6 م ما عدا الجمعة).",
+        en:
+          "📰 *Magazines & National Geographic*\n\n" +
+          `For subscriptions, back issues, and distributors, call our hotline *${HOTLINE}* ` +
+          "(daily 9 AM – 6 PM except Friday).",
+      },
+      publishing: {
+        keywords_ar: ["انشر", "نشر كتابي", "اطبع كتابي", "تاليف", "مولف"],
+        keywords_en: ["publish", "publish my book", "manuscript"],
+        ar:
+          "✍️ حابب تنشر كتابك معانا؟ كلمنا على الخط الساخن " +
+          `*${HOTLINE}* (يوميًا 9 ص – 6 م ما عدا الجمعة) وهيوجهوك للقسم المختص.`,
+        en:
+          `✍️ Want to publish your book with us? Call our hotline *${HOTLINE}* ` +
+          "(daily 9 AM – 6 PM except Friday) and we'll direct you to the right team.",
+      },
     },
   },
   hours: {
@@ -413,9 +463,11 @@ export const INTENTS: Record<string, Intent> = {
     title_ar: "🕘 مواعيد العمل",
     title_en: "Hours & contact",
     keywords_ar: ["مواعيد", "ميعاد", "شغالين", "فاتحين", "تليفون", "رقم", "ايميل",
-      "تواصل", "الخط الساخن", "امتي", "الجمعه", "السبت", "اجازه", "عطله", "بتفتحوا", "بتقفلوا"],
+      "تواصل", "الخط الساخن", "امتي", "الجمعه", "السبت", "اجازه", "عطله", "بتفتحوا", "بتقفلوا",
+      "فرع", "فروع", "عنوان", "منفذ", "منافذ", "مكان", "مكانكم", "موزع", "موزعين"],
     keywords_en: ["hours", "open", "closed", "contact", "phone", "email", "hotline",
-      "friday", "saturday", "weekend"],
+      "friday", "saturday", "weekend", "address", "branch", "location", "place",
+      "distributor", "distributors", "visit"],
     ar:
       "🕘 *مواعيد العمل والتواصل*\n\n" +
       "• *المواعيد:* من الأحد إلى الخميس، 9 صباحًا – 6 مساءً\n" +
@@ -434,6 +486,18 @@ export const INTENTS: Record<string, Intent> = {
       "• *Facebook:* https://www.facebook.com/NahdetMisrBookstore\n" +
       "• *Instagram:* https://www.instagram.com/nahdetmisrbookstore\n" +
       `• *FAQ:* ${FAQ_URL}`,
+    variants: {
+      branches: {
+        keywords_ar: ["فرع", "فروع", "عنوان", "منفذ", "منافذ", "مكان", "مكانكم", "موزع", "موزعين"],
+        keywords_en: ["address", "branch", "location", "place", "distributor", "distributors", "visit"],
+        ar:
+          "📍 *أقرب فرع أو منفذ بيع*\n\n" +
+          `كلمنا على الخط الساخن *${HOTLINE}* (يوميًا 9 ص – 6 م ما عدا الجمعة) وهنقولك على أقرب منفذ ليك.`,
+        en:
+          "📍 *Nearest branch / outlet*\n\n" +
+          `Call our hotline *${HOTLINE}* (daily 9 AM – 6 PM except Friday) and we'll point you to the closest one.`,
+      },
+    },
   },
   bulk: {
     menu: "7",
@@ -524,6 +588,98 @@ export const INTENTS: Record<string, Intent> = {
       },
     },
   },
+  // Built from the fallback log 2026-07-15 → 2026-08-30: teacher copies,
+  // El-Adwaa curriculum books, and release dates were the #1 unanswered
+  // topics. Answers supplied by the owner 2026-08-30.
+  school: {
+    menu: "9",
+    title_ar: "📖 الأضواء والكتب المدرسية",
+    title_en: "School books",
+    keywords_ar: ["اضواء", "منهج", "مناهج", "صف", "ابتدائي", "اعدادي", "ثانوي",
+      "مرشد", "كشكول", "كشاكيل", "ترم", "علوم", "رياضيات", "دراسات", "عربي",
+      "خامس", "سادس", "رابع", "معلمين", "المعلمين", "مدرسين", "نسخ معلمين",
+      "نسخه معلمين", "نسخه المعلمين", "مدرس", "معلم", "شالنج", "تشالنج"],
+    keywords_en: ["school book", "grade", "primary", "preparatory", "secondary",
+      "curriculum", "teacher", "teachers copy", "term"],
+    ar:
+      "📖 *الأضواء والكتب المدرسية*\n\n" +
+      "متاحة على موقعنا والأبليكيشن، وطبعات العام الجديد بتنزل تباعًا — تابعنا الأيام الجاية 📲\n" +
+      `ولأي استفسار: الخط الساخن *${HOTLINE}* يوميًا من 9 ص لـ 6 م (ما عدا الجمعة).`,
+    en:
+      "📖 *School books (El-Adwaa)*\n\n" +
+      "Available on our website and app — new-term editions are rolling out over the coming days 📲\n" +
+      `Questions? Hotline *${HOTLINE}*, daily 9 AM – 6 PM (except Friday).`,
+    variants: {
+      teacher: {
+        keywords_ar: ["معلمين", "المعلمين", "مدرسين", "نسخ معلمين", "نسخه معلمين",
+          "نسخه المعلمين", "معلم", "مدرس"],
+        keywords_en: ["teacher", "teachers copy", "teacher copy"],
+        ar:
+          "👨‍🏫 *نسخ المعلمين*\n\n" +
+          `كلمنا على الخط الساخن *${HOTLINE}* يوميًا من 9 ص لـ 6 م (ما عدا الجمعة) وهنظبطك 🙏`,
+        en:
+          "👨‍🏫 *Teacher copies*\n\n" +
+          `Call our hotline *${HOTLINE}*, daily 9 AM – 6 PM (except Friday), and we'll sort you out 🙏`,
+      },
+      release: {
+        keywords_ar: ["امتي", "هينزل", "ينزل", "نزل", "هينزلوا", "متي"],
+        keywords_en: ["when", "release", "release date"],
+        ar: "📅 طبعات العام الجديد بتنزل تباعًا — تابعنا الأيام الجاية على الموقع والأبليكيشن 📲",
+        en: "📅 New-term editions are being released gradually — keep an eye on our website and app 📲",
+      },
+      challenge: {
+        keywords_ar: ["شالنج", "تشالنج", "تحدي"],
+        keywords_en: ["challenge"],
+        ar:
+          "🏆 بخصوص *الأضواء تشالنج* — كلمنا على الخط الساخن " +
+          `*${HOTLINE}* (يوميًا 9 ص – 6 م ما عدا الجمعة) وهيدوك كل التفاصيل.`,
+        en:
+          `🏆 For the *El-Adwaa Challenge*, call our hotline *${HOTLINE}* ` +
+          "(daily 9 AM – 6 PM except Friday) for the details.",
+      },
+    },
+  },
+  // Website / ordering trouble — no menu digit; reached by keywords only.
+  site: {
+    menu: "",
+    // "اطلب" alone is too generic (it stole "عايز أطلب 200 نسخة لمدرسة" from
+    // bulk) — only full ordering-help phrases route here.
+    keywords_ar: ["طلب اونلاين", "اعمل طلب", "اطلب ازاي", "اطلب منين", "تسجيل",
+      "انشاء", "انشاء حساب", "حساب جديد", "الرمز", "رمز التفعيل",
+      "كود التفعيل", "التفعيل", "اسجل", "otp", "qr", "كيو ار", "امسح", "باركود"],
+    keywords_en: ["order online", "cant order", "can't order", "cant make order",
+      "can't make order", "register", "sign up", "create account", "verification", "qr code"],
+    ar:
+      "🛒 تقدر تطلب مباشرة من موقعنا: https://nahdetmisrbookstore.com/ar\n" +
+      "لو واجهتك مشكلة في الموقع أو التسجيل، اكتب *0* واترك رقمك والفريق هيساعدك.",
+    en:
+      "🛒 You can order directly from our website: https://nahdetmisrbookstore.com/ar\n" +
+      "If the site or sign-up gives you trouble, reply *0* with your number and the team will help.",
+    variants: {
+      otp: {
+        keywords_ar: ["الرمز", "رمز", "التفعيل", "تسجيل", "حساب", "اسجل"],
+        keywords_en: ["otp", "verification", "register", "sign up", "create account"],
+        ar:
+          "🔐 *الرمز مش بيوصلك؟*\n" +
+          "جرب التسجيل برقم موبايل آخر — غالبًا بتتحل كده.\n" +
+          "لو المشكلة مستمرة، اكتب *0* واترك رقمك والفريق هيساعدك.",
+        en:
+          "🔐 *OTP not arriving?*\n" +
+          "Try registering with a different mobile number — that usually fixes it.\n" +
+          "Still stuck? Reply *0* with your number and the team will help.",
+      },
+      qr: {
+        keywords_ar: ["qr", "كيو ار", "امسح", "باركود"],
+        keywords_en: ["qr code", "scan"],
+        ar:
+          "📱 بخصوص كود الـ QR اللي في الكتاب — كلمنا على الخط الساخن " +
+          `*${HOTLINE}* (يوميًا 9 ص – 6 م ما عدا الجمعة) وهيشرحولك استخدامه.`,
+        en:
+          `📱 For the QR code in the book, call our hotline *${HOTLINE}* ` +
+          "(daily 9 AM – 6 PM except Friday) and we'll walk you through it.",
+      },
+    },
+  },
   // greet/thanks have no menu digit and sit last so real topics win score ties.
   greet: {
     menu: "",
@@ -536,14 +692,14 @@ export const INTENTS: Record<string, Intent> = {
       "اكتب رقم الموضوع:\n" +
       "1️⃣ الشحن • 2️⃣ الدفع • 3️⃣ الاسترجاع • 4️⃣ تتبّع طلبي\n" +
       "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة • 8️⃣ إلغاء طلب\n" +
-      "0️⃣ التحدث مع موظف",
+      "9️⃣ الأضواء والكتب المدرسية • 0️⃣ التحدث مع موظف",
     en:
       "Welcome to Nahdet Misr Bookstore! 👋\n" +
       "I'm the automated assistant — I can help right away with common questions.\n\n" +
       "Pick a topic:\n" +
       "1️⃣ Shipping • 2️⃣ Payment • 3️⃣ Returns • 4️⃣ Track order\n" +
       "5️⃣ Categories • 6️⃣ Hours & contact • 7️⃣ Bulk orders • 8️⃣ Cancel an order\n" +
-      "0️⃣ Talk to a human",
+      "9️⃣ School books • 0️⃣ Talk to a human",
   },
   thanks: {
     menu: "",

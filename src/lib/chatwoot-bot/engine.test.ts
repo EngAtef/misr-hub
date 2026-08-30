@@ -181,7 +181,8 @@ test("mergeScript: a brand-new intent routes by menu digit and keywords", () => 
   const merged = mergeScript({
     intents: {
       giftwrap: {
-        menu: "9",
+        // "9" belongs to the built-in school intent now; overrides must pick a free digit
+        menu: "77",
         keywords_ar: ["تغليف هدايا"],
         keywords_en: ["gift wrap"],
         ar: "التغليف متاح",
@@ -189,7 +190,7 @@ test("mergeScript: a brand-new intent routes by menu digit and keywords", () => 
       },
     },
   });
-  assert.equal(route("9", merged), "giftwrap");
+  assert.equal(route("77", merged), "giftwrap");
   assert.equal(route("do you offer gift wrap?", merged), "giftwrap");
   assert.ok(replyFor("giftwrap", false, merged).startsWith("Gift wrapping is available"));
   // Incomplete new intents (no reply text) are ignored rather than crash.
