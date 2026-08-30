@@ -173,6 +173,10 @@ export default function StockPage() {
   const [minSapMove, setMinSapMove] = useState(2);
   // no single move line above this, however deep SAP is
   const [maxOrder, setMaxOrder] = useState(100);
+  // every line that moves at all is lifted to at least this many copies;
+  // SAP short of it gives everything it has (min 20, SAP 6 → move 6).
+  // 0 = off
+  const [minTransfer, setMinTransfer] = useState(0);
   const [settingsReady, setSettingsReady] = useState(false);
   const [rows, setRows] = useState<EngineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,6 +220,7 @@ export default function StockPage() {
         if (s.bestsellerMin != null) setBestsellerMin(s.bestsellerMin);
         if (s.minSapMove != null) setMinSapMove(s.minSapMove);
         if (s.maxOrder) setMaxOrder(s.maxOrder);
+        if (s.minTransfer != null) setMinTransfer(s.minTransfer);
       }
     } catch {}
     setSettingsReady(true);
@@ -227,6 +232,7 @@ export default function StockPage() {
   const debouncedMin = useDebounced(globalMin, 500);
   const debouncedBestseller = useDebounced(bestsellerMin, 500);
   const debouncedMaxOrder = useDebounced(maxOrder, 500);
+  const debouncedMinTransfer = useDebounced(minTransfer, 500);
 
   // fn_stock_engine_json, not fn_stock_engine: PostgREST truncates every
   // table-returning response at 1,000 rows without saying so, and the
@@ -256,6 +262,7 @@ export default function StockPage() {
       p_min_move_line: ENGINE.minMoveLine,
       p_recent_days: ENGINE.recentDays,
       p_surge_min: ENGINE.surgeMin,
+      p_min_transfer: debouncedMinTransfer,
     });
     if (seq !== loadSeq.current) return;
     if (error) console.error("fn_stock_engine_json", error);
@@ -263,7 +270,7 @@ export default function StockPage() {
     setRows(list);
     setHasStockData(list.some((r) => r.ecom_stock !== null || r.sap_stock !== null));
     setLoading(false);
-  }, [supabase, windowDays, coverDays, debouncedMin, minScope, debouncedBestseller, minSapMove, debouncedMaxOrder]);
+  }, [supabase, windowDays, coverDays, debouncedMin, minScope, debouncedBestseller, minSapMove, debouncedMaxOrder, debouncedMinTransfer]);
 
   useEffect(() => {
     if (!settingsReady) return;
@@ -275,10 +282,10 @@ export default function StockPage() {
     try {
       localStorage.setItem(
         SETTINGS_KEY,
-        JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder })
+        JSON.stringify({ windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder, minTransfer })
       );
     } catch {}
-  }, [settingsReady, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder]);
+  }, [settingsReady, windowDays, coverDays, globalMin, minScope, bestsellerMin, minSapMove, maxOrder, minTransfer]);
 
   const loadMoveLists = useCallback(async () => {
     const { data } = await supabase.from("stock_move_lists").select("*").order("created_at", { ascending: false }).limit(50);
@@ -914,6 +921,17 @@ export default function StockPage() {
               title={t("maxOrderHint")}
               value={maxOrder}
               onChange={(e) => setMaxOrder(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </Ctl>
+          <Ctl label={t("minTransferCtl")} hint={t("minTransferHint")}>
+            <input
+              type="number"
+              min={0}
+              className="input !w-20"
+              dir="ltr"
+              title={t("minTransferHint")}
+              value={minTransfer}
+              onChange={(e) => setMinTransfer(Math.max(0, Number(e.target.value) || 0))}
             />
           </Ctl>
           {vendors.length > 0 && (

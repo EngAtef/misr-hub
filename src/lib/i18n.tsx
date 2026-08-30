@@ -833,6 +833,11 @@ const dict = {
     ar: "كتاب رصيده في المخزن أقل من هذا الرقم يُتجاهل: لا يُقترح له نقل ولا يدخل قائمة النقل، لأن الرحلة لا تستحق. يبقى عجزه ظاهراً ليُطلب من الناشر.",
     en: "A book with fewer than this many copies in the warehouse is ignored: no move is proposed and it never enters a move list, because the trip is not worth it. Its shortfall stays visible so purchasing can reorder.",
   },
+  minTransferCtl: { ar: "أدنى كمية نقل للكتاب", en: "Min transfer per book" },
+  minTransferHint: {
+    ar: "أي كتاب سيُنقل تُرفع كميته إلى هذا الرقم على الأقل. إن كان رصيد SAP أقل منه يُنقل كل ما لدى SAP: حد أدنى 20 ورصيد SAP 6 = نقل 6. صفر = بلا حد أدنى.",
+    en: "Any book getting a transfer is lifted to at least this many copies. If SAP holds fewer, everything SAP has moves: minimum 20 with 6 in SAP = move 6. Zero = off.",
+  },
   relistQtyCtl: { ar: "كمية إعادة العرض", en: "Relist qty" },
   relistQtyHint: {
     ar: "الحد الأدنى للكمية المقترح نقلها لكتاب رصيده صفر على المتجر. الكتاب النافد لا يبيع، فلا توجد سرعة بيع حالية نحسب بها — نستخدم معدل بيعه عبر عمره كله مضروباً في مدة التغطية، وإذا خرج أقل من هذا الرقم نرفعه إليه، وبحد أقصى رصيد SAP. مثال: كتاب باع 40 نسخة في 400 يوم = 0.1/يوم × 45 يوم تغطية = 5 نسخ، فيُرفع إلى 10.",
