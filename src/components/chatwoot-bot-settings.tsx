@@ -817,6 +817,7 @@ export function BotAnalytics() {
   const [keyword, setKeyword] = useState("");
   const [topic, setTopic] = useState("shipping");
   const [added, setAdded] = useState("");
+  const [overrides, setOverrides] = useState<ScriptOverrides | null>(null);
 
   useEffect(() => {
     supabase
@@ -828,6 +829,14 @@ export function BotAnalytics() {
         setEvents((data as BotEvent[]) ?? []);
         setLoaded(true);
       });
+    // The saved keyword overrides, so the solved-check below judges against
+    // the same script the webhook actually runs.
+    supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "chatwoot_bot_script")
+      .maybeSingle()
+      .then(({ data }) => setOverrides((data?.value as ScriptOverrides) ?? null));
   }, [supabase]);
 
   const stats = useMemo(() => {
@@ -839,10 +848,14 @@ export function BotAnalytics() {
     return { byIntent, replied, fallbacks, handoffs };
   }, [events]);
 
-  const fallbackMessages = useMemo(
-    () => events.filter((e) => e.intent === "fallback" && e.message).slice(0, 30),
-    [events]
-  );
+  // A fallback is only a to-do while the CURRENT script still can't route
+  // it — old entries the bot has since been taught are hidden, not deleted.
+  const { fallbackMessages, solvedCount } = useMemo(() => {
+    const script = mergeScript(overrides);
+    const all = events.filter((e) => e.intent === "fallback" && e.message);
+    const open = all.filter((e) => route(e.message!, script) === null);
+    return { fallbackMessages: open.slice(0, 30), solvedCount: all.length - open.length };
+  }, [events, overrides]);
 
   async function addKeyword() {
     if (!keyword.trim() || !addingFor) return;
@@ -866,6 +879,8 @@ export function BotAnalytics() {
     setAdded(`"${keyword.trim()}" → ${topic}`);
     setAddingFor(null);
     setKeyword("");
+    // Refresh the solved-check so the message just taught leaves the inbox.
+    setOverrides(next);
   }
 
   if (!loaded) return null;
@@ -912,6 +927,11 @@ export function BotAnalytics() {
         <div className="text-xs font-bold text-slate-600 mb-1.5">
           Fallback inbox — what the bot couldn&apos;t answer (teach it a keyword)
         </div>
+        {solvedCount > 0 && (
+          <p className="text-[11px] text-emerald-600 mb-1.5">
+            ✓ {solvedCount} older message{solvedCount === 1 ? "" : "s"} the bot can now answer — hidden
+          </p>
+        )}
         {fallbackMessages.length === 0 ? (
           <p className="text-xs text-slate-400">Nothing here — the bot understood everything so far 🎉</p>
         ) : (
