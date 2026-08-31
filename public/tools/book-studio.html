@@ -197,6 +197,18 @@
   </div>
   <div class="warn" id="drmWarn"></div>
 
+  <!-- MERGE choice (shown when several PDFs are dropped) -->
+  <div id="mergeChoice" class="card hidden" style="margin-top:14px;padding:18px 20px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">You added <span id="mergeCount">0</span> PDF files</div>
+    <p class="note" style="margin:0 0 12px">Merge them into <b>one book</b> — the pages are joined in the order below, then you export as usual (one PDF, one flipbook, images…). Or process each file as its own book.</p>
+    <ol id="mergeList" style="margin:0 0 4px;padding-inline-start:22px"></ol>
+    <div class="gen-row" style="margin-top:14px">
+      <button id="mergeBtn" class="btn-primary">🔗 Merge into one book</button>
+      <button id="separateBtn" class="btn-ghost">Process each separately</button>
+      <button id="mergeCancelBtn" class="linkbtn">Cancel</button>
+    </div>
+  </div>
+
   <!-- BATCH panel -->
   <div id="batchPanel" class="hidden">
     <div class="section-title"><h2>Batch — <span id="batchCount">0</span> books</h2>
@@ -1743,7 +1755,11 @@
     const files=[...fileList].filter(f=>/\.(epub|pdf)$/i.test(f.name)||f.type==="application/epub+zip"||f.type==="application/pdf");
     if(!files.length){ showErr("Please choose .epub or .pdf file(s)."); return; }
     hideErr(); els.drmWarn.classList.remove("show");
-    if(files.length>1){ try{ await runBatch(files); }catch(e){ showErr(e.message||String(e)); } return; }
+    if(files.length>1){
+      const allPdf=files.every(f=>/\.pdf$/i.test(f.name)||f.type==="application/pdf");
+      if(allPdf){ showMergeChoice(files); return; }
+      try{ await runBatch(files); }catch(e){ showErr(e.message||String(e)); } return;
+    }
     // single
     els.drop.classList.add("hot"); els.drop.querySelector(".big").textContent="Reading "+files[0].name+"…";
     try{
@@ -1758,6 +1774,62 @@
       els.drop.classList.remove("hot"); els.drop.querySelector(".big").textContent="Drop one or more .epub or .pdf files here, or click to browse";
     }
   }
+  /* ---------- multi-PDF merge ---------- */
+  /* Several PDFs can be joined into ONE virtual book: a tiny facade maps a
+     global page number onto (source document, local page), and since every
+     consumer (scan, export, text harvest) only ever calls bk.pdf.getPage(n),
+     the merged book flows through the normal single-book pipeline — one PDF,
+     one flipbook, one hosted book. */
+  let pendingMerge=null;
+  function showMergeChoice(files){
+    pendingMerge=[...files];
+    els.drop.classList.add("hidden");
+    E("mergeChoice").classList.remove("hidden");
+    renderMergeList();
+  }
+  function hideMergeChoice(){ pendingMerge=null; E("mergeChoice").classList.add("hidden"); els.file.value=""; }
+  function renderMergeList(){
+    E("mergeCount").textContent=pendingMerge.length;
+    const ol=E("mergeList"); ol.innerHTML="";
+    pendingMerge.forEach((f,i)=>{
+      const li=document.createElement("li");
+      li.style.cssText="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--hair)";
+      li.innerHTML='<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(f.name)+'">'+escapeHtml(f.name)+'</span>'+
+        '<button class="btn-ghost" style="padding:3px 9px" data-mup="'+i+'" '+(i===0?'disabled':'')+' aria-label="Move up">↑</button>'+
+        '<button class="btn-ghost" style="padding:3px 9px" data-mdn="'+i+'" '+(i===pendingMerge.length-1?'disabled':'')+' aria-label="Move down">↓</button>';
+      ol.appendChild(li);
+    });
+    $$("button[data-mup]",ol).forEach(b=>b.addEventListener("click",()=>{ const i=+b.dataset.mup; [pendingMerge[i-1],pendingMerge[i]]=[pendingMerge[i],pendingMerge[i-1]]; renderMergeList(); }));
+    $$("button[data-mdn]",ol).forEach(b=>b.addEventListener("click",()=>{ const i=+b.dataset.mdn; [pendingMerge[i],pendingMerge[i+1]]=[pendingMerge[i+1],pendingMerge[i]]; renderMergeList(); }));
+  }
+  async function loadMergedPdfs(files){
+    els.drop.classList.remove("hidden"); els.drop.classList.add("hot");
+    els.drop.querySelector(".big").textContent="Merging "+files.length+" PDFs…";
+    try{
+      const parts=[];
+      for(const f of files){
+        els.drop.querySelector(".big").textContent="Reading "+f.name+"…";
+        try{ parts.push(await parsePdf(f)); }
+        catch(e){ throw new Error(f.name+": "+(e.message||e)); }
+      }
+      const map=[];
+      parts.forEach(pt=>{ for(let i=1;i<=pt.numPages;i++) map.push({doc:pt.pdf,local:i}); });
+      const facade={ getPage(n){ const m=map[n-1]; if(!m) return Promise.reject(new Error("Page "+n+" is out of range")); return m.doc.getPage(m.local); } };
+      book={ type:"pdf", pdf:facade, numPages:map.length,
+        title:parts[0].title, author:parts[0].author||"",
+        coverURL:"", sections:[{label:"PDF",kind:"PAGE"}], fixedLayout:true, origType:new Map(),
+        mergedFrom:files.map(f=>f.name) };
+      els.title.textContent=book.title;
+      els.author.textContent="Merged from "+files.length+" PDFs"+(book.author?" · "+book.author:"");
+      els.cover.style.display="none";
+      els.drop.classList.add("hidden"); els.results.classList.remove("show"); setView("single");
+      applySettingsToUI();
+      await rescan();
+    }catch(e){ console.error(e);
+      if(/encrypted|DRM|password/i.test(e.message||"")) showDrm(e.message); else showErr("Couldn't merge these PDFs: "+(e.message||e));
+      els.drop.classList.remove("hot","hidden"); els.drop.querySelector(".big").textContent="Drop one or more .epub or .pdf files here, or click to browse";
+    }
+  }
   let rescanToken=0;
   async function rescan(){
     if(!book) return; const my=++rescanToken; const opts=optsFromUI(); book.opts=opts;
@@ -1770,7 +1842,7 @@
       els.pageScanMsg.textContent="· "+pages.length+" detected"; renderGrid();
     }catch(e){ console.error(e); els.pageScanMsg.textContent=""; showErr("Scan failed: "+(e.message||e)); }
   }
-  function resetToDrop(){ book=null; batch=null; blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
+  function resetToDrop(){ book=null; batch=null; pendingMerge=null; E("mergeChoice").classList.add("hidden"); blobURLs.forEach(u=>URL.revokeObjectURL(u)); blobURLs=new Map(); outURLs.forEach(u=>URL.revokeObjectURL(u)); outURLs=[];
     els.bookPanel.classList.add("hidden"); els.batchPanel.classList.add("hidden"); els.drop.classList.remove("hidden","hot");
     els.drop.querySelector(".big").textContent="Drop one or more .epub or .pdf files here, or click to browse"; els.file.value=""; const be=E("batchExportRow"); if(be) be.remove(); const bem=E("batchEmbeds"); if(bem) bem.remove(); syncConditionalUI(); }
 
@@ -1813,6 +1885,9 @@
   els.drop.addEventListener("drop",e=>{ e.preventDefault(); els.drop.classList.remove("hot"); handleFiles(e.dataTransfer.files); });
   els.changeBook.addEventListener("click",resetToDrop);
   els.batchChange.addEventListener("click",resetToDrop);
+  E("mergeBtn").addEventListener("click",async()=>{ const files=pendingMerge; if(!files||!files.length) return; hideMergeChoice(); await loadMergedPdfs(files); });
+  E("separateBtn").addEventListener("click",async()=>{ const files=pendingMerge; if(!files||!files.length) return; hideMergeChoice(); try{ await runBatch(files); }catch(e){ showErr(e.message||String(e)); } });
+  E("mergeCancelBtn").addEventListener("click",()=>{ hideMergeChoice(); els.drop.classList.remove("hidden"); });
   els.selAll.addEventListener("click",()=>setAll(true));
   els.selNone.addEventListener("click",()=>setAll(false));
   E("resetOrder").addEventListener("click",resetOrder);
