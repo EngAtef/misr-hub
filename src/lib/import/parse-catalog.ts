@@ -291,8 +291,6 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       vendor: clean(row["brand"]) ?? clean(row["vendor"]) ?? clean(row["publisher"]),
       weight_kg: parseWeightKg(row["weight"]),
     };
-    // the misaligned export variant displaces columns unpredictably — only
-    // trust the sale price in the normal layout
     if (saleKey && !attrShifted) book.sale_price = clean(row[saleKey]);
 
     if (attrShifted) {
@@ -300,6 +298,10 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       // a half-fixed export can't write a price into the image field
       const priceRaw = clean(row["main_image"]);
       book.price = priceRaw !== null && /^[\d,]+(\.\d+)?$/.test(priceRaw) ? priceRaw : null;
+      // in this layout the discounted price lands under image_alt (verified
+      // live 2026-09-01: 3,691/3,784 rows numeric, never above the original)
+      const saleRaw = clean(row["image_alt"]);
+      book.sale_price = saleRaw !== null && /^[\d,]+(\.\d+)?$/.test(saleRaw) ? saleRaw : null;
       const img = clean(row["main_active"]);
       book.image = img !== null && /^https?:\/\//.test(img) ? img : null;
       book.link = clean(row["keywords"]) ?? clean(row["step_package_label_ar"]);
