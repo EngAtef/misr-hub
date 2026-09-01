@@ -6,7 +6,7 @@ import { ArrowUpRight } from "lucide-react";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
-import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, DeltaBadge } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, QueryFailed, DeltaBadge } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
 import { TrafficKpis } from "@/components/traffic-growth";
 import { DeliveryQuality } from "@/components/delivery-quality";
@@ -238,6 +238,8 @@ export default function DashboardPage() {
 
       {kpis.loading ? (
         <Spinner />
+      ) : kpis.error ? (
+        <QueryFailed error={kpis.error} onRetry={kpis.retry} />
       ) : !hasData ? (
         <EmptyState message={t("noData")} />
       ) : (

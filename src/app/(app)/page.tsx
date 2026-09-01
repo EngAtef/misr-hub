@@ -6,7 +6,7 @@ import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { useRpc, rangeParams } from "@/lib/use-analytics";
 import { MultiSelect } from "@/components/multi-select";
 import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
-import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, DeltaBadge } from "@/components/ui";
+import { PageHeader, KpiCard, ChartCard, Spinner, EmptyState, QueryFailed, DeltaBadge } from "@/components/ui";
 import { AlertsBar } from "@/components/alerts-bar";
 import { TrafficKpis } from "@/components/traffic-growth";
 import { TrendChart, DonutChart } from "@/components/charts";
@@ -98,6 +98,8 @@ export default function OverviewPage() {
 
       {kpis.loading ? (
         <Spinner />
+      ) : kpis.error ? (
+        <QueryFailed error={kpis.error} onRetry={kpis.retry} />
       ) : !hasData ? (
         <EmptyState message={t("noData")} />
       ) : (

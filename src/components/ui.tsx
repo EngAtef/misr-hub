@@ -194,6 +194,23 @@ export function EmptyState({ message }: { message: string }) {
   return <div className="card p-12 text-center text-slate-500">{message}</div>;
 }
 
+// A failed query must never masquerade as "no data" — show the real error
+// with a retry that re-runs just the queries instead of a full page reload.
+export function QueryFailed({ error, onRetry }: { error: string; onRetry?: () => void }) {
+  const { t } = useLang();
+  return (
+    <div className="card space-y-3 p-10 text-center">
+      <div className="font-bold text-red-700">{t("queryFailed")}</div>
+      <div className="text-xs text-slate-400" dir="ltr">{error}</div>
+      {onRetry && (
+        <button className="btn-primary inline-flex" onClick={onRetry}>
+          {t("retry")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ---- Numbered pagination -------------------------------------------
 // Windowed page buttons (1 … 5 6 [7] 8 9 … 40) with previous/next and
 // a jump-to-page box. `page` is 0-based; clamps everything it emits.
