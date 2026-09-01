@@ -2,7 +2,8 @@
 
 // Segments Center — every audience the marketing team can talk to, in one
 // place. Prebuilt cards, a custom builder ("bought list X in July but never
-// bought Y"), saved definitions, CSV/number export, an SMS cost calculator
+// bought Y"), saved definitions, provider-ready SMS-file export (xlsx —
+// see sms-contacts-xlsx.ts), number copy, an SMS cost calculator
 // that knows Arabic messages are 70 chars per part, and the opt-out list.
 // Everything resolves through fn_segment_count / fn_segment_export so the
 // number on screen is always the number that gets exported.
@@ -20,7 +21,8 @@ import { PageHeader, Spinner } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { CustomerDrawer } from "@/components/customer-drawer";
 import { ContactActions } from "@/components/contact-actions";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatDate, cn } from "@/lib/utils";
+import { downloadSmsContactsXlsx } from "@/lib/sms-contacts-xlsx";
 import { rpcAll } from "@/lib/rpc-all";
 import { confirmDialog, notifyDialog } from "@/components/dialog";
 
@@ -322,11 +324,12 @@ export default function SegmentsPage() {
     setTimeout(() => setMarkedN(0), 5000);
   }
 
+  // the export is the SMS provider's import file — see sms-contacts-xlsx.ts
   async function exportCsv() {
     const rows = await fetchFull();
     if (!rows.length) return;
     const slug = activeLabel.replace(/\s+/g, "-").toLowerCase();
-    downloadCsv(`segment-${slug}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
+    downloadSmsContactsXlsx(rows, `segment-${slug}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   const [copied, setCopied] = useState(0);
@@ -968,7 +971,7 @@ function SavedSegments({
     setBusy(s.id);
     const rows = await rpcAll<ExportRow>(supabase, "fn_segment_export", { p_def: withCap(s.definition, capDays), p_limit: 100000 });
     if (rows.length) {
-      downloadCsv(`segment-${s.name.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows as unknown as Record<string, unknown>[]));
+      downloadSmsContactsXlsx(rows, `segment-${s.name.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     }
     setBusy(null);
   }

@@ -1982,7 +1982,7 @@ const dict = {
   segCountedAt: { ar: "آخر حساب", en: "Last counted" },
   segPeopleCol: { ar: "العدد", en: "People" },
   segReachableCol: { ar: "صالح للإرسال", en: "Reachable" },
-  segExportCsv: { ar: "تصدير CSV", en: "Export CSV" },
+  segExportCsv: { ar: "تصدير ملف SMS", en: "Export SMS file" },
   segCopyNumbers: { ar: "نسخ الأرقام", en: "Copy numbers" },
   segCopied: { ar: "تم نسخ {n} رقمًا", en: "Copied {n} numbers" },
   segReachableOnly: { ar: "أرقام صالحة فقط", en: "Valid mobiles only" },
