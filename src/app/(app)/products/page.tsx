@@ -7,7 +7,7 @@ import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { SearchBox } from "@/components/search-box";
 import { ProductDrawer } from "@/components/product-drawer";
-import { rangeParams } from "@/lib/use-analytics";
+import { rangeParams, rpcRetry } from "@/lib/use-analytics";
 import { PageHeader, Spinner, EmptyState, SortTh, Pagination, DeltaBadge, type SortState } from "@/components/ui";
 import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { rpcAll } from "@/lib/rpc-all";
@@ -44,6 +44,8 @@ interface CatalogRow {
   lifetime_weight_kg?: number | null;
   // migration 119 — global storefront USD price (null = not sold globally)
   price_usd?: number | null;
+  // migration 134 — current discounted store price (null = no offer)
+  sale_price?: number | null;
 }
 
 interface Totals {
@@ -71,6 +73,7 @@ const SCOPES = [
   { key: "instock", label: "scopeInstock" },
   { key: "global", label: "scopeGlobal" },
   { key: "not_global", label: "scopeNotGlobal" },
+  { key: "on_sale", label: "scopeOnSale" },
 ] as const;
 
 export default function ProductsPage() {
@@ -117,12 +120,15 @@ export default function ProductsPage() {
     return () => window.removeEventListener("popstate", onNav);
   }, []);
 
-  // main table — server-side search/scope/sort/pagination over the whole catalog
+  // main table — server-side search/scope/sort/pagination over the whole
+  // catalog. Retries transient failures (cold-cache timeout, auth blip)
+  // instead of showing the error state that a refresh used to clear.
+  const [warm, setWarm] = useState(false);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const { data, error } = await supabase.rpc("fn_catalog_products", {
+      const { data, error } = await rpcRetry<CatalogRow[]>(supabase, "fn_catalog_products", {
         ...rangeParams(range),
         p_search: search || null,
         p_scope: scope,
@@ -133,29 +139,34 @@ export default function ProductsPage() {
       });
       if (cancelled) return;
       setLoadError(!!error);
-      setRows(error ? [] : ((data as CatalogRow[]) ?? []));
+      setRows(error ? [] : (data ?? []));
       setLoading(false);
+      if (!error) setWarm(true);
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase, range.from, range.to, search, scope, sort?.key, sort?.dir, page]);
 
-  // totals strip (whole filtered set, not just this page)
+  // totals strip (whole filtered set, not just this page). Runs only after
+  // the first page query has succeeded: totals re-runs the same heavy scan,
+  // and firing both on a cold cache was what pushed the page past the DB's
+  // statement timeout — sequenced, it rides the warm cache in ~25ms.
   useEffect(() => {
+    if (!warm) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.rpc("fn_catalog_products_totals", {
+      const { data } = await rpcRetry<Totals[]>(supabase, "fn_catalog_products_totals", {
         ...rangeParams(range),
         p_search: search || null,
         p_scope: scope,
       });
-      if (!cancelled) setTotals(((data as Totals[]) ?? [])[0] ?? null);
+      if (!cancelled) setTotals((data ?? [])[0] ?? null);
     })();
     return () => {
       cancelled = true;
     };
-  }, [supabase, range.from, range.to, search, scope]);
+  }, [supabase, warm, range.from, range.to, search, scope]);
 
   // comparison period — per-SKU deltas for the visible rows
   useEffect(() => {
@@ -238,6 +249,11 @@ export default function ProductsPage() {
       series: r.series,
       barcode: r.barcode,
       price: r.price,
+      sale_price: r.sale_price ?? null,
+      discount_pct:
+        r.sale_price != null && r.price != null && Number(r.sale_price) < Number(r.price)
+          ? Math.round((1 - Number(r.sale_price) / Number(r.price)) * 100)
+          : null,
       image: r.image,
       ecom_stock: r.ecom_stock,
       sap_stock: r.sap_stock,
@@ -427,7 +443,25 @@ export default function ProductsPage() {
                       <td className="!whitespace-normal max-w-[10rem] text-xs text-slate-600">{r.author ?? r.publisher ?? "—"}</td>
                       <td className="text-xs text-slate-500">{r.category ?? "—"}</td>
                       <td className="whitespace-nowrap text-sm">
-                        {r.price === null ? "—" : formatMoney(Number(r.price), lang)}
+                        {(() => {
+                          const orig = r.price === null ? null : Number(r.price);
+                          const sale = r.sale_price == null ? null : Number(r.sale_price);
+                          const discounted = sale != null && orig != null && sale < orig;
+                          if (discounted) {
+                            return (
+                              <div>
+                                <span className="font-semibold text-rose-600">{formatMoney(sale, lang)}</span>
+                                <div className="text-[11px] text-slate-400">
+                                  <span className="line-through">{formatMoney(orig, lang)}</span>
+                                  <span className="ms-1 font-bold text-rose-500" dir="ltr">
+                                    -{Math.round((1 - sale / orig) * 100)}%
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return orig === null ? (sale === null ? "—" : formatMoney(sale, lang)) : formatMoney(orig, lang);
+                        })()}
                         {r.price_usd != null && (
                           <div className="text-[11px] text-emerald-700" dir="ltr" title={t("usdPriceCol")}>
                             🌍 ${Number(r.price_usd).toFixed(2)}

@@ -118,6 +118,17 @@ export async function syncCatalogUpload(
       break;
     }
     savedProducts += chunk.length;
+
+    // discounted prices ride in a second pass that only runs when the file
+    // carried a sale-price column — it overwrites (including back to null)
+    // so an ended offer is cleared on the next upload
+    const salesRows = books
+      .slice(i, i + 400)
+      .filter((b) => b.sale_price !== undefined)
+      .map((b) => ({ sku: b.sku, sale_price: b.sale_price }));
+    if (salesRows.length) {
+      await supabase.rpc("fn_upsert_products_sale_price", { p_rows: salesRows });
+    }
   }
 
   // 2) register the SKUs in the stock engine. The catalogue may be an old

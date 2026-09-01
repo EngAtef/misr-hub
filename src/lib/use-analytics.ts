@@ -20,6 +20,24 @@ export function rangeParams(range: DateRange) {
 const RETRIES = 2;
 const looksLikeAuth = (msg: string) => /jwt|token|not authenticated|401/i.test(msg);
 
+// The same retry loop as a plain async call, for pages that manage their own
+// fetch state (products, orders, ...). Resolves with the LAST attempt's result.
+export async function rpcRetry<T>(
+  supabase: ReturnType<typeof createClient>,
+  fn: string,
+  params: Record<string, unknown>
+): Promise<{ data: T | null; error: { message: string } | null }> {
+  for (let tryNo = 0; ; tryNo++) {
+    const { data, error } = await supabase.rpc(fn, params);
+    if (!error) return { data: data as T, error: null };
+    if (tryNo >= RETRIES) return { data: null, error };
+    if (looksLikeAuth(error.message ?? "")) {
+      await supabase.auth.getSession().catch(() => null);
+    }
+    await new Promise((r) => setTimeout(r, 800 * (tryNo + 1)));
+  }
+}
+
 export function useRpc<T>(fn: string, params: Record<string, unknown>, deps: unknown[], skip = false) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);

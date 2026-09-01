@@ -757,6 +757,7 @@ const dict = {
     en: "No Google Ads data for this period — try a longer range or press the GA4 sync button above",
   },
   cpcLbl: { ar: "تكلفة النقرة", en: "CPC" },
+  scopeOnSale: { ar: "عليها خصم", en: "On sale" },
   gadsRevenueLbl: { ar: "إيراد GA4", en: "GA4 revenue" },
   gadsDailyTitle: { ar: "الإنفاق والإيراد يوميًا", en: "Daily spend & revenue" },
   seoHint: { ar: "أداء الموقع في بحث جوجل من Search Console — النقرات والظهور والترتيب (البيانات تتأخر يومين-ثلاثة)", en: "Google Search performance from Search Console — clicks, impressions and rankings (data lags 2-3 days)" },

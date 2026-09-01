@@ -37,6 +37,27 @@ export interface CatalogBook {
   // shipping weight in kg (FullProductExport `weight` column) — feeds
   // order / abandoned-cart weight totals
   weight_kg?: number | null;
+  // current discounted store price. Set (possibly null) on EVERY book when
+  // the file carries a sale-price column, left undefined when it doesn't —
+  // the sync only touches products.sale_price for rows that carry the key,
+  // so a file without the column can never wipe stored sale prices, while
+  // a file WITH the column clears the books whose offer ended.
+  sale_price?: string | null;
+}
+
+// A sale/discounted-price column under any of the platform's likely names.
+// Matched loosely (contains a discount word AND "price", or Arabic labels)
+// but never the plain price / USD price columns themselves.
+export function findSalePriceKey(keys: string[]): string | null {
+  const ar = ["سعر الخصم", "السعر بعد الخصم", "سعر البيع", "سعر العرض"];
+  for (const k of keys) {
+    const low = k.toLowerCase().trim();
+    if (ar.some((a) => k.includes(a))) return k;
+    if (!low.includes("price")) continue;
+    if (/usd|دولار/.test(low)) continue;
+    if (/(^|[^a-z])(sale|special|discount|discounted|offer|promo)([^a-z]|$)|after.?discount/.test(low)) return k;
+  }
+  return null;
 }
 
 // The export's weight column is kilograms; a value above 100 can only be
@@ -170,10 +191,14 @@ function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
   if (skuIdx === -1) return [];
   const skuKey = keys[skuIdx];
 
+  // claim the sale-price column FIRST so a "Sale Price" header can never be
+  // grabbed by the plain `price` field (candidates match by substring)
+  const saleKey = findSalePriceKey(keys);
+
   const fieldKeys: Partial<Record<CatalogField, string>> = {};
   for (const field of CATALOG_FIELDS) {
     for (const candidate of HEADER_MAP[field]) {
-      const i = lower.findIndex((k) => k.includes(candidate.toLowerCase()));
+      const i = lower.findIndex((k, idx) => k.includes(candidate.toLowerCase()) && keys[idx] !== saleKey);
       if (i !== -1 && !Object.values(fieldKeys).includes(keys[i])) {
         fieldKeys[field] = keys[i];
         break;
@@ -196,6 +221,7 @@ function buildBooks(rows: Record<string, unknown>[]): CatalogBook[] {
       book[field] = key && !isEmpty(row[key]) ? String(row[key]).trim() : null;
     }
     if (weightKey) book.weight_kg = parseWeightKg(row[weightKey]);
+    if (saleKey) book.sale_price = isEmpty(row[saleKey]) ? null : String(row[saleKey]).trim();
     out.push(book);
   }
   return out;
@@ -208,6 +234,9 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
   const clean = (v: unknown): string | null => (isEmpty(v) ? null : String(v).trim());
   const seen = new Set<string>();
   const out: CatalogBook[] = [];
+
+  // discounted price column, whatever the platform calls it
+  const saleKey = rows.length ? findSalePriceKey(Object.keys(rows[0])) : null;
 
   // Some exports (seen live 2026-08) write the data rows misaligned with
   // their own header row from the mid-sheet on: the attribute label lands
@@ -262,6 +291,9 @@ function buildFromFullExport(rows: Record<string, unknown>[]): CatalogBook[] {
       vendor: clean(row["brand"]) ?? clean(row["vendor"]) ?? clean(row["publisher"]),
       weight_kg: parseWeightKg(row["weight"]),
     };
+    // the misaligned export variant displaces columns unpredictably — only
+    // trust the sale price in the normal layout
+    if (saleKey && !attrShifted) book.sale_price = clean(row[saleKey]);
 
     if (attrShifted) {
       // displaced columns of the misaligned export — validate by content so
