@@ -11,6 +11,7 @@ import { normalizeTxId, GA4_ALL_TIME } from "@/lib/import/parse-ga4";
 import { formatNumber, formatMoney, toCsv, downloadCsv, cn, STATUS_AR } from "@/lib/utils";
 import {
   ChannelsReport,
+  GoogleAdsReport,
   HealthReport,
   MatrixReport,
   AudienceReport,
@@ -19,7 +20,7 @@ import {
   useTrafficAlarms,
 } from "@/components/traffic-growth";
 
-type TrafficTab = "overview" | "alarms" | "channels" | "health" | "matrix" | "audience" | "seo";
+type TrafficTab = "overview" | "alarms" | "channels" | "gads" | "health" | "matrix" | "audience" | "seo";
 
 interface MonthRow {
   period_month: string;
@@ -93,7 +94,7 @@ export default function TrafficPage() {
   // ?tab= deep link so alerts land on the tab that explains them
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("tab") as TrafficTab | null;
-    if (v && ["overview", "alarms", "channels", "health", "matrix", "audience", "seo"].includes(v)) setTab(v);
+    if (v && ["overview", "alarms", "channels", "gads", "health", "matrix", "audience", "seo"].includes(v)) setTab(v);
   }, []);
   const { alarms, error: alarmsError } = useTrafficAlarms();
   const redAlarms = alarms?.filter((a) => a.severity === "red").length ?? 0;
@@ -420,6 +421,7 @@ export default function TrafficPage() {
             ["overview", t("trafficTabOverview")],
             ["alarms", t("alarmsTitle")],
             ["channels", t("trafficTabChannels")],
+            ["gads", t("trafficTabGads")],
             ["health", t("trafficTabHealth")],
             ["matrix", t("trafficTabMatrix")],
             ["audience", t("trafficTabAudience")],
@@ -446,6 +448,7 @@ export default function TrafficPage() {
 
       {tab === "alarms" && <TrafficAlarms alarms={alarms} error={alarmsError} />}
       {tab === "channels" && <ChannelsReport />}
+      {tab === "gads" && <GoogleAdsReport />}
       {tab === "health" && <HealthReport />}
       {tab === "matrix" && (
         <MatrixReport months={months.map((m) => m.period_month).filter((m) => m !== GA4_ALL_TIME)} />

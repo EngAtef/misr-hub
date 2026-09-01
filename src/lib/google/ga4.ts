@@ -328,6 +328,62 @@ export async function fetchGa4Sources(cfg: Ga4Config, month: string): Promise<Ga
   return out;
 }
 
+export interface GoogleAdsDailyRow {
+  date: string;
+  campaign: string;
+  cost: number | null;
+  clicks: number | null;
+  impressions: number | null;
+  sessions: number | null;
+  purchases: number | null;
+  revenue: number | null;
+  imported_at?: string;
+}
+
+// Google Ads campaign performance through the GA4 product link (no Google
+// Ads API credentials needed). cost/clicks/impressions are imported from
+// Google Ads by GA4 itself; sessions/purchases/revenue are GA4-attributed
+// (same last-click model as ga4_sources, so ROAS is comparable across the
+// Traffic page). The "(not set)" campaign row is all non-Ads traffic — skipped.
+export async function fetchGoogleAdsDaily(cfg: Ga4Config, month: string): Promise<GoogleAdsDailyRow[]> {
+  const range = monthRange(month);
+  if (!range) return [];
+  const rows = await runReport(cfg, {
+    dateRanges: [range],
+    dimensions: [{ name: "date" }, { name: "sessionGoogleAdsCampaignName" }],
+    metrics: [
+      { name: "advertiserAdCost" },
+      { name: "advertiserAdClicks" },
+      { name: "advertiserAdImpressions" },
+      { name: "sessions" },
+      { name: "ecommercePurchases" },
+      { name: "purchaseRevenue" },
+    ],
+  });
+  const seen = new Set<string>();
+  const out: GoogleAdsDailyRow[] = [];
+  for (const r of rows) {
+    const d = r.dimensionValues[0]?.value ?? "";
+    const campaign = r.dimensionValues[1]?.value?.trim() ?? "";
+    if (!/^\d{8}$/.test(d) || !campaign || campaign === "(not set)") continue;
+    const key = `${d}|${campaign}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      date: ga4Date(d),
+      campaign,
+      cost: num(r.metricValues[0]?.value),
+      clicks: num(r.metricValues[1]?.value),
+      impressions: num(r.metricValues[2]?.value),
+      sessions: num(r.metricValues[3]?.value),
+      purchases: num(r.metricValues[4]?.value),
+      revenue: num(r.metricValues[5]?.value),
+      imported_at: new Date().toISOString(),
+    });
+  }
+  return out;
+}
+
 export async function fetchGa4Items(cfg: Ga4Config, month: string): Promise<Ga4Item[]> {
   const range = monthRange(month);
   if (!range) return [];
@@ -487,6 +543,7 @@ export interface Ga4SyncResult {
   daily: number;
   sources: number;
   audience: number;
+  google_ads: number;
 }
 
 // Mirrors the manual Data Center import exactly: pages/items replace the
@@ -500,7 +557,7 @@ export async function syncGa4Month(
   // audience reports are non-critical — one failing (e.g. an incompatible
   // dimension on this property) must not break the core sync
   const safe = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-  const [pages, transactions, items, daily, sources, searchTerms, cities, devices, landing, hours] =
+  const [pages, transactions, items, daily, sources, searchTerms, cities, devices, landing, hours, googleAds] =
     await Promise.all([
       fetchGa4Pages(cfg, month),
       fetchGa4Transactions(cfg, month),
@@ -512,6 +569,9 @@ export async function syncGa4Month(
       safe(fetchGa4Devices(cfg, month)),
       safe(fetchGa4Landing(cfg, month)),
       safe(fetchGa4Hours(cfg, month)),
+      // needs the Google Ads ↔ GA4 product link; an unlinked property just
+      // returns no rows, and an API error must not break the core sync
+      safe(fetchGoogleAdsDaily(cfg, month)),
     ]);
 
   if (pages.length) {
@@ -551,6 +611,13 @@ export async function syncGa4Month(
     if (error) throw new Error(`ga4_sources: ${error.message}`);
   }
 
+  for (let i = 0; i < googleAds.length; i += 1000) {
+    const { error } = await supabase
+      .from("google_ads_daily")
+      .upsert(googleAds.slice(i, i + 1000), { onConflict: "date,campaign" });
+    if (error) throw new Error(`google_ads_daily: ${error.message}`);
+  }
+
   const monthly: [string, (MonthlyRow | Ga4HourRow)[]][] = [
     ["ga4_search_terms", searchTerms],
     ["ga4_cities", cities],
@@ -575,5 +642,6 @@ export async function syncGa4Month(
     daily: daily.length,
     sources: sources.length,
     audience: searchTerms.length + cities.length + devices.length + landing.length,
+    google_ads: googleAds.length,
   };
 }

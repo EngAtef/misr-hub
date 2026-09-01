@@ -1694,3 +1694,224 @@ export function MatrixReport({ months }: { months: string[] }) {
     </div>
   );
 }
+
+// ------------------------------------------------------------- Google Ads
+
+// google_ads_daily is filled by the same GA4 sync (the Google Ads account is
+// linked to the GA4 property, so no Google Ads API credentials exist here).
+// cost/clicks/impressions come from Google Ads via the link; purchases and
+// revenue are GA4-attributed, so ROAS reads like the rest of this page.
+
+interface GadsRow {
+  date: string;
+  campaign: string;
+  cost: number | null;
+  clicks: number | null;
+  impressions: number | null;
+  sessions: number | null;
+  purchases: number | null;
+  revenue: number | null;
+}
+
+interface GadsCampaign {
+  campaign: string;
+  cost: number;
+  clicks: number;
+  impressions: number;
+  sessions: number;
+  purchases: number;
+  revenue: number;
+}
+
+export function GoogleAdsReport() {
+  const { t, lang } = useLang();
+  const supabase = useMemo(() => createClient(), []);
+  const [days, setDays] = useState(MTD);
+  useEffect(() => {
+    if (new Date().getDate() === 1) setDays(LAST_MONTH);
+  }, []);
+  const [rows, setRows] = useState<GadsRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRows(null);
+    setError(null);
+    supabase
+      .from("google_ads_daily")
+      .select("date, campaign, cost, clicks, impressions, sessions, purchases, revenue")
+      .gte("date", rangeStart(days))
+      .lte("date", rangeEnd(days))
+      .order("date", { ascending: true })
+      .limit(5000)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setError(error.message);
+        setRows((data as GadsRow[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, days]);
+
+  const campaigns = useMemo(() => {
+    const by = new Map<string, GadsCampaign>();
+    for (const r of rows ?? []) {
+      const c =
+        by.get(r.campaign) ??
+        { campaign: r.campaign, cost: 0, clicks: 0, impressions: 0, sessions: 0, purchases: 0, revenue: 0 };
+      c.cost += r.cost ?? 0;
+      c.clicks += r.clicks ?? 0;
+      c.impressions += r.impressions ?? 0;
+      c.sessions += r.sessions ?? 0;
+      c.purchases += r.purchases ?? 0;
+      c.revenue += r.revenue ?? 0;
+      by.set(r.campaign, c);
+    }
+    return Array.from(by.values());
+  }, [rows]);
+
+  const totals = useMemo(() => {
+    const sum = (f: (c: GadsCampaign) => number) => campaigns.reduce((s, c) => s + f(c), 0);
+    const cost = sum((c) => c.cost);
+    const clicks = sum((c) => c.clicks);
+    const revenue = sum((c) => c.revenue);
+    return {
+      cost,
+      clicks,
+      revenue,
+      impressions: sum((c) => c.impressions),
+      purchases: sum((c) => c.purchases),
+      cpc: clicks > 0 ? cost / clicks : null,
+      roas: cost > 0 ? revenue / cost : null,
+    };
+  }, [campaigns]);
+
+  const daily = useMemo(() => {
+    const by = new Map<string, { date: string; cost: number; revenue: number }>();
+    for (const r of rows ?? []) {
+      const d = by.get(r.date) ?? { date: r.date, cost: 0, revenue: 0 };
+      d.cost += r.cost ?? 0;
+      d.revenue += r.revenue ?? 0;
+      by.set(r.date, d);
+    }
+    return Array.from(by.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => ({ date: d.date.slice(5), cost: Math.round(d.cost), revenue: Math.round(d.revenue) }));
+  }, [rows]);
+
+  const { sort, toggle, apply } = useSort<GadsCampaign>();
+  const sorted = useMemo(
+    () =>
+      apply(campaigns, {
+        name: (c) => c.campaign,
+        spend: (c) => c.cost,
+        clicks: (c) => c.clicks,
+        cpc: (c) => (c.clicks > 0 ? c.cost / c.clicks : 0),
+        impressions: (c) => c.impressions,
+        sessions: (c) => c.sessions,
+        purchases: (c) => c.purchases,
+        revenue: (c) => c.revenue,
+        roas: (c) => (c.cost > 0 ? c.revenue / c.cost : 0),
+      }),
+    [campaigns, apply]
+  );
+
+  if (error) return <ErrorNote message={error} />;
+  if (!rows) return <Spinner />;
+  if (!rows.length)
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <RangePicker value={days} onChange={setDays} options={[MTD, LAST_MONTH, 7, 30, 90]} />
+        </div>
+        <div className="card p-8 text-center text-sm text-slate-500">{t("gadsNoData")}</div>
+      </div>
+    );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-slate-500">{t("gadsHint")}</p>
+        <RangePicker value={days} onChange={setDays} options={[MTD, LAST_MONTH, 7, 30, 90]} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
+        <KpiCard label={t("totalSpend")} value={formatMoney(totals.cost, lang)} accent="amber" />
+        <KpiCard label={t("clicksLbl")} value={formatNumber(totals.clicks)} />
+        <KpiCard label={t("cpcLbl")} value={totals.cpc != null ? formatMoney(totals.cpc, lang) : "—"} accent="slate" />
+        <KpiCard label={t("impressionsLbl")} value={formatNumber(totals.impressions)} accent="slate" />
+        <KpiCard label={t("ga4PurchasesLbl")} value={formatNumber(totals.purchases)} />
+        <KpiCard label={t("gadsRevenueLbl")} value={formatMoney(totals.revenue, lang)} accent="green" />
+        <KpiCard
+          label="ROAS"
+          value={totals.roas != null ? `${totals.roas.toFixed(2)}×` : "—"}
+          accent={totals.roas != null && totals.roas < 1 ? "red" : "green"}
+        />
+      </div>
+
+      <ChartCard title={t("gadsDailyTitle")}>
+        <TrendChart
+          data={daily as unknown as Record<string, unknown>[]}
+          xKey="date"
+          type="line"
+          series={[
+            { key: "cost", name: t("totalSpend"), color: "#f59e0b" },
+            { key: "revenue", name: t("gadsRevenueLbl"), color: "#059669" },
+          ]}
+          height={220}
+        />
+      </ChartCard>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700">{t("campaigns")}</h3>
+          <ExportButton name="google-ads-campaigns" rows={sorted} />
+        </div>
+        <div className="card overflow-x-auto">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <SortTh label={t("campaignName")} k="name" sort={sort} onToggle={toggle} />
+                <SortTh label={t("totalSpend")} k="spend" sort={sort} onToggle={toggle} />
+                <SortTh label={t("clicksLbl")} k="clicks" sort={sort} onToggle={toggle} />
+                <SortTh label={t("cpcLbl")} k="cpc" sort={sort} onToggle={toggle} />
+                <SortTh label={t("impressionsLbl")} k="impressions" sort={sort} onToggle={toggle} />
+                <SortTh label={t("sessionsLbl")} k="sessions" sort={sort} onToggle={toggle} />
+                <SortTh label={t("ga4PurchasesLbl")} k="purchases" sort={sort} onToggle={toggle} />
+                <SortTh label={t("gadsRevenueLbl")} k="revenue" sort={sort} onToggle={toggle} />
+                <SortTh label="ROAS" k="roas" sort={sort} onToggle={toggle} />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((c) => {
+                const roas = c.cost > 0 ? c.revenue / c.cost : null;
+                return (
+                  <tr key={c.campaign}>
+                    <td className="!whitespace-normal max-w-xs font-medium text-xs" dir="ltr">{c.campaign}</td>
+                    <td className="font-semibold">{formatMoney(c.cost, lang)}</td>
+                    <td>{formatNumber(c.clicks)}</td>
+                    <td>{c.clicks > 0 ? formatMoney(c.cost / c.clicks, lang) : "—"}</td>
+                    <td>{formatNumber(c.impressions)}</td>
+                    <td>{formatNumber(c.sessions)}</td>
+                    <td>{formatNumber(c.purchases)}</td>
+                    <td>{formatMoney(c.revenue, lang)}</td>
+                    <td
+                      className={cn(
+                        "font-bold",
+                        roas != null && (roas >= 2 ? "text-emerald-600" : roas < 1 ? "text-red-600" : "text-amber-600")
+                      )}
+                    >
+                      {roas != null ? `${roas.toFixed(2)}×` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+

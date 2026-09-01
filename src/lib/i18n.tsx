@@ -747,6 +747,18 @@ const dict = {
   funnelTitle: { ar: "قمع التحويل", en: "Conversion funnel" },
   beginCheckout: { ar: "بدء الدفع", en: "Begin checkout" },
   trafficTabSeo: { ar: "SEO جوجل", en: "Google SEO" },
+  trafficTabGads: { ar: "إعلانات جوجل", en: "Google Ads" },
+  gadsHint: {
+    ar: "أداء حملات Google Ads عبر ربط GA4 — التكلفة والنقرات ومرّات الظهور من جوجل، والمشتريات والإيراد بإسناد GA4 (آخر نقرة)",
+    en: "Google Ads campaign performance via the GA4 link — cost, clicks and impressions from Google; purchases and revenue GA4-attributed (last click)",
+  },
+  gadsNoData: {
+    ar: "لا توجد بيانات Google Ads في هذه الفترة — جرّب فترة أطول أو اضغط زر مزامنة GA4 بالأعلى",
+    en: "No Google Ads data for this period — try a longer range or press the GA4 sync button above",
+  },
+  cpcLbl: { ar: "تكلفة النقرة", en: "CPC" },
+  gadsRevenueLbl: { ar: "إيراد GA4", en: "GA4 revenue" },
+  gadsDailyTitle: { ar: "الإنفاق والإيراد يوميًا", en: "Daily spend & revenue" },
   seoHint: { ar: "أداء الموقع في بحث جوجل من Search Console — النقرات والظهور والترتيب (البيانات تتأخر يومين-ثلاثة)", en: "Google Search performance from Search Console — clicks, impressions and rankings (data lags 2-3 days)" },
   seoSetupHint: { ar: "فعّل Search Console أولاً: أضف رابط الموقع في الإعدادات ← بطاقة Google Search Console ثم اضغط مزامنة", en: "Enable Search Console first: add the property URL in Settings → Google Search Console card, then press Sync" },
   clicksLbl: { ar: "النقرات", en: "Clicks" },
