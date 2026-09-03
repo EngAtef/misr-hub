@@ -10,7 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
 import { useMyRole } from "@/lib/use-role";
-import { PageHeader, Spinner, EmptyState, ChartCard, KpiCard } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, ChartCard, KpiCard, QueryFailed } from "@/components/ui";
 import { TrendChart, BarsChart, DonutChart } from "@/components/charts";
 import { MultiSelect } from "@/components/multi-select";
 import { DateRangeFilter, useDateRange } from "@/components/date-range";
@@ -150,6 +150,7 @@ export default function AbandonedPage() {
   const [anomalies, setAnomalies] = useState<AnomalyReport | null>(null);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [carts, setCarts] = useState<CartRow[]>([]);
   const [cartsLoading, setCartsLoading] = useState(false);
@@ -200,6 +201,9 @@ export default function AbandonedPage() {
       supabase.rpc("fn_abandoned_breakdowns", period),
       supabase.rpc("fn_abandoned_anomaly_report"),
     ]);
+    // a timed-out or failed RPC must never render as "no data"
+    const failed = [s, seg, tr, tp, rep, bd, an].find((r) => r.error);
+    setLoadError(failed?.error?.message ?? null);
     setSummary((s.data as Summary) ?? null);
     setSegments((seg.data as SegmentRow[]) ?? []);
     setTrend(((tr.data as TrendRow[]) ?? []).map((r) => ({ ...r, lost_value: r.lost_value ?? 0, avg_cart_value: r.avg_cart_value ?? 0 })));
@@ -552,7 +556,13 @@ export default function AbandonedPage() {
         </div>
       )}
 
-      {noData ? (
+      {loadError && !noData && (
+        <div className="mb-4"><QueryFailed error={loadError} onRetry={() => { setLoading(true); loadOverview(); }} /></div>
+      )}
+
+      {noData ? loadError ? (
+        <QueryFailed error={loadError} onRetry={() => { setLoading(true); loadOverview(); }} />
+      ) : (
         <div className="card p-10 text-center">
           <ShoppingBasket className="mx-auto h-12 w-12 text-slate-300" />
           <div className="mt-3 text-slate-600">{t("abNoData")}</div>
