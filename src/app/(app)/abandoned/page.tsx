@@ -522,6 +522,7 @@ export default function AbandonedPage() {
   if (loading) return <Spinner />;
 
   const noData = !summary || (summary.total_carts === 0 && summary.anomaly_carts === 0);
+  const filtersActive = bounded || marketFilters.length > 0;
 
   return (
     <div>
@@ -560,8 +561,22 @@ export default function AbandonedPage() {
         <div className="mb-4"><QueryFailed error={loadError} onRetry={() => { setLoading(true); loadOverview(); }} /></div>
       )}
 
+      <div className="mb-4">
+        <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
+      </div>
+
       {noData ? loadError ? (
         <QueryFailed error={loadError} onRetry={() => { setLoading(true); loadOverview(); }} />
+      ) : filtersActive ? (
+        // empty because of the period / country filter, not because nothing is loaded
+        <div className="card p-10 text-center">
+          <ShoppingBasket className="mx-auto h-12 w-12 text-slate-300" />
+          <div className="mt-3 text-slate-600">{t("abNoMatch")}</div>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {bounded && <button className="btn-primary" onClick={() => setPreset("all")}>{t("abShowAllTime")}</button>}
+            {marketFilters.length > 0 && <button className="btn-secondary" onClick={() => setMarketFilters([])}>{t("abClearCountries")}</button>}
+          </div>
+        </div>
       ) : (
         <div className="card p-10 text-center">
           <ShoppingBasket className="mx-auto h-12 w-12 text-slate-300" />
@@ -570,10 +585,6 @@ export default function AbandonedPage() {
         </div>
       ) : (
         <>
-          <div className="mb-4">
-            <DateRangeFilter preset={preset} setPreset={setPreset} range={range} setRange={setRange} />
-          </div>
-
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-2.5 text-[13px] text-emerald-800">
             <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
             {t("abCleanNote")}
