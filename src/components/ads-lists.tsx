@@ -5,7 +5,7 @@ import { ChevronDown, Link2, Pencil, Trash2, X, Check, Sparkles, ExternalLink, A
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { AD } from "@/lib/ads/strings";
-import { formatMoney, formatNumber, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, cn, normalizeArabic } from "@/lib/utils";
 import { Spinner, EmptyState, KpiCard, Pagination } from "@/components/ui";
 import { ProductDrawer } from "@/components/product-drawer";
 import type { CustomListRow, CustomListItemRow, StockHealth } from "@/lib/ads/types";
@@ -117,12 +117,12 @@ export function AdsLists({
 
   // 200+ lists, so the table is only usable with a filter on it
   const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = normalizeArabic(query.trim());
     return rows.filter((r) => {
       if (filter === "ads" && !r.ads) return false;
       if (filter === "noslug" && r.slug) return false;
       if (filter === "stock" && !STOCK_META[r.stock_health]?.act) return false;
-      if (q && !`${r.name} ${r.slug ?? ""} ${r.list_id ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !normalizeArabic(`${r.name} ${r.slug ?? ""} ${r.list_id ?? ""}`).includes(q)) return false;
       return true;
     });
   }, [rows, filter, query]);

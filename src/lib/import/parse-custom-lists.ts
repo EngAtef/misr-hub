@@ -12,7 +12,9 @@ import * as XLSX from "xlsx";
  * Two things the file does NOT contain:
  *
  *   the list's NAME — it only exists in the file name ("Award-Winning
- *   Books.xlsx"), so that's where the name comes from;
+ *   Books.xlsx"), so that's where the name comes from. Newer exports are
+ *   named "CustomListExport_<user>_<timestamp>.xlsx", which names nothing:
+ *   then the user types the name before importing;
  *
  *   the list's SLUG — the URL segment the ad links to. It's attached later,
  *   in the Ads Center, either by hand or by pasting an ad's link.
@@ -32,6 +34,8 @@ export interface CustomListItem {
 export interface ParsedCustomList {
   list_id: number | null;
   name: string;
+  /** true when `name` is a placeholder the user must replace before import */
+  name_is_placeholder?: boolean;
   slug: string | null;
   product_type: string;
   items: CustomListItem[];
@@ -75,13 +79,30 @@ export function stripSkuPrefix(raw: string, productType?: string | null): string
   for (const p of prefixes) {
     if (s.toLowerCase().startsWith(p) && s.length > p.length) return s.slice(p.length);
   }
+  // the store's list editor is typed by hand, so the prefix itself gets
+  // misspelt ("mian_C0105…"): any short lowercase word before a real-looking
+  // SKU is still just a prefix
+  const typo = s.match(/^[a-z]{3,8}_(?=[A-Z]{1,4}\d{5,})/);
+  if (typo) return s.slice(typo[0].length);
   return s;
 }
 
-/** "Award-Winning Books.xlsx" -> "Award-Winning Books" */
-export function listNameFromFileName(fileName: string): string {
+/**
+ * "Award-Winning Books.xlsx" -> "Award-Winning Books".
+ *
+ * Returns null when the file name is the platform's generic one
+ * ("CustomListExport_mohamed Atef_1788677382.xlsx") — that carries the
+ * exporter and a timestamp, never the list's name, and saving it as the name
+ * hides the list from every search in the Ads Center.
+ */
+export function listNameFromFileName(fileName: string): string | null {
   const base = fileName.replace(/\.(csv|xlsx?|xlsm)$/i, "").replace(INVISIBLE, "").trim();
-  return base.replace(/[_]+/g, " ").trim() || fileName;
+  if (isGenericExportName(base)) return null;
+  return base.replace(/[_]+/g, " ").trim() || null;
+}
+
+export function isGenericExportName(base: string): boolean {
+  return /^(custom\s*list\s*export|export)\b/i.test(base) || /_\d{9,}$/.test(base);
 }
 
 const COLS: Record<string, string[]> = {
@@ -166,12 +187,19 @@ export function parseCustomListsFile(data: ArrayBuffer, fileName: string): Parse
 
   const fileBase = listNameFromFileName(fileName);
   const many = groups.size > 1;
+  if (fileBase === null) warnings.push("The file name is not the list's name — type the name before importing");
 
   const lists: ParsedCustomList[] = Array.from(groups.values()).map((g) => ({
     list_id: g.listId,
     // a single-list file is named by its file; a multi-list file can't be, so
     // each list is labelled by its id and renamed later in the Ads Center
-    name: many ? `${fileBase} · ${g.listId ?? "?"}` : fileBase,
+    name:
+      fileBase === null
+        ? `List #${g.listId ?? "?"}`
+        : many
+          ? `${fileBase} · ${g.listId ?? "?"}`
+          : fileBase,
+    name_is_placeholder: fileBase === null,
     slug: null,
     product_type: g.type,
     items: g.items,

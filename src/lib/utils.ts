@@ -195,3 +195,19 @@ export const CHART_COLORS = [
   "#84cc16",
   "#64748b",
 ];
+
+/**
+ * Fold the Arabic spellings that mean the same word so a search for
+ * "اللغويه" finds "اللغوية": ة/ه, ى/ي, hamza forms, diacritics, tatweel.
+ * Lower-cases Latin too, so one call covers a mixed AR/EN haystack.
+ */
+export function normalizeArabic(s: string): string {
+  return s
+    .replace(/[\u064B-\u0652\u0640]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .toLowerCase();
+}

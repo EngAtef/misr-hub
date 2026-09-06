@@ -18,7 +18,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { adText, AD } from "@/lib/ads/strings";
-import { formatMoney, formatNumber, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, cn, normalizeArabic } from "@/lib/utils";
 import { Spinner } from "@/components/ui";
 import type { AdMapping, TargetKind, LinkResolved, AdRow, CustomListItemRow } from "@/lib/ads/types";
 
@@ -369,11 +369,12 @@ export function AdsMapping({
   );
 
   const listsFiltered = useMemo(() => {
-    const q = listQuery.trim().toLowerCase();
+    // Arabic-folded: "اللغويه" and "اللغوية" are the same list to a searcher
+    const q = normalizeArabic(listQuery.trim());
     if (!q) return lists;
     return lists.filter(
       (l) =>
-        l.name.toLowerCase().includes(q) ||
+        normalizeArabic(l.name).includes(q) ||
         (l.slug ?? "").toLowerCase().includes(q) ||
         String(l.list_id ?? "").includes(q)
     );

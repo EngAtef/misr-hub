@@ -1642,10 +1642,16 @@ const dict = {
   uploadAbandonedDailyHint: { ar: "ملفا revenue_lost و average_revenue_lost — نفس الكارت يقبل الاثنين", en: "revenue_lost & average_revenue_lost exports — both upload here" },
   uploadCustomLists: { ar: "القوائم المخصصة", en: "Custom lists" },
   uploadCustomListsHint: {
-    ar: "تصدير القوائم المخصصة من المتجر — اختر كل الملفات مرة واحدة. اسم كل ملف هو اسم قائمته.",
-    en: "Custom list exports from the store — pick them all at once. Each file name becomes its list's name.",
+    ar: "تصدير القوائم المخصصة من المتجر — اختر كل الملفات مرة واحدة. اسم الملف هو اسم القائمة، ولو الملف اسمه CustomListExport هتكتب الاسم قبل الاستيراد.",
+    en: "Custom list exports from the store — pick them all at once. The file name is the list's name; a CustomListExport_… file asks you to type it first.",
   },
   customListsDetected: { ar: "قوائم", en: "lists" },
+  customListName: { ar: "اسم القائمة (زي ما هو في المتجر)", en: "List name (as it appears in the store)" },
+  customListNamePlaceholder: { ar: "مثال: موسوعة الفروق اللغويه", en: "e.g. موسوعة الفروق اللغويه" },
+  customListNameNeeded: {
+    ar: "اسم الملف ده مش اسم القائمة — اكتب اسم القائمة زي ما هو في المتجر عشان تلاقيها في مركز الإعلانات.",
+    en: "This file name is not the list's name — type the list's store name so you can find it in the Ads Center.",
+  },
   abDailyLostDetected: { ar: "إجمالي الإيرادات المفقودة", en: "Total lost revenue" },
   abDailyAvgDetected: { ar: "متوسط قيمة السلة", en: "Average cart value" },
   abValueAtRisk: { ar: "القيمة المعرضة للفقد", en: "Value at Risk" },

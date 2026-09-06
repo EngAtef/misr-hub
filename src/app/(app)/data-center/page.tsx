@@ -158,6 +158,8 @@ interface Pending {
   usdPrices?: UsdPriceRow[];
   abandoned?: AbandonedParsed;
   customLists?: ParsedCustomLists;
+  /** custom_lists only: the name the user types when the file name isn't one */
+  listName?: string;
   count: number;
   extra?: string;
   // shown in amber above the import button when the file changes more than
@@ -246,15 +248,21 @@ export default function DataCenterPage() {
       }
       if (!merged.lists.length) throw new Error(t("invalidFile"));
       if (failed.length) merged.warnings.push(`${failed.length}: ${failed.join(", ")}`);
+      const single = merged.lists.length === 1 ? merged.lists[0] : null;
       setPending({
         type: "custom_lists",
         fileName: files.length === 1 ? files[0].name : `${files.length} files`,
         customLists: merged,
+        // a generic export name ("CustomListExport_…") names nothing, so the
+        // real name is typed here; the file's name is the default otherwise
+        listName: single ? (single.name_is_placeholder ? "" : single.name) : undefined,
         count: merged.totalItems,
-        extra:
-          merged.lists.length === 1
-            ? `${merged.lists[0].name}${merged.lists[0].list_id !== null ? ` · #${merged.lists[0].list_id}` : ""}`
-            : `${merged.lists.length} ${t("customListsDetected")}`,
+        extra: single
+          ? single.list_id !== null
+            ? `#${single.list_id}`
+            : undefined
+          : `${merged.lists.length} ${t("customListsDetected")}`,
+        note: single?.name_is_placeholder ? t("customListNameNeeded") : undefined,
       });
       setPhase("ready");
     } catch (e) {
@@ -577,13 +585,17 @@ export default function DataCenterPage() {
         }
         await recordUpload(pending.fileName, pending.count, ok, 0);
       } else if (pending.type === "custom_lists" && pending.customLists) {
+        const typed = pending.listName?.trim();
+        const lists = pending.customLists.lists.map((l, i) =>
+          i === 0 && typed ? { ...l, name: typed, name_is_placeholder: false } : l
+        );
         const res = await fetch("/api/ads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "list_import",
             fileName: pending.fileName,
-            lists: pending.customLists.lists,
+            lists,
           }),
         });
         const d = await res.json();
@@ -726,6 +738,18 @@ export default function DataCenterPage() {
                 )}
               </div>
             </div>
+            {pending.type === "custom_lists" && pending.listName !== undefined && (
+              <div className="mx-auto max-w-md text-start">
+                <label className="mb-1 block text-xs font-semibold text-slate-600">{t("customListName")}</label>
+                <input
+                  className="input w-full"
+                  value={pending.listName}
+                  placeholder={t("customListNamePlaceholder")}
+                  onChange={(e) => setPending({ ...pending, listName: e.target.value })}
+                  autoFocus={pending.listName === ""}
+                />
+              </div>
+            )}
             {pending.note && (
               <div className="mx-auto max-w-md rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
                 {pending.note}
@@ -737,7 +761,11 @@ export default function DataCenterPage() {
               </div>
             )}
             <div className="flex justify-center gap-3">
-              <button className="btn-primary" onClick={startImport}>
+              <button
+                className="btn-primary disabled:opacity-50"
+                onClick={startImport}
+                disabled={pending.type === "custom_lists" && pending.listName !== undefined && !pending.listName.trim()}
+              >
                 {t("startImport")}
               </button>
               <button className="btn-secondary" onClick={reset}>
