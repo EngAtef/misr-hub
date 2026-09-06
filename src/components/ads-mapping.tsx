@@ -14,13 +14,14 @@ import {
   ListTree,
   BookOpen,
   ChevronDown,
+  FolderTree,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { adText, AD } from "@/lib/ads/strings";
 import { formatMoney, formatNumber, cn, normalizeArabic } from "@/lib/utils";
 import { Spinner } from "@/components/ui";
-import type { AdMapping, TargetKind, LinkResolved, AdRow, CustomListItemRow } from "@/lib/ads/types";
+import type { AdMapping, TargetKind, LinkResolved, AdRow, CustomListItemRow, CatalogCategory } from "@/lib/ads/types";
 
 interface Unmapped {
   ad_name: string;
@@ -62,6 +63,8 @@ interface Editing {
   destUrl: string;
   skus: string[];
   keyword: string;
+  catSection: string | null;
+  catCategory: string | null;
 }
 
 const STORE_LIST = "https://nahdetmisrbookstore.com/ar/products/list/";
@@ -96,6 +99,7 @@ export function AdsMapping({
   const [unmapped, setUnmapped] = useState<Unmapped[]>([]);
   const [maps, setMaps] = useState<AdMapping[]>([]);
   const [lists, setLists] = useState<ListOption[]>([]);
+  const [cats, setCats] = useState<CatalogCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [suggest, setSuggest] = useState<ProductHit[]>([]);
@@ -114,14 +118,16 @@ export function AdsMapping({
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [u, m, l] = await Promise.all([
+    const [u, m, l, c] = await Promise.all([
       supabase.rpc("fn_ads_unmapped", { p_from: from, p_to: to }),
       supabase.rpc("fn_ads_map_list"),
       supabase.from("custom_lists").select("id,name,slug,list_id,item_count").order("name"),
+      supabase.rpc("fn_catalog_categories"),
     ]);
     setUnmapped((u.data as Unmapped[]) ?? []);
     setMaps((m.data as AdMapping[]) ?? []);
     setLists((l.data as ListOption[]) ?? []);
+    setCats((c.data as CatalogCategory[]) ?? []);
     setLoading(false);
   }, [supabase, from, to]);
 
@@ -148,6 +154,8 @@ export function AdsMapping({
         destUrl: existing?.dest_url ?? presetUrl ?? "",
         skus: existing?.skus ?? [],
         keyword: existing?.keyword ?? "",
+        catSection: existing?.cat_section ?? null,
+        catCategory: existing?.cat_category ?? null,
       });
       setQuery("");
       setListQuery("");
@@ -228,6 +236,20 @@ export function AdsMapping({
       destUrl: editing.targetKind === "book" ? null : editing.destUrl,
       skus: editing.targetKind === "book" ? editing.skus : [],
       keyword: editing.targetKind === "book" ? editing.keyword : null,
+      // a link that resolved to a category carries what the resolver found,
+      // so the RPC doesn't have to resolve it a second time
+      catSection:
+        editing.targetKind === "category"
+          ? editing.catSection
+          : editing.targetKind === "link"
+            ? (resolved?.cat_section ?? null)
+            : null,
+      catCategory:
+        editing.targetKind === "category"
+          ? editing.catCategory
+          : editing.targetKind === "link"
+            ? (resolved?.cat_category ?? null)
+            : null,
     });
     setSaving(false);
     if (ok) {
@@ -249,6 +271,8 @@ export function AdsMapping({
       targetKind: "list",
       listKey: u.suggest_list_key,
       destUrl: u.dest_url,
+      catSection: null,
+      catCategory: null,
     });
     setBusy(false);
     if (ok) {
@@ -382,6 +406,28 @@ export function AdsMapping({
 
   const chosenList = useMemo(() => lists.find((l) => l.id === editing?.listKey) ?? null, [lists, editing?.listKey]);
 
+  /** sections with their totals, then the subcategories of the chosen one */
+  const sections = useMemo(() => {
+    const m = new Map<string, { section: string; products: number; in_stock: number; subs: CatalogCategory[] }>();
+    for (const c of cats) {
+      let cur = m.get(c.section);
+      if (!cur) {
+        cur = { section: c.section, products: 0, in_stock: 0, subs: [] };
+        m.set(c.section, cur);
+      }
+      cur.products += c.products;
+      cur.in_stock += c.in_stock;
+      if (c.category) cur.subs.push(c);
+    }
+    return Array.from(m.values()).sort((a, b) => b.products - a.products);
+  }, [cats]);
+  const chosenSection = useMemo(
+    () => sections.find((sct) => sct.section === editing?.catSection) ?? null,
+    [sections, editing?.catSection]
+  );
+  const categoryLabel = (section: string | null, category: string | null) =>
+    section ? `${section}${category ? " › " + category : ""}` : "";
+
   if (loading) return <Spinner />;
 
   const skuRow = (p: ProductHit) => (
@@ -413,6 +459,19 @@ export function AdsMapping({
 
   /** What a saved mapping actually resolves to, in one cell. */
   const targetCell = (m: AdMapping) => {
+    if (m.target_kind === "category" && m.cat_section) {
+      return (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-bold text-teal-800">
+            <FolderTree size={10} />
+            {categoryLabel(m.cat_section, m.cat_category)}
+          </span>
+          <span className="text-[11px] text-slate-500">
+            {formatNumber(m.list_items)} {tx(AD.catBooks)}
+          </span>
+        </div>
+      );
+    }
     if (m.target_kind === "list" && m.list_name) {
       return (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -562,6 +621,14 @@ export function AdsMapping({
                                   · {formatNumber(a.listItems ?? 0)}
                                 </span>
                               </span>
+                            ) : a.targetKind === "category" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-bold text-teal-800">
+                                <FolderTree size={10} />
+                                {a.listName ?? a.bookLabel}
+                                <span className="font-normal opacity-70">
+                                  · {formatNumber(a.listItems ?? 0)}
+                                </span>
+                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                                 <BookOpen size={10} />
@@ -705,11 +772,12 @@ export function AdsMapping({
               </button>
             </div>
 
-            {/* the three doors */}
-            <div className="grid gap-2 sm:grid-cols-3">
+            {/* the four doors */}
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {(
                 [
                   { kind: "list" as TargetKind, Icon: ListTree, label: AD.targetList, hint: AD.targetListHint },
+                  { kind: "category" as TargetKind, Icon: FolderTree, label: AD.targetCategory, hint: AD.targetCategoryHint },
                   { kind: "link" as TargetKind, Icon: Link2, label: AD.targetLink, hint: AD.targetLinkHint },
                   { kind: "book" as TargetKind, Icon: BookOpen, label: AD.targetBook, hint: AD.targetBookHint },
                 ] as const
@@ -846,6 +914,85 @@ export function AdsMapping({
               </div>
             )}
 
+            {/* ---- door: a store section, optionally narrowed to a subcategory */}
+            {editing.targetKind === "category" && (
+              <div className="mt-5">
+                <p className="mb-2 text-xs font-semibold text-slate-500">{tx(AD.pickSection)}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {sections.map((sct) => {
+                    const on = editing.catSection === sct.section;
+                    return (
+                      <button
+                        key={sct.section}
+                        type="button"
+                        onClick={() =>
+                          setEditing({
+                            ...editing,
+                            catSection: sct.section,
+                            catCategory: on ? editing.catCategory : null,
+                            bookLabel: editing.bookLabel || "",
+                          })
+                        }
+                        className={cn(
+                          "rounded-lg border px-3 py-1.5 text-sm transition",
+                          on
+                            ? "border-brand-500 bg-brand-50 font-bold text-brand-900 ring-1 ring-brand-400"
+                            : "border-slate-200 hover:border-brand-300 hover:bg-slate-50"
+                        )}
+                      >
+                        {sct.section}
+                        <span className="ms-1.5 text-[11px] font-normal text-slate-500">{formatNumber(sct.products)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {chosenSection && (
+                  <>
+                    <p className="mb-2 mt-4 text-xs font-semibold text-slate-500">{tx(AD.pickSubcategory)}</p>
+                    <div className="flex max-h-64 flex-wrap gap-1.5 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => setEditing({ ...editing, catCategory: null })}
+                        className={cn(
+                          "rounded-lg border px-3 py-1.5 text-sm transition",
+                          editing.catCategory === null
+                            ? "border-brand-500 bg-brand-50 font-bold text-brand-900 ring-1 ring-brand-400"
+                            : "border-slate-200 hover:border-brand-300 hover:bg-slate-50"
+                        )}
+                      >
+                        {tx(AD.wholeSection)}
+                        <span className="ms-1.5 text-[11px] font-normal text-slate-500">
+                          {formatNumber(chosenSection.products)}
+                        </span>
+                      </button>
+                      {chosenSection.subs.map((c) => {
+                        const on = editing.catCategory === c.category;
+                        return (
+                          <button
+                            key={c.category ?? ""}
+                            type="button"
+                            onClick={() => setEditing({ ...editing, catCategory: c.category })}
+                            className={cn(
+                              "rounded-lg border px-3 py-1.5 text-sm transition",
+                              on
+                                ? "border-brand-500 bg-brand-50 font-bold text-brand-900 ring-1 ring-brand-400"
+                                : "border-slate-200 hover:border-brand-300 hover:bg-slate-50"
+                            )}
+                            title={`${formatNumber(c.in_stock)} ${tx(AD.catInStock)}`}
+                          >
+                            {c.category}
+                            <span className="ms-1.5 text-[11px] font-normal text-slate-500">{formatNumber(c.products)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                <p className="mt-3 text-[11px] leading-relaxed text-slate-400">{tx(AD.catPoolHint)}</p>
+              </div>
+            )}
+
             {/* ---- door 2: paste the ad's link */}
             {editing.targetKind === "link" && (
               <div className="mt-5">
@@ -881,6 +1028,28 @@ export function AdsMapping({
                             {resolved.sku}
                           </span>
                         </div>
+                      </div>
+                    ) : resolved.kind === "category" && resolved.cat_section ? (
+                      <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5 text-xs text-teal-900">
+                        <div className="font-bold">{tx(AD.linkIsCategory)}</div>
+                        <div className="mt-1">
+                          {categoryLabel(resolved.cat_section, resolved.cat_category)} ·{" "}
+                          {formatNumber(resolved.cat_items ?? 0)} {tx(AD.catBooks)}
+                        </div>
+                        {resolved.cat_sub_slug && !resolved.cat_category && (
+                          <div className="mt-2 leading-relaxed text-amber-800">
+                            {tx(AD.linkCategorySubUnknown).replace("{slug}", resolved.cat_sub_slug)}
+                            <button
+                              type="button"
+                              className="ms-2 font-bold underline"
+                              onClick={() =>
+                                setEditing({ ...editing, targetKind: "category", catSection: resolved.cat_section, catCategory: null })
+                              }
+                            >
+                              {tx(AD.pickSubcategoryInstead)}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : resolved.ref ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
@@ -961,8 +1130,13 @@ export function AdsMapping({
                 placeholder={
                   editing.targetKind === "list"
                     ? (chosenList?.name ?? resolved?.list_name ?? editing.rawName)
+                    : editing.targetKind === "category"
+                    ? (categoryLabel(editing.catSection, editing.catCategory) || editing.rawName)
                     : editing.targetKind === "link"
-                    ? (resolved?.list_name ?? resolved?.product_name ?? editing.rawName)
+                    ? (resolved?.list_name ??
+                        resolved?.product_name ??
+                        (resolved?.cat_section ? categoryLabel(resolved.cat_section, resolved.cat_category) : null) ??
+                        editing.rawName)
                     : editing.rawName
                 }
                 onChange={(e) => setEditing({ ...editing, bookLabel: e.target.value })}
@@ -979,9 +1153,10 @@ export function AdsMapping({
                 disabled={
                   saving ||
                   (editing.targetKind === "list" && !editing.listKey) ||
+                  (editing.targetKind === "category" && !editing.catSection) ||
                   // a link is only saveable once it resolves to something real;
                   // otherwise it would record a connection measuring nothing
-                  (editing.targetKind === "link" && !resolved?.list_key && !resolved?.sku) ||
+                  (editing.targetKind === "link" && !resolved?.list_key && !resolved?.sku && !resolved?.cat_section) ||
                   (editing.targetKind === "book" && !editing.skus.length && !editing.keyword.trim())
                 }
               >

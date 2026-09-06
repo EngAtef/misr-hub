@@ -49,13 +49,13 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- connect an ad (or a whole campaign) to what it actually sells -------
-  // Three doors: a custom list, a pasted link, or hand-picked SKUs. A link
-  // that resolves to a known list is stored as a list mapping by the RPC, so
-  // the attribution engine only ever sees "these SKUs".
+  // Four doors: a custom list, a store category, a pasted link, or hand-picked
+  // SKUs. A link that resolves to a known list / book / category is stored as
+  // that kind by the RPC, so the attribution engine only ever sees "these SKUs".
   if (body.action === "map") {
     const rawName = String(body.rawName ?? "").trim();
     if (!rawName) return NextResponse.json({ error: "Name is required" }, { status: 400 });
-    const targetKind = ["book", "list", "link"].includes(String(body.targetKind))
+    const targetKind = ["book", "list", "link", "category"].includes(String(body.targetKind))
       ? String(body.targetKind)
       : "book";
     const destUrl = body.destUrl ? String(body.destUrl).trim().slice(0, 2000) : null;
@@ -64,6 +64,11 @@ export async function POST(request: NextRequest) {
     }
     if (targetKind === "link" && !destUrl) {
       return NextResponse.json({ error: "Paste the ad's link" }, { status: 400 });
+    }
+    const catSection = body.catSection ? String(body.catSection).trim().slice(0, 200) : null;
+    const catCategory = body.catCategory ? String(body.catCategory).trim().slice(0, 200) : null;
+    if (targetKind === "category" && !catSection) {
+      return NextResponse.json({ error: "Pick a section" }, { status: 400 });
     }
     const skus = Array.isArray(body.skus)
       ? (body.skus as unknown[]).map((s) => String(s).trim()).filter(Boolean)
@@ -77,6 +82,8 @@ export async function POST(request: NextRequest) {
       p_target_kind: targetKind,
       p_list_key: body.listKey ? String(body.listKey) : null,
       p_dest_url: destUrl,
+      p_cat_section: catSection,
+      p_cat_category: catCategory,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await audit("map_ad_book", {
@@ -85,6 +92,7 @@ export async function POST(request: NextRequest) {
       kind: targetKind,
       list: body.listKey ?? null,
       url: destUrl,
+      category: catSection ? `${catSection}${catCategory ? " › " + catCategory : ""}` : null,
       skus: skus?.length ?? 0,
     });
     return NextResponse.json({ ok: true, id: data });

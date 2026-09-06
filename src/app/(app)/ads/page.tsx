@@ -883,8 +883,13 @@ export default function AdsPage() {
                                 {/* a list-backed ad is measured on the whole
                                     list, so say so rather than let it read
                                     like a single book */}
-                                {r.target_kind === "list" && (
-                                  <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                                {(r.target_kind === "list" || r.target_kind === "category") && (
+                                  <span
+                                    className={cn(
+                                      "mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                                      r.target_kind === "category" ? "bg-teal-100 text-teal-700" : "bg-brand-100 text-brand-700"
+                                    )}
+                                  >
                                     <ListTree size={9} />
                                     {formatNumber(r.list_items)} {tx(AD.listItems)}
                                   </span>

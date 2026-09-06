@@ -1,6 +1,6 @@
 /** How an ad is connected to what it sells. `link` only survives when the URL
  *  didn't resolve to a known list — once it does, the RPC stores it as `list`. */
-export type TargetKind = "book" | "list" | "link";
+export type TargetKind = "book" | "list" | "link" | "category";
 
 // Shape returned by fn_ads_insights — one row per Meta report line.
 // Only `level === "ad"` rows may be summed: Meta restates the same spend at
@@ -117,6 +117,19 @@ export interface AdMapping {
   dest_url: string | null;
   ad_count: number;
   spend: number;
+  // a category target: the catalog section and the subcategory inside it
+  // (null = the whole section); the view reports its pool in list_name /
+  // list_items so every reader shows it the way it shows a list
+  cat_section: string | null;
+  cat_category: string | null;
+}
+
+/** fn_catalog_categories — the store's two-level tree with sizes. */
+export interface CatalogCategory {
+  section: string;
+  category: string | null;
+  products: number;
+  in_stock: number;
 }
 
 /** fn_custom_lists_overview — one row per custom list: what it holds, what it
@@ -177,7 +190,7 @@ export interface CustomListItemRow {
 /** fn_ads_link_resolve — what a pasted URL turned out to be. */
 export interface LinkResolved {
   url: string;
-  kind: "list" | "product" | "unknown";
+  kind: "list" | "product" | "category" | "unknown";
   ref: string | null;
   list_key: string | null;
   list_name: string | null;
@@ -185,6 +198,12 @@ export interface LinkResolved {
   list_items: number | null;
   sku: string | null;
   product_name: string | null;
+  // a /category/<section>/<sub> link: the section is always recognised, the
+  // subcategory only when its slug folds to exactly one catalog name
+  cat_section: string | null;
+  cat_category: string | null;
+  cat_sub_slug: string | null;
+  cat_items: number | null;
 }
 
 export interface AdSettings {

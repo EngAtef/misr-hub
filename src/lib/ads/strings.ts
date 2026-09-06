@@ -321,6 +321,26 @@ export const AD = {
   targetList: { ar: "قائمة مخصصة", en: "Custom list" },
   targetLink: { ar: "رابط الإعلان", en: "The ad's link" },
   targetBook: { ar: "كتاب / أكواد محددة", en: "Specific books" },
+  targetCategory: { ar: "قسم / تصنيف فرعي", en: "Category" },
+  targetCategoryHint: {
+    ar: "الإعلان بيودّي على قسم كامل من المتجر (أطفال، ثقافي…) أو تصنيف فرعي جواه — كل كتب التصنيف هي المقياس.",
+    en: "The ad points at a whole store section (Kids, Cultural…) or a subcategory inside it — all its books get measured.",
+  },
+  pickSection: { ar: "اختر القسم", en: "Pick the section" },
+  pickSubcategory: { ar: "ثم التصنيف الفرعي", en: "Then the subcategory" },
+  wholeSection: { ar: "القسم كله", en: "Whole section" },
+  catBooks: { ar: "كتاب", en: "books" },
+  catInStock: { ar: "متاح", en: "in stock" },
+  catPoolHint: {
+    ar: "التصنيف بيتحسب لايف من الكتالوج: أي كتاب يتضاف للتصنيف بعدين بيتحسب تلقائيًا — وكل التصنيف = مجمّع إيراد واحد.",
+    en: "A category resolves live from the catalog: a book added to it later counts automatically — and one category = one revenue pool.",
+  },
+  linkIsCategory: { ar: "الرابط ده قسم في المتجر", en: "This link is a store category" },
+  linkCategorySubUnknown: {
+    ar: "التصنيف الفرعي «{slug}» مش معروف بالاسم ده في الكتالوج — هيتربط بالقسم كله، أو اختاره بنفسك من باب «قسم».",
+    en: 'Subcategory "{slug}" isn\'t known by that name in the catalog — it connects to the whole section, or pick it yourself under "Category".',
+  },
+  pickSubcategoryInstead: { ar: "اختار التصنيف الفرعي", en: "Pick the subcategory" },
   targetListHint: {
     ar: "الاختيار الطبيعي: الإعلان بيودّي على قائمة، فمبيعات كل كتب القائمة هي المقياس.",
     en: "The normal case: the ad links to a list, so all the list's books are what gets measured.",
