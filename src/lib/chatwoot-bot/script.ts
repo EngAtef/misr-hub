@@ -12,6 +12,8 @@
 export const HOTLINE = "16766";
 export const TRACK_URL = "https://nahdetmisrbookstore.com/ar/account/track-your-order";
 export const FAQ_URL = "https://nahdetmisrbookstore.com/ar/pages/faq";
+/** عجلة الخصومات campaign page (Sep 2026). */
+export const SPIN_URL = "https://nahdetmisrbookstore.com/ar/pages/spin-and-win";
 
 /**
  * A specific answer inside a topic. After a topic wins the routing, its
@@ -499,6 +501,164 @@ export const INTENTS: Record<string, Intent> = {
       },
     },
   },
+  // ── عجلة الخصومات (Sep 2026 campaign) ────────────────────────
+  // Sits BEFORE bulk on purpose: bulk also lists كوبون/كود/coupon, and on a
+  // score tie the earlier intent wins — during the campaign a bare "الكود"
+  // means the wheel code, not a wholesale quote. Remove or disable this
+  // intent after 30 Sep 2026 (see the spin-and-win memory note).
+  // Customer-safe only: no win percentages, no code list, no internals.
+  spin: {
+    menu: "",
+    keywords_ar: ["عجله", "العجله", "عجله الخصومات", "عجله الحظ", "الخصومات", "خصومات",
+      "لف", "لفه", "لفيت", "دوس", "كوبون", "كوبونات", "كوبون خصم", "كود خصم", "كود الخصم",
+      "الكود", "كود", "كسبت", "مكسب", "جايزه", "جوايز", "الجوايز", "حظ", "حظي",
+      "العب", "لعبه", "اللعبه", "فوز", "الفوز", "نسبه الفوز", "احتمال الفوز", "شروط العجله",
+      "الشروط والاحكام", "كسبت شحن", "كود الشحن", "spin", "spinfd", "spind10", "spwid15", "spird20", "spnnrdi25"],
+    keywords_en: ["spin", "wheel", "spin the wheel", "lucky wheel", "coupon", "promo code",
+      "discount code", "my code", "prize", "prizes", "won", "win", "winning", "chance", "chances", "game", "play"],
+    ar:
+      "🎡 *عجلة الخصومات من مكتبة نهضة مصر*\n\n" +
+      "لعبة على المتجر الإلكتروني: تسجّل رقم موبايلك المسجّل على المتجر، تدوس مرة واحدة، " +
+      "وتكسب كود خصم فوري تستخدمه عند الدفع — وكل محاولة كسبانة 🎁\n" +
+      "الجوائز: شحن مجاني، أو خصم 10% أو 15% أو 20% أو 25% (لكل جائزة حد أدنى للسلة بيظهر مع الكود).\n" +
+      "العجلة والأكواد سارية حتى *30 سبتمبر 2026*.\n\n" +
+      "العب من هنا 👉 " + SPIN_URL + "\n" +
+      "اسألني: *ألعب إزاي؟* • *إيه الجوائز؟* • *الكود مش شغال* • *شروط العجلة*",
+    en:
+      "🎡 *Nahdet Misr Discount Wheel*\n\n" +
+      "A game on our online store: enter the mobile number registered on your account, spin once, " +
+      "and get an instant discount code to use at checkout — every spin wins 🎁\n" +
+      "Prizes: free shipping, or 10% / 15% / 20% / 25% off (each prize has a minimum cart shown with the code).\n" +
+      "The wheel and all codes are valid until *30 September 2026*.\n\n" +
+      "Play here 👉 " + SPIN_URL + "\n" +
+      "Ask me: *how to play* • *prizes* • *code not working* • *terms*",
+    variants: {
+      how: {
+        keywords_ar: ["ازاي", "ازاى", "اشترك", "العب", "الاشتراك", "فين العجله", "الرابط", "لينك", "افتح"],
+        keywords_en: ["how", "how to play", "link", "where", "join", "open"],
+        ar:
+          "🎮 *تلعب إزاي؟*\n" +
+          "1️⃣ افتح الصفحة: " + SPIN_URL + "\n" +
+          "2️⃣ اقرأ الشروط ووافق عليها، واكتب رقم الموبايل المسجّل بيه على المتجر.\n" +
+          "3️⃣ دوس على العجلة مرة واحدة — الكود هيظهر فورًا، انسخه.\n" +
+          "4️⃣ استخدمه في خانة كود الخصم عند الدفع وأنت مسجّل دخول بحسابك.\n" +
+          "محاولة واحدة لكل عميل، والعرض حتى 30 سبتمبر 2026 🎁",
+        en:
+          "🎮 *How to play*\n" +
+          "1️⃣ Open " + SPIN_URL + "\n" +
+          "2️⃣ Accept the terms and enter the mobile number registered on your store account.\n" +
+          "3️⃣ Tap the wheel once — your code appears instantly, copy it.\n" +
+          "4️⃣ Enter it in the discount-code box at checkout while logged in.\n" +
+          "One spin per customer, valid until 30 September 2026 🎁",
+      },
+      prizes: {
+        keywords_ar: ["جايزه", "جوايز", "الجوايز", "اكسب ايه", "بكسب", "المكسب", "ايه الخصم", "الخصومات ايه"],
+        keywords_en: ["prize", "prizes", "what can i win", "what do i win", "rewards"],
+        ar:
+          "🎁 *الجوائز على العجلة*\n" +
+          "• شحن مجاني داخل مصر — للطلبات من 500 جنيه\n" +
+          "• خصم 10% — بدون حد أدنى، ويُستخدم مرتين\n" +
+          "• خصم 15% — للطلبات من 400 جنيه\n" +
+          "• خصم 20% — للطلبات من 750 جنيه\n" +
+          "• خصم 25% — للطلبات من 1000 جنيه\n" +
+          "الحد الأدنى بيتحسب على قيمة الكتب بعد الخصومات وقبل الشحن، وكل الأكواد لا تشمل كتب الأضواء التعليمية.",
+        en:
+          "🎁 *Prizes on the wheel*\n" +
+          "• Free shipping within Egypt — orders from EGP 500\n" +
+          "• 10% off — no minimum, usable twice\n" +
+          "• 15% off — orders from EGP 400\n" +
+          "• 20% off — orders from EGP 750\n" +
+          "• 25% off — orders from EGP 1000\n" +
+          "Minimums count the book value after discounts and before shipping; codes exclude El-Adwaa school books.",
+      },
+      notworking: {
+        keywords_ar: ["مش شغال", "مش شغاله", "مش بيقبل", "مش بيقبله", "مرفوض", "مش بيشتغل", "بيرفض",
+          "غير صالح", "خطا", "مش بيتقبل", "ما اشتغلش", "مش راضي", "اتحسب", "الشحن اتحسب", "invalid"],
+        keywords_en: ["not working", "doesnt work", "doesn't work", "invalid", "rejected", "error", "not accepted"],
+        ar:
+          "🔧 *الكود مش شغال؟ اتأكد من دول الأول:*\n" +
+          "• إنك مسجّل دخول بالحساب اللي رقم موبايله هو اللي لعبت بيه.\n" +
+          "• قيمة الكتب في السلة وصلت للحد الأدنى بتاع جائزتك (بعد الخصومات وقبل الشحن).\n" +
+          "• السلة مفيهاش كتب الأضواء التعليمية — الأكواد ما بتشتغلش عليها.\n" +
+          "• كود واحد بس في الطلب، وما يتجمعش مع عرض تاني.\n" +
+          "• الكود يُستخدم مرة واحدة (ما عدا خصم 10% مرتين)، وصالح حتى 30 سبتمبر 2026.\n" +
+          "لسه مش شغال؟ اكتب *0* واترك رقم موبايلك والكود، والفريق هيراجعه أول ما يرجع.",
+        en:
+          "🔧 *Code not working? Check these first:*\n" +
+          "• You're logged in with the account whose mobile number you played with.\n" +
+          "• The book value in your cart reaches your prize's minimum (after discounts, before shipping).\n" +
+          "• No El-Adwaa school books in the cart — codes don't apply to them.\n" +
+          "• One code per order, not combined with other offers.\n" +
+          "• Single use (10% code: twice), valid until 30 September 2026.\n" +
+          "Still stuck? Reply *0* with your mobile number and the code, and the team will check it.",
+      },
+      odds: {
+        keywords_ar: ["نسبه", "النسبه", "نسبه الفوز", "احتمال", "الاحتمال", "فرصه", "فرصتي", "في الميه",
+          "بالميه", "كام واحد", "بتكسب كام", "مضروب", "مظبوط", "تلاعب"],
+        keywords_en: ["chance", "chances", "odds", "probability", "percentage", "rigged", "how many win"],
+        ar:
+          "🎲 كل قطاع على العجلة جائزة حقيقية، والنتيجة بتتحدد عشوائيًا لحظة اللعب — يعني مفيش محاولة خسرانة 🙂\n" +
+          "تفاصيل توزيع الجوائز جزء من إعداد الحملة ومش بنعلنها، لكن كل الجوائز موجودة فعلًا على العجلة.\n" +
+          "جرّب حظك من هنا 👉 " + SPIN_URL,
+        en:
+          "🎲 Every segment on the wheel is a real prize and the result is drawn at random when you spin — no losing spins 🙂\n" +
+          "The prize distribution is part of the campaign setup and isn't published, but every prize is genuinely on the wheel.\n" +
+          "Try your luck here 👉 " + SPIN_URL,
+      },
+      again: {
+        keywords_ar: ["تاني", "تانيه", "مره تانيه", "لفه تانيه", "محاوله تانيه", "رقم تاني", "اعيد", "كمان مره"],
+        keywords_en: ["again", "another spin", "second spin", "one more", "another number"],
+        ar:
+          "🔁 محاولة واحدة بس لكل عميل (رقم موبايل واحد وجهاز واحد)، والكود بتاعك مرتبط برقمك.\n" +
+          "لو لعبت قبل كده وعايز تشوف كودك تاني، افتح صفحة العجلة بنفس الجهاز واكتب رقمك وهيظهرلك 👉 " + SPIN_URL,
+        en:
+          "🔁 One spin per customer (one mobile number, one device), and your code is tied to your number.\n" +
+          "Played before and need your code again? Open the wheel page on the same device and enter your number 👉 " + SPIN_URL,
+      },
+      validity: {
+        keywords_ar: ["لغايه امتي", "لحد امتي", "امتي", "ينتهي", "انتهي", "خلص", "صالح", "الصلاحيه", "مده", "المده"],
+        keywords_en: ["until when", "expire", "expires", "expiry", "valid", "how long", "deadline"],
+        ar:
+          "📅 العجلة شغّالة والأكواد كلها صالحة حتى *30 سبتمبر 2026* على المتجر الإلكتروني فقط.\n" +
+          "بعد التاريخ ده الأكواد ما بتتمدش ولا بتتفعل تاني، فاستخدم كودك قبلها 🙏",
+        en:
+          "📅 The wheel and all codes are valid until *30 September 2026*, online store only.\n" +
+          "Codes aren't extended or reactivated after that date, so use yours before then 🙏",
+      },
+      adwaa: {
+        keywords_ar: ["اضواء", "الاضواء", "مدرسيه", "المدرسيه", "منهج"],
+        keywords_en: ["adwaa", "school books", "school book"],
+        ar:
+          "📖 أكواد عجلة الخصومات *لا تشمل كتب الأضواء التعليمية (الكتب المدرسية)*، وقيمتها ما بتتحسبش في الحد الأدنى للسلة.\n" +
+          "الكود بيشتغل على باقي كتب المتجر عادي 🙂",
+        en:
+          "📖 Wheel codes *don't apply to El-Adwaa school books*, and their value doesn't count toward the cart minimum.\n" +
+          "The code works on the rest of the store as usual 🙂",
+      },
+      terms: {
+        keywords_ar: ["الشروط", "شروط", "الاحكام", "قواعد", "القواعد"],
+        keywords_en: ["terms", "conditions", "rules", "t&c"],
+        ar:
+          "📜 *أهم الشروط*\n" +
+          "• العرض على المتجر الإلكتروني فقط، حتى 30 سبتمبر 2026.\n" +
+          "• لازم حساب مسجّل على المتجر بنفس رقم الموبايل.\n" +
+          "• محاولة واحدة لكل عميل، والكود شخصي ويُستخدم مرة واحدة (خصم 10% مرتين).\n" +
+          "• كود واحد في الطلب، لا يُجمع مع عروض أخرى، ولا يُستبدل نقدًا.\n" +
+          "• الحد الأدنى على قيمة الكتب بعد الخصومات وقبل الشحن، والشحن المجاني داخل مصر فقط.\n" +
+          "• لا تشمل كتب الأضواء التعليمية ولا الطلبات السابقة، والطلب الملغي أو المرتجع يستهلك الكود.\n" +
+          "الشروط كاملة على صفحة العجلة 👉 " + SPIN_URL,
+        en:
+          "📜 *Key terms*\n" +
+          "• Online store only, until 30 September 2026.\n" +
+          "• A store account registered with the same mobile number is required.\n" +
+          "• One spin per customer; the code is personal and single-use (10% code: twice).\n" +
+          "• One code per order, not combinable, no cash value.\n" +
+          "• Minimums apply to book value after discounts and before shipping; free shipping within Egypt only.\n" +
+          "• Excludes El-Adwaa school books and earlier orders; cancelled or returned orders consume the code.\n" +
+          "Full terms on the wheel page 👉 " + SPIN_URL,
+      },
+    },
+  },
   bulk: {
     menu: "7",
     title_ar: "🏫 طلبات الجملة",
@@ -692,14 +852,16 @@ export const INTENTS: Record<string, Intent> = {
       "اكتب رقم الموضوع:\n" +
       "1️⃣ الشحن • 2️⃣ الدفع • 3️⃣ الاسترجاع • 4️⃣ تتبّع طلبي\n" +
       "5️⃣ الأقسام • 6️⃣ مواعيد العمل • 7️⃣ طلبات الجملة • 8️⃣ إلغاء طلب\n" +
-      "9️⃣ الأضواء والكتب المدرسية • 0️⃣ التحدث مع موظف",
+      "9️⃣ الأضواء والكتب المدرسية • 0️⃣ التحدث مع موظف\n" +
+      "🎡 عجلة الخصومات؟ اكتب *العجلة*",
     en:
       "Welcome to Nahdet Misr Bookstore! 👋\n" +
       "I'm the automated assistant — I can help right away with common questions.\n\n" +
       "Pick a topic:\n" +
       "1️⃣ Shipping • 2️⃣ Payment • 3️⃣ Returns • 4️⃣ Track order\n" +
       "5️⃣ Categories • 6️⃣ Hours & contact • 7️⃣ Bulk orders • 8️⃣ Cancel an order\n" +
-      "9️⃣ School books • 0️⃣ Talk to a human",
+      "9️⃣ School books • 0️⃣ Talk to a human\n" +
+      "🎡 Discount wheel? Type *wheel*",
   },
   thanks: {
     menu: "",

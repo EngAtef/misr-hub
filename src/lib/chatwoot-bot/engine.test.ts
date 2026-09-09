@@ -74,6 +74,24 @@ const CASES: Array<[string, string | null]> = [
   ["thanks a lot", "thanks"],
   // Governorate coverage
   ["انا من سوهاج كام سعر الشحن؟", "shipping"],
+  // عجلة الخصومات campaign (Sep 2026) — coupon words route to the wheel, not bulk
+  ["ازاي العب عجلة الخصومات؟", "spin"],
+  ["العجلة", "spin"],
+  ["الكود مش شغال", "spin"],
+  ["الكوبون مش بيقبل", "spin"],
+  ["عايز كوبون خصم", "spin"],
+  ["نسبة الفوز كام؟", "spin"],
+  ["كسبت خصم 15% اعمل ايه", "spin"],
+  ["what is the spin wheel", "spin"],
+  ["my coupon code is not working", "spin"],
+  ["what are my chances of winning", "spin"],
+  ["ايه شروط العجلة؟", "spin"],
+  ["كسبت شحن مجاني بس الشحن اتحسب", "spin"],
+  ["شروط الاسترجاع ايه", "returns"],
+  // …but bulk and sign-up help keep their own traffic
+  ["فيه خصم للجملة؟", "bulk"],
+  ["عايز عرض سعر لمدرسة", "bulk"],
+  ["كود التفعيل مش بيوصل", "site"],
   // Must fall back — never guess
   ["إيه أحسن مطعم في القاهرة؟", null], // the سن/أحسن substring trap
   ["ما هي عاصمة فرنسا", null],
@@ -253,4 +271,26 @@ test("withinHours: per-day schedules differ (short Thursday, Saturday shift)", (
   assert.equal(withinHours(cfg, new Date("2026-07-18T10:00:00Z")), true);  // Sat 13:00 — inside shift
   assert.equal(withinHours(cfg, new Date("2026-07-18T07:00:00Z")), false); // Sat 10:00 — before shift
   assert.equal(withinHours(cfg, new Date("2026-07-13T07:00:00Z")), false); // Monday — day off entirely
+});
+
+test("spin variants: targeted answers, and the odds answer never leaks the distribution", () => {
+  const ar = (msg: string) => replyFor("spin", true, DEFAULT_SCRIPT, msg);
+  assert.match(ar("ازاي العب؟"), /تلعب إزاي/);
+  assert.match(ar("ايه الجوايز؟"), /الجوائز على العجلة/);
+  assert.match(ar("الكود مش شغال"), /الكود مش شغال/);
+  assert.match(ar("لغاية امتى الكود صالح؟"), /30 سبتمبر 2026/);
+  assert.match(ar("الكود شغال على الاضواء؟"), /لا تشمل كتب الأضواء/);
+  assert.match(ar("اعمل لفة تانية؟"), /محاولة واحدة بس/);
+  const odds = ar("نسبة الفوز كام؟");
+  assert.match(odds, /عشوائي/);
+  for (const leak of ["35", "20%", "5%", "SPINFD", "SPIND10", "SPWID15", "SPIRD20", "SPNNRDI25"]) {
+    assert.ok(!odds.includes(leak), "odds reply leaked " + leak);
+  }
+  assert.match(replyFor("spin", false, DEFAULT_SCRIPT, "what are my chances"), /random/);
+  // no reply anywhere in the spin intent lists the coupon codes
+  const spin = INTENTS.spin;
+  const replies = [spin.ar, spin.en, ...Object.values(spin.variants ?? {}).flatMap((v) => [v.ar, v.en])].join("\n").toUpperCase();
+  for (const code of ["SPINFD", "SPIND10", "SPWID15", "SPIRD20", "SPNNRDI25"]) {
+    assert.ok(!replies.includes(code), "code leaked in reply: " + code);
+  }
 });
