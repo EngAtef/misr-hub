@@ -488,17 +488,52 @@
   async function readBlob(fp,mime){ const n=findEntry(fp); if(!n)return null; const b=await zip.file(n).async("uint8array"); return new Blob([b],mime?{type:mime}:undefined); }
   const getBlobURL=fp=>blobURLs.get(canon(fp))||blobURLs.get(fp)||null;
 
+  /* ============================ font obfuscation (EPUB OCF spec) ============================ */
+  // Not DRM: the spec-defined "obfuscation" XORs the first bytes of an embedded font with a key derived
+  // from the package's unique identifier, so any reader can undo it. IDPF: SHA-1(id) over 1040 bytes;
+  // Adobe: the 16 UUID bytes over 1024 bytes.
+  const OBF_ALGOS={ "http://www.idpf.org/2008/embedding":"idpf", "http://ns.adobe.com/pdf/enc#RC":"adobe" };
+  async function deobfuscateFont(bytes,algo,uniqueId){
+    let key,span;
+    if(algo==="adobe"){
+      const hex=(uniqueId||"").replace(/^\s*urn:uuid:/i,"").replace(/[^0-9a-f]/gi,"");
+      if(hex.length<32) throw new Error("no UUID for Adobe font key");
+      key=new Uint8Array(16); for(let i=0;i<16;i++) key[i]=parseInt(hex.substr(i*2,2),16); span=1024;
+    }else{
+      if(!(crypto&&crypto.subtle)) throw new Error("WebCrypto unavailable");
+      key=new Uint8Array(await crypto.subtle.digest("SHA-1",new TextEncoder().encode((uniqueId||"").replace(/\s+/g,"")))); span=1040;
+    }
+    const out=new Uint8Array(bytes); const n=Math.min(span,out.length);
+    for(let i=0;i<n;i++) out[i]^=key[i%key.length];
+    return out;
+  }
+
   /* ============================ parse EPUB ============================ */
   async function parseEpub(arrayBuffer){
     const z=await JSZip.loadAsync(arrayBuffer); setZip(z);
 
-    // DRM / encryption check
+    // DRM / encryption check.
+    // encryption.xml is also used for plain font *obfuscation* (IDPF / Adobe algorithms), which is not DRM:
+    // the text is readable and the fonts are recoverable from the book's own identifier. Only a real cipher
+    // (Adobe ADEPT aes128-cbc, FairPlay, ...) or a DRM rights file means the pages can't be read.
+    const DRM_MSG="This book is encrypted (DRM-protected), so its pages can't be read. Only DRM-free EPUBs can be converted.";
+    const fontObf=new Map(); // canon(zip path) -> obfuscation algorithm
     const enc=await readText("META-INF/encryption.xml");
     if(enc){
-      const refs=[...enc.matchAll(/URI="([^"]+)"/g)].map(m=>canon(m[1]));
-      const nonFont=refs.filter(u=>!/\.(otf|ttf|woff2?|dfont)$/i.test(u));
-      if(nonFont.length) throw new Error("This book is encrypted (DRM-protected), so its pages can't be read. Only DRM-free EPUBs can be converted.");
+      const edoc=new DOMParser().parseFromString(enc,"application/xml");
+      const cipher=[];
+      edoc.querySelectorAll("EncryptedData").forEach(ed=>{
+        const em=ed.querySelector("EncryptionMethod"); const algo=(em&&em.getAttribute("Algorithm"))||"";
+        ed.querySelectorAll("CipherReference").forEach(cr=>{
+          const uri=canon((cr.getAttribute("URI")||"").replace(/^\/+/,""));
+          if(OBF_ALGOS[algo]) fontObf.set(uri,OBF_ALGOS[algo]);
+          else if(!algo&&/\.(otf|ttf|ttc|woff2?|dfont)$/i.test(uri)) fontObf.set(uri,"idpf"); // malformed entry, but clearly a font
+          else cipher.push(uri);
+        });
+      });
+      if(cipher.length) throw new Error(DRM_MSG);
     }
+    if(findEntry("META-INF/rights.xml")||findEntry("META-INF/sinf.xml")) throw new Error(DRM_MSG);
 
     const containerXml=await readText("META-INF/container.xml");
     if(!containerXml) throw new Error("Missing META-INF/container.xml — not a valid EPUB.");
@@ -508,6 +543,9 @@
     const opfDir=dirOf(opfPath);
     const odoc=new DOMParser().parseFromString(await readText(opfPath),"application/xml");
 
+    const uidAttr=(odoc.querySelector("package")||odoc.documentElement).getAttribute("unique-identifier");
+    const uidEl=(uidAttr&&odoc.getElementById(uidAttr))||[...odoc.querySelectorAll("metadata identifier")].find(e=>/urn:uuid:/i.test(e.textContent))||odoc.querySelector("metadata identifier");
+    const uniqueId=uidEl?uidEl.textContent:"";
     const title=((odoc.querySelector("metadata title")||{}).textContent)||"Untitled book";
     const author=((odoc.querySelector("metadata creator")||{}).textContent)||"";
     const layoutMeta=odoc.querySelector('metadata > meta[property="rendition:layout"]');
@@ -521,7 +559,10 @@
     const origType=new Map(); // canon(full) -> mediaType
     for(const it of manifest.values()){
       if(/^image\//i.test(it.type)||/font/i.test(it.type)||/^application\/(x-font|vnd\.ms-)/i.test(it.type)){
-        const blob=await readBlob(it.full,it.type); if(blob){ blobURLs.set(canon(it.full),URL.createObjectURL(blob)); origType.set(canon(it.full),it.type); }
+        let blob=await readBlob(it.full,it.type);
+        const obf=fontObf.get(canon(it.full));
+        if(blob&&obf){ try{ blob=new Blob([await deobfuscateFont(new Uint8Array(await blob.arrayBuffer()),obf,uniqueId)],{type:it.type}); }catch(e){ console.warn("font de-obfuscation failed",it.full,e); } }
+        if(blob){ blobURLs.set(canon(it.full),URL.createObjectURL(blob)); origType.set(canon(it.full),it.type); }
       }
     }
     let coverURL="", coverItem=[...manifest.values()].find(i=>/cover-image/.test(i.props));

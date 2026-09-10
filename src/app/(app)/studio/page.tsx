@@ -27,7 +27,7 @@ interface HostedBook {
 
 // Cache-buster for the embedded converter — bump when book-studio.html
 // changes so nobody generates books with a stale cached build.
-const STUDIO_V = "2026-08-31-pdf-merge";
+const STUDIO_V = "2026-09-10-font-obfuscation";
 
 function fmtSize(bytes: number) {
   if (!bytes) return "—";
