@@ -11,7 +11,7 @@ import { SearchBox } from "@/components/search-box";
 import { formatMoney, formatDateTime, formatNumber, formatWeight, sanitizeSearch } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { ATTR_BUCKETS, attrLabel } from "@/lib/attribution";
-import { FILTER_MARKETS, marketFlag, marketLabel } from "@/lib/markets";
+import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
 import { AttrBadge as Attr } from "@/components/attr-badge";
 
 function AttrBadge({ order, lang, size }: { order: Pick<Order, "attr_bucket" | "attr_source" | "attr_medium" | "attr_campaign">; lang: "ar" | "en"; size?: "sm" | "md" }) {
@@ -595,7 +595,7 @@ export default function OrdersPage() {
                   <td>
                     {o.market && o.market !== "EG" ? (
                       <span title={marketLabel(o.market, lang)}>
-                        {marketFlag(o.market)} {o.area ?? o.city ?? o.market}
+                        {o.area ?? o.city ?? marketLabel(o.market, lang)}
                       </span>
                     ) : (
                       o.city ?? "—"

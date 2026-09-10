@@ -1720,7 +1720,7 @@ const dict = {
   abOpenCartUrl: { ar: "فتح رابط السلة", en: "Open cart URL" },
   abNoData: { ar: "لا توجد بيانات سلال متروكة بعد — ارفع الملفات من مركز البيانات", en: "No abandoned-cart data yet — upload the exports from the Data Center" },
   abGoDataCenter: { ar: "الذهاب لمركز البيانات", en: "Go to Data Center" },
-  abNoMatch: { ar: "لا توجد سلال متروكة تطابق الفلاتر الحالية (الفترة / الدولة). جرّب توسيع الفترة.", en: "No abandoned carts match the current filters (date range / country). Try widening the period." },
+  abNoMatch: { ar: "لا توجد سلال متروكة في هذه الفترة. جرّب توسيع الفترة.", en: "No abandoned carts in this period. Try widening the period." },
   abShowAllTime: { ar: "عرض كل الفترة", en: "Show all time" },
   abClearCountries: { ar: "مسح فلتر الدولة", en: "Clear country filter" },
   abInsights: { ar: "رؤى ذكية", en: "Smart insights" },

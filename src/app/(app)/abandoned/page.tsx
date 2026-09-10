@@ -18,7 +18,7 @@ import { CustomerDrawer } from "@/components/customer-drawer";
 import { formatMoney, formatNumber, formatWeight, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { ContactActions } from "@/components/contact-actions";
 import { abandonedCartLink, normalizePhoneIntl } from "@/lib/whatsapp";
-import { FILTER_MARKETS, marketFlag, marketLabel, dialFromKey } from "@/lib/markets";
+import { FILTER_MARKETS, marketLabel, dialFromKey } from "@/lib/markets";
 
 interface Summary {
   total_carts: number; total_value: number; avg_cart_value: number;
@@ -521,8 +521,10 @@ export default function AbandonedPage() {
 
   if (loading) return <Spinner />;
 
-  const noData = !summary || (summary.total_carts === 0 && summary.anomaly_carts === 0);
-  const filtersActive = bounded || marketFilters.length > 0;
+  // A country filter never collapses the page: it belongs to the cart browser,
+  // which shows its own "no results" row, and the KPIs honestly read zero.
+  const noData = !summary || (summary.total_carts === 0 && summary.anomaly_carts === 0 && marketFilters.length === 0);
+  const filtersActive = bounded;
 
   return (
     <div>
@@ -568,13 +570,12 @@ export default function AbandonedPage() {
       {noData ? loadError ? (
         <QueryFailed error={loadError} onRetry={() => { setLoading(true); loadOverview(); }} />
       ) : filtersActive ? (
-        // empty because of the period / country filter, not because nothing is loaded
+        // empty because of the period, not because nothing is loaded
         <div className="card p-10 text-center">
           <ShoppingBasket className="mx-auto h-12 w-12 text-slate-300" />
           <div className="mt-3 text-slate-600">{t("abNoMatch")}</div>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {bounded && <button className="btn-primary" onClick={() => setPreset("all")}>{t("abShowAllTime")}</button>}
-            {marketFilters.length > 0 && <button className="btn-secondary" onClick={() => setMarketFilters([])}>{t("abClearCountries")}</button>}
+            <button className="btn-primary" onClick={() => setPreset("all")}>{t("abShowAllTime")}</button>
           </div>
         </div>
       ) : (
@@ -903,7 +904,7 @@ export default function AbandonedPage() {
                               )}
                               {c.market && c.market !== "EG" && (
                                 <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800" title={marketLabel(c.market, lang)}>
-                                  {marketFlag(c.market)} {c.market}
+                                  {marketLabel(c.market, lang)}
                                 </span>
                               )}
                               {c.traffic_hint === "facebook" && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">FB</span>}
@@ -1101,7 +1102,6 @@ export default function AbandonedPage() {
                             {r.full_name ?? "—"}
                           </button>
                           <div className="text-xs text-slate-400" dir="ltr">
-                            {r.market && r.market !== "EG" && <span className="me-1">{marketFlag(r.market)}</span>}
                             +{dialFromKey(r.phone_norm, r.market) ?? r.phone_norm}
                           </div>
                         </td>

@@ -7,7 +7,7 @@ import { useLang } from "@/lib/i18n";
 import { PageHeader, Spinner, EmptyState } from "@/components/ui";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 import { parseTargetsFile } from "@/lib/import/parse-targets";
-import { marketFlag, marketLabel } from "@/lib/markets";
+import { marketLabel } from "@/lib/markets";
 
 interface TargetRow {
   period_month: string;
@@ -533,7 +533,7 @@ function GlobalTarget({ tabs }: { tabs: React.ReactNode }) {
             <tbody>
               {data.by_market.map((m) => (
                 <tr key={m.market}>
-                  <td className="font-semibold">{marketFlag(m.market)} {marketLabel(m.market, lang)}</td>
+                  <td className="font-semibold">{marketLabel(m.market, lang)}</td>
                   <td className="text-end">{formatNumber(m.orders)}</td>
                   <td className="text-end font-semibold">{formatMoney(m.revenue_egp, lang)}</td>
                 </tr>

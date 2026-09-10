@@ -31,10 +31,12 @@ export function marketInfo(code: string | null | undefined): MarketInfo | null {
   return MARKETS.find((m) => m.code === code) ?? null;
 }
 
+// Name only: regional-indicator flag emojis render as bare letter pairs ("EG")
+// on Windows, so flags are kept in MARKETS but never shown in labels.
 export function marketLabel(code: string | null | undefined, lang: "ar" | "en"): string {
   const m = marketInfo(code);
   if (!m) return code ?? "—";
-  return `${m.flag} ${lang === "ar" ? m.ar : m.en}`;
+  return lang === "ar" ? m.ar : m.en;
 }
 
 export function marketFlag(code: string | null | undefined): string {
