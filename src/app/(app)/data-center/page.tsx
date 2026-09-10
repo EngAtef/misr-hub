@@ -5,6 +5,7 @@ import Link from "next/link";
 import { UploadCloud, FileSpreadsheet, CheckCircle2, XCircle, Info, ShoppingCart, Boxes, Warehouse, Users, BookOpen, Coins, FileDown, History, Package, Tags, TicketPercent, ShoppingBasket, PackageSearch, TrendingDown, ListTree, DollarSign } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
+import { rpcRetry } from "@/lib/use-analytics";
 import { PageHeader, Spinner, SortTh, useSort } from "@/components/ui";
 import { formatDateTime, formatDateTimeEg, formatNumber, cn } from "@/lib/utils";
 import { parseOrdersWorkbook, hasOrderNumberColumn, type ParsedOrder } from "@/lib/import/parse-orders";
@@ -179,6 +180,8 @@ export default function DataCenterPage() {
   const [processed, setProcessed] = useState(0);
   const [failed, setFailed] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
+  // carts upload: the cross-match timed out even after retries; the rows are saved
+  const [linkPending, setLinkPending] = useState(false);
   const [history, setHistory] = useState<UploadRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
@@ -562,8 +565,12 @@ export default function DataCenterPage() {
             setProcessed(ok);
             setProgress(Math.round((ok / ab.carts.length) * 100));
           }
-          // cross-match customers + auto-detect recovered carts
-          await supabase.rpc("fn_abandoned_link");
+          // cross-match customers + auto-detect recovered carts. On a cold cache the
+          // first run can exceed the 8 s statement cap, so retry; if it still fails the
+          // rows are already saved and the done screen points to Re-match.
+          setLinkPending(false);
+          const { error: linkErr } = await rpcRetry(supabase, "fn_abandoned_link", {});
+          if (linkErr) setLinkPending(true);
         } else if (ab.kind === "items") {
           for (let i = 0; i < ab.items.length; i += 2000) {
             const chunk = ab.items.slice(i, i + 2000);
@@ -614,6 +621,7 @@ export default function DataCenterPage() {
 
   function reset() {
     setPhase("idle");
+    setLinkPending(false);
     setPending(null);
     setProgress(0);
   }
@@ -792,6 +800,12 @@ export default function DataCenterPage() {
               {formatNumber(processed)} {t("rowsImported")}
               {failed > 0 && <span className="text-red-600"> — {formatNumber(failed)} {t("rowsFailedLabel")}</span>}
             </div>
+            {linkPending && (
+              <div className="mx-auto max-w-lg rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-start text-sm text-amber-800">
+                {t("abLinkPending")}{" "}
+                <Link href="/abandoned" className="font-semibold underline">{t("abRematch")}</Link>
+              </div>
+            )}
             <button className="btn-primary" onClick={reset}>
               {t("uploadOrders")}
             </button>

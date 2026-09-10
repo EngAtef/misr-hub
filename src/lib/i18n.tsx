@@ -1715,6 +1715,7 @@ const dict = {
   abExportMetaHint: { ar: "ملف بصيغة جماهير فيسبوك المخصصة (هاتف + بريد) للشريحة الحالية", en: "Facebook Custom Audience file (phone + email) for the current segment" },
   abRematch: { ar: "إعادة المطابقة", en: "Re-match" },
   abRematchHint: { ar: "مطابقة السلال مع العملاء والطلبات لاكتشاف المسترد تلقائياً", en: "Match carts against customers & orders to auto-detect recoveries" },
+  abLinkPending: { ar: "تم حفظ السلال، لكن مطابقة العملاء واكتشاف المسترد استغرقت وقتاً أطول من المسموح. افتح السلال المتروكة واضغط", en: "Carts saved, but matching customers and detecting recoveries took longer than allowed. Open Abandoned Carts and press" },
   abRematchDone: { ar: "تمت المطابقة — عملاء: {a} · بريد: {b} · مسترد تلقائياً: {c}", en: "Matched — customers: {a} · email: {b} · auto-recovered: {c}" },
   abViewItems: { ar: "عرض المنتجات", en: "View items" },
   abOpenCartUrl: { ar: "فتح رابط السلة", en: "Open cart URL" },
