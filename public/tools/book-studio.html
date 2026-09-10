@@ -77,6 +77,11 @@
   .pcard .ptools button{width:24px; height:24px; border:0; border-radius:6px; background:rgba(23,26,33,.62); color:#fff; cursor:pointer; font-size:12px; line-height:1; display:flex; align-items:center; justify-content:center}
   .pcard .ptools button:hover{background:rgba(23,26,33,.85)}
   .pcard .badge{position:absolute; bottom:34px; left:6px; font-family:var(--mono); font-size:9px; letter-spacing:.03em; background:var(--accent); color:#3a2602; padding:2px 5px; border-radius:4px; font-weight:700}
+  .pcard .badge.img{background:#dbe7ff; color:#12306b}
+  .pcard.extra{border-style:dashed}
+  .pcard .ptools button.rm{background:rgba(180,30,30,.75)} .pcard .ptools button.rm:hover{background:rgba(180,30,30,.95)}
+  .addimg-row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 10px}
+  .addimg-row select{padding:7px 10px; border:1px solid var(--hair-strong); border-radius:8px; font:inherit; background:#fff}
   .pcard{cursor:grab}
   .pcard.dragging{opacity:.4}
   .pcard.dropL{box-shadow:-4px 0 0 0 var(--brand)}
@@ -234,7 +239,7 @@
       <h2>Pages <span id="pageScanMsg" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)"></span></h2>
       <div class="controls-inline">
         <button class="linkbtn" id="selAll">Select all</button>
-        <button class="linkbtn" id="selNone">Clear</button>
+        <button class="linkbtn" id="selNone">Unselect all</button>
         <button class="linkbtn" id="resetOrder">Reset order</button>
       </div>
     </div>
@@ -245,6 +250,15 @@
       <span class="selcount" id="selCount">0 selected</span>
     </div>
     <p class="cap" style="margin:-2px 2px 8px">Type which pages to pick, then <b>Apply range</b> — e.g. <code>1-8, 12</code> selects pages 1 through 8 and page 12. On each tile: the <b>checkbox</b> includes it, <b>⟳</b> rotates it 90°, <b>ORIG</b> = saved at original quality, <b>SPREAD</b> = half of a split spread.</p>
+    <div class="addimg-row">
+      <button class="btn-ghost" id="addImgBtn" style="padding:8px 14px" title="Add your own picture as a page — e.g. a cover the EPUB is missing">＋ Add image pages</button>
+      <select id="extraPlace" title="Where the new image pages go; drag them afterwards to any spot">
+        <option value="start" selected>at the beginning (cover)</option>
+        <option value="end">at the end (back cover)</option>
+      </select>
+      <span class="cap" style="margin:0">Missing a cover or a page? Add a JPG/PNG — it becomes a tile marked <b>IMAGE</b> that you can drag anywhere between the book's pages, and it is exported exactly like them.</span>
+      <input id="extraImgInput" type="file" accept="image/*" multiple style="display:none" />
+    </div>
     <div class="pgrid" id="pageGrid"></div>
     </div><!-- /pagesSection -->
 
@@ -390,6 +404,8 @@
     <div class="results" id="results">
       <div class="section-title"><h2>Output</h2>
         <div class="controls-inline">
+          <button class="linkbtn" id="outSelAll">Select all</button>
+          <button class="linkbtn" id="outSelNone">Unselect all</button>
           <button class="btn-primary" id="hostBtn" style="display:none;padding:11px 20px;font-size:14px">🌐 Host &amp; get embed code</button>
           <button class="btn-ghost" id="downloadMain">Download</button>
         </div>
@@ -1002,18 +1018,19 @@
   function renderGrid(){
     const arr=orderedPages(); els.grid.innerHTML="";
     arr.forEach((p,i)=>{
-      const card=document.createElement("div"); card.className="pcard"+(p.selected?" sel":"");
-      const badges=[]; if(p.half) badges.push("SPREAD "+p.half); if(p.single) badges.push("ORIG");
+      const card=document.createElement("div"); card.className="pcard"+(p.selected?" sel":"")+(p.extra?" extra":"");
+      const badges=[]; if(p.extra) badges.push("IMAGE"); if(p.half) badges.push("SPREAD "+p.half); if(p.single) badges.push("ORIG");
       card.innerHTML=
         '<input class="pchk" type="checkbox" '+(p.selected?"checked":"")+'>'+
-        '<div class="ptools"><button class="rot" title="Rotate">⟳</button></div>'+
-        (badges.length?'<span class="badge">'+badges[0]+'</span>':'')+
+        '<div class="ptools">'+(p.extra?'<button class="rm" title="Remove this added image">✕</button>':'')+'<button class="rot" title="Rotate">⟳</button></div>'+
+        (badges.length?'<span class="badge'+(p.extra?' img':'')+'">'+badges[0]+'</span>':'')+
         '<div class="pthumb"><img alt="" src="'+p.thumb+'" style="transform:rotate('+p.rot+'deg)"></div>'+
         '<div class="pmeta"><span class="pno">'+pad(i+1)+'</span><span class="plbl">'+escapeHtml(p.secLabel)+'</span><span class="drag" title="Drag to reorder">⠿</span></div>';
       const chk=card.querySelector(".pchk");
       chk.addEventListener("change",()=>{ p.selected=chk.checked; card.classList.toggle("sel",chk.checked); updateSel(); });
       card.querySelector(".pthumb").addEventListener("click",()=>{ chk.checked=!chk.checked; chk.dispatchEvent(new Event("change")); });
       card.querySelector(".rot").addEventListener("click",e=>{ e.stopPropagation(); p.rot=(p.rot+90)%360; card.querySelector(".pthumb img").style.transform="rotate("+p.rot+"deg)"; });
+      const rmBtn=card.querySelector(".rm"); if(rmBtn) rmBtn.addEventListener("click",e=>{ e.stopPropagation(); removeExtraPage(p); });
       card.draggable=true;
       card.addEventListener("dragstart",e=>{ dragIdx=i; card.classList.add("dragging");
         e.dataTransfer.effectAllowed="move"; try{ e.dataTransfer.setData("text/plain",String(i)); }catch(err){} });
@@ -1042,12 +1059,16 @@
       const ordered=await renderPdfSelection(bk,pagesInOrder,opts,progress);
       return await finishExport(ordered,bk,opts,progress,pagesInOrder);
     }
-    // group by section to render each once
-    const bySec=new Map(); pagesInOrder.forEach((p,gi)=>{ if(!bySec.has(p.sec)) bySec.set(p.sec,[]); bySec.get(p.sec).push({p,gi}); });
+    // group by section to render each once (added images are rendered on their own)
+    const bySec=new Map(); pagesInOrder.forEach((p,gi)=>{ if(p.extra) return; if(!bySec.has(p.sec)) bySec.set(p.sec,[]); bySec.get(p.sec).push({p,gi}); });
     let done=0; const total=pagesInOrder.length;
     const secOrder=[...bySec.keys()];
     // we still must emit in pagesInOrder order -> store by gi then sort
     const byGi=new Map();
+    for(let gi=0; gi<pagesInOrder.length; gi++){ const p=pagesInOrder[gi]; if(!p.extra) continue;
+      if(progress) progress(done/total, "Rendering "+p.secLabel);
+      try{ byGi.set(gi,[await renderExtraPage(p,opts)]); }catch(e){ console.error("added image failed",e); }
+      done++; }
     for(const sec of secOrder){
       const s=bk.sections[sec]; const list=bySec.get(sec);
       /* reflowable sections are staged through the book layout engine at
@@ -1143,7 +1164,11 @@
   async function renderPdfSelection(bk,pagesInOrder,opts,progress){
     const byGi=new Map(); let done=0; const total=pagesInOrder.length;
     const byPage=new Map();
-    pagesInOrder.forEach((p,gi)=>{ if(!byPage.has(p.pdfPage)) byPage.set(p.pdfPage,[]); byPage.get(p.pdfPage).push({p,gi}); });
+    pagesInOrder.forEach((p,gi)=>{ if(p.extra) return; if(!byPage.has(p.pdfPage)) byPage.set(p.pdfPage,[]); byPage.get(p.pdfPage).push({p,gi}); });
+    for(let gi=0; gi<pagesInOrder.length; gi++){ const p=pagesInOrder[gi]; if(!p.extra) continue;
+      if(progress) progress(done/total, "Rendering "+p.secLabel);
+      try{ byGi.set(gi,await renderExtraPage(p,opts)); }catch(e){ console.error("added image failed",e); }
+      done++; }
     for(const [num,list] of byPage){
       if(progress) progress(done/total, "Rendering page "+num);
       let full=null;
@@ -1208,6 +1233,7 @@
     let cont=0; const perSec={};
     arr.forEach((r,i)=>{ const p=r.p||{}; cont++;
       if(opts.numbering==="continuous"){ r.name=prefix+pad(cont,3)+(r.ext||".png"); }
+      else if(p.extra){ r.name=prefix+"00_added_"+slugify(p.secLabel||"image")+(r.ext||".png"); }
       else { const sk=p.sec==null?0:p.sec; perSec[sk]=(perSec[sk]||0)+1; const slug=slugify(p.secLabel||("section-"+((sk||0)+1))); let n=prefix+pad((sk||0)+1)+"_"+slug+"_p"+pad(perSec[sk]); if(p.half) n+="_"+p.half; r.name=n+(r.ext||".png"); }
     });
     // dedupe
@@ -1767,8 +1793,63 @@
   }
   function rebindBlobs(bk){ /* blob URLs were created during that book's parse; for batch we re-parse fresh each book so this is a placeholder for clarity */ }
 
+  /* ============================ added image pages ============================ */
+  /* A picture the user adds (a cover the EPUB lacks, a back cover, an insert)
+     becomes a normal page tile: it is selected, dragged, rotated and exported
+     like any scanned page. It never touches the book's own sections, so text
+     harvest and the section renderers simply skip it. */
+  async function addExtraImages(fileList){
+    if(!book||!book.pages) return;
+    const files=[...fileList].filter(f=>/^image\//i.test(f.type)||/\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name));
+    if(!files.length){ showErr("Please choose image files (JPG, PNG or WebP)."); return; }
+    const atStart=(E("extraPlace")||{}).value!=="end";
+    const made=[]; const failed=[];
+    for(const f of files){
+      try{
+        const im=await blobToImage(f); const w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
+        const r=Math.min(1,THUMB_W/Math.max(1,w)); const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w*r)); c.height=Math.max(1,Math.round(h*r));
+        const cx=c.getContext("2d"); cx.fillStyle="#fff"; cx.fillRect(0,0,c.width,c.height); cx.imageSmoothingQuality="high"; cx.drawImage(im,0,0,c.width,c.height);
+        try{ URL.revokeObjectURL(im.src); }catch(e){}
+        const label=(f.name||"image").replace(/\.[a-z0-9]+$/i,"");
+        made.push({ sec:-1, secLabel:label, idxInSec:0, half:null, thumb:c.toDataURL("image/jpeg",0.82), single:null, rot:0, selected:true, kind:"PAGE",
+                    extra:{ blob:f, type:f.type||"", w, h, name:f.name } });
+      }catch(e){ failed.push(f.name); }
+    }
+    if(made.length){
+      const ords=book.pages.map(p=>p.ord||0); const lo=ords.length?Math.min(...ords):0, hi=ords.length?Math.max(...ords):0;
+      made.forEach((p,k)=>{ p.ord = atStart ? lo-made.length+k : hi+1+k; });
+      if(els.reverse&&els.reverse.checked){ if(atStart) book.pages.push(...made.slice().reverse()); else book.pages.unshift(...made.slice().reverse()); }
+      else { if(atStart) book.pages.unshift(...made); else book.pages.push(...made); }
+      renderGrid();
+      els.pageScanMsg.textContent="· "+book.pages.length+" pages ("+book.pages.filter(p=>p.extra).length+" added)";
+    }
+    if(failed.length) showErr("Couldn't read "+failed.join(", ")+" — use JPG, PNG or WebP."); else hideErr();
+  }
+  function removeExtraPage(p){ if(!book||!book.pages) return; book.pages=book.pages.filter(x=>x!==p); renderGrid();
+    const n=book.pages.filter(x=>x.extra).length; els.pageScanMsg.textContent="· "+book.pages.length+" pages"+(n?" ("+n+" added)":""); }
+  async function renderExtraPage(p,opts){
+    const x=p.extra;
+    const transformsNeeded = p.rot||opts.trim||opts.uniform||(opts.bgMode!=="white");
+    /* untouched + same format: ship the file as-is, full quality */
+    if(opts.useOriginal && !transformsNeeded && x.type===opts.format && x.w && x.h)
+      return {name:"",blob:x.blob,w:x.w,h:x.h,ext:extFromType(x.type),p};
+    const im=await blobToImage(x.blob);
+    const maxW=Math.round(opts.W*(opts.scale||1));
+    let cw=im.naturalWidth||im.width, ch=im.naturalHeight||im.height;
+    if(cw>maxW){ ch=Math.round(ch*maxW/cw); cw=maxW; }
+    const c=document.createElement("canvas"); c.width=Math.max(1,cw); c.height=Math.max(1,ch);
+    const cx=c.getContext("2d");
+    if(opts.bgMode!=="transparent"){ cx.fillStyle=opts.bgMode==="custom"?opts.bgColor:"#ffffff"; cx.fillRect(0,0,c.width,c.height); }
+    cx.imageSmoothingQuality="high"; cx.drawImage(im,0,0,c.width,c.height);
+    try{ URL.revokeObjectURL(im.src); }catch(e){}
+    let pc=c; if(opts.trim) pc=trimCanvas(pc,opts); if(p.rot) pc=rotateCanvas(pc,p.rot);
+    const blob=await canvasToBlob(pc,opts.format,opts.format==="image/png"?undefined:opts.quality);
+    return {name:"",blob,w:pc.width,h:pc.height,ext:extFromType(opts.format),p};
+  }
+
   /* ============================ list selection helpers ============================ */
   function setAll(v){ book.pages.forEach(p=>p.selected=v); renderGrid(); }
+  function setAllOut(v){ $$(".plate",els.gallery).forEach(div=>{ const chk=div.querySelector(".pchk2"); if(chk&&chk.checked!==v){ chk.checked=v; chk.dispatchEvent(new Event("change")); } }); }
   function resetOrder(){ if(!book||!book.pages) return; book.pages.sort((a,b)=>(a.ord||0)-(b.ord||0)); renderGrid(); }
   function applyRange(){ const arr=orderedPages(); const set=parseRange(els.rangeInput.value,arr.length); if(!set){ return; } arr.forEach((p,i)=>p.selected=set.has(i+1)); renderGrid(); }
 
@@ -1875,8 +1956,10 @@
   async function rescan(){
     if(!book) return; const my=++rescanToken; const opts=optsFromUI(); book.opts=opts;
     els.pageScanMsg.textContent="· scanning pages…"; els.grid.innerHTML="";
+    const keep=(book.pages||[]).map((p,i)=>({p,i})).filter(o=>o.p.extra);   // added images survive a re-scan
     try{ const pages=await scanBook(book,opts,(f,t)=>{ els.pageScanMsg.textContent="· "+t; }); if(my!==rescanToken) return;
       pages.forEach((p,idx)=>{ p.ord=idx; });   // original sequence, for "Reset order"
+      keep.forEach(o=>{ const at=Math.min(o.i,pages.length); pages.splice(at,0,o.p); o.p.ord=at-0.5; });
       book.pages=pages;
       els.count.textContent=(book.type==="pdf" ? book.numPages+" PDF pages" : book.sections.length+" sections")+" · "+pages.length+" pages";
       if(book.type==="pdf" && !book.coverURL && pages.length){ els.cover.src=pages[0].thumb; els.cover.style.display=""; }
@@ -1931,6 +2014,10 @@
   E("mergeCancelBtn").addEventListener("click",()=>{ hideMergeChoice(); els.drop.classList.remove("hidden"); });
   els.selAll.addEventListener("click",()=>setAll(true));
   els.selNone.addEventListener("click",()=>setAll(false));
+  E("outSelAll").addEventListener("click",()=>setAllOut(true));
+  E("outSelNone").addEventListener("click",()=>setAllOut(false));
+  E("addImgBtn").addEventListener("click",()=>E("extraImgInput").click());
+  E("extraImgInput").addEventListener("change",e=>{ addExtraImages(e.target.files); e.target.value=""; });
   E("resetOrder").addEventListener("click",resetOrder);
   els.rangeApply.addEventListener("click",applyRange);
   els.rangeInput.addEventListener("keydown",e=>{ if(e.key==="Enter") applyRange(); });
