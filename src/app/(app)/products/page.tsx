@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Users, Info } from "lucide-react";
+import { Download, Users, Info, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
 import { useDateRange, DateRangeFilter } from "@/components/date-range";
 import { SearchBox } from "@/components/search-box";
+import { MultiSelect } from "@/components/multi-select";
 import { ProductDrawer } from "@/components/product-drawer";
 import { rangeParams, rpcRetry } from "@/lib/use-analytics";
 import { PageHeader, Spinner, EmptyState, SortTh, Pagination, DeltaBadge, type SortState } from "@/components/ui";
@@ -46,6 +47,8 @@ interface CatalogRow {
   price_usd?: number | null;
   // migration 134 — current discounted store price (null = no offer)
   sale_price?: number | null;
+  // migration 146 — store sub-category (products.category); `category` is the section
+  subcategory?: string | null;
 }
 
 interface Totals {
@@ -76,6 +79,31 @@ const SCOPES = [
   { key: "on_sale", label: "scopeOnSale" },
 ] as const;
 
+// Attribute filters (migration 146). Keys are the jsonb keys fn_catalog_products
+// understands; options come from fn_catalog_filter_options. Empty = all.
+// `category` is the store section, `vendor` is the brand, `subcategory` the
+// store's finer category (products.category).
+const FILTER_FIELDS = [
+  { key: "category", label: "allCategories" },
+  { key: "vendor", label: "allBrands" },
+  { key: "subcategory", label: "allSubCategories" },
+  { key: "publisher", label: "allPublishers" },
+  { key: "author", label: "allAuthors" },
+  { key: "series", label: "allSeries" },
+  { key: "language", label: "allLanguages" },
+  { key: "age", label: "allAges" },
+  { key: "cover_type", label: "allCoverTypes" },
+  { key: "semester", label: "allSemesters" },
+] as const;
+type FilterKey = (typeof FILTER_FIELDS)[number]["key"];
+type Filters = Partial<Record<FilterKey, string[]>>;
+
+interface FilterOptionRow {
+  field: string;
+  value: string;
+  n: number;
+}
+
 export default function ProductsPage() {
   const { t, lang } = useLang();
   const supabase = useMemo(() => createClient(), []);
@@ -93,6 +121,22 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [openSku, setOpenSku] = useState<CatalogRow | null>(null);
+  const [filters, setFilters] = useState<Filters>({});
+  const [filterOptions, setFilterOptions] = useState<Record<string, { value: string; n: number }[]>>({});
+
+  // jsonb argument for the RPCs — only keys with a selection, null when none.
+  // Serialized once so effects can depend on a stable string instead of an
+  // object identity that changes on every render.
+  const filterArg = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const f of FILTER_FIELDS) {
+      const v = filters[f.key];
+      if (v && v.length) out[f.key] = v;
+    }
+    return Object.keys(out).length ? out : null;
+  }, [filters]);
+  const filterKey = JSON.stringify(filterArg);
+  const activeFilterCount = filterArg ? Object.keys(filterArg).length : 0;
 
   const total = totals?.products ?? rows[0]?.total_count ?? 0;
   const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
@@ -100,7 +144,24 @@ export default function ProductsPage() {
   // any filter change invalidates the current page number
   useEffect(() => {
     setPage(0);
-  }, [search, scope, range.from, range.to, sort?.key, sort?.dir]);
+  }, [search, scope, filterKey, range.from, range.to, sort?.key, sort?.dir]);
+
+  // dropdown options — catalog attributes only (no sales scan), loaded once
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await rpcRetry<FilterOptionRow[]>(supabase, "fn_catalog_filter_options", {});
+      if (cancelled) return;
+      const map: Record<string, { value: string; n: number }[]> = {};
+      for (const r of data ?? []) {
+        (map[r.field] ??= []).push({ value: r.value, n: Number(r.n) });
+      }
+      setFilterOptions(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   // ?q= deep link — the SKU links inside an order's line items land here.
   // Scope is forced to the whole catalog so a 0-stock or never-sold book
@@ -112,6 +173,7 @@ export default function ProductsPage() {
         setSearchInput(q);
         setSearch(q.trim());
         setScope("all");
+        setFilters({});
         setPage(0);
       }
     };
@@ -136,6 +198,7 @@ export default function ProductsPage() {
         p_dir: sort?.dir ?? "desc",
         p_limit: PAGE_SIZE,
         p_offset: page * PAGE_SIZE,
+        p_filters: filterArg,
       });
       if (cancelled) return;
       setLoadError(!!error);
@@ -146,7 +209,8 @@ export default function ProductsPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, range.from, range.to, search, scope, sort?.key, sort?.dir, page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- filterKey is filterArg serialized
+  }, [supabase, range.from, range.to, search, scope, filterKey, sort?.key, sort?.dir, page]);
 
   // totals strip (whole filtered set, not just this page). Runs only after
   // the first page query has succeeded: totals re-runs the same heavy scan,
@@ -160,13 +224,15 @@ export default function ProductsPage() {
         ...rangeParams(range),
         p_search: search || null,
         p_scope: scope,
+        p_filters: filterArg,
       });
       if (!cancelled) setTotals((data ?? [])[0] ?? null);
     })();
     return () => {
       cancelled = true;
     };
-  }, [supabase, warm, range.from, range.to, search, scope]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- filterKey is filterArg serialized
+  }, [supabase, warm, range.from, range.to, search, scope, filterKey]);
 
   // comparison period — per-SKU deltas for the visible rows
   useEffect(() => {
@@ -236,12 +302,14 @@ export default function ProductsPage() {
       p_dir: sort?.dir ?? "desc",
       p_limit: 50000,
       p_offset: 0,
+      p_filters: filterArg,
     });
     const list = data.map((r) => ({
       sku: r.sku,
       product_name: r.product_name,
       category: r.category,
-      vendor: r.vendor,
+      subcategory: r.subcategory ?? null,
+      brand: r.vendor,
       author: r.author,
       publisher: r.publisher,
       language: r.language,
@@ -334,6 +402,36 @@ export default function ProductsPage() {
           onCommit={setSearch}
           active={!!search}
         />
+
+        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+          {FILTER_FIELDS.map((f) => (
+            // options arrive ordered by how many SKUs carry each value, so
+            // the common ones (DISNEY, Kids, دار نهضة مصر) sit at the top
+            <MultiSelect
+              key={f.key}
+              options={(filterOptions[f.key] ?? []).map((o) => o.value)}
+              values={filters[f.key] ?? []}
+              onChange={(v) => setFilters((prev) => ({ ...prev, [f.key]: v }))}
+              placeholder={t(f.label)}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <span className="flex items-start gap-1.5">
+            <Info size={13} className="mt-0.5 shrink-0" />
+            {t("catalogFiltersHint")}
+          </span>
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-200"
+              onClick={() => setFilters({})}
+            >
+              <X size={12} />
+              {t("clearFilters")} ({activeFilterCount})
+            </button>
+          )}
+        </div>
 
         {totals && (
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-violet-50 border border-violet-100 px-4 py-2.5 text-sm text-violet-900">
@@ -441,7 +539,14 @@ export default function ProductsPage() {
                       </td>
                       <td dir="ltr" className="font-mono text-xs text-slate-500">{r.sku}</td>
                       <td className="!whitespace-normal max-w-[10rem] text-xs text-slate-600">{r.author ?? r.publisher ?? "—"}</td>
-                      <td className="text-xs text-slate-500">{r.category ?? "—"}</td>
+                      <td className="!whitespace-normal max-w-[11rem] text-xs text-slate-500">
+                        <div>{r.category ?? "—"}</div>
+                        {(r.subcategory || r.vendor) && (
+                          <div className="text-[10px] text-slate-400">
+                            {[r.subcategory, r.vendor].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </td>
                       <td className="whitespace-nowrap text-sm">
                         {(() => {
                           const orig = r.price === null ? null : Number(r.price);
