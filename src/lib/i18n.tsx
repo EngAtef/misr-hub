@@ -1257,6 +1257,10 @@ const dict = {
     en: "Merge {n} customers into one record under “{name}”? You can undo it later by unlinking any account.",
   },
   rebuildIdentities: { ar: "إعادة فحص التكرارات", en: "Re-scan duplicates" },
+  rebuildRunning: { ar: "فحص التكرارات جارٍ في الخلفية…", en: "Duplicate scan running in the background…" },
+  rebuildLastRun: { ar: "آخر فحص:", en: "Last scan:" },
+  rebuildStillRunning: { ar: "الفحص ما زال جارياً في الخلفية؛ حدّث الصفحة بعد دقائق.", en: "The scan is still running in the background; refresh the page in a few minutes." },
+  identityQueued: { ar: "تم حفظ العملاء. دمج الحسابات المكررة يتم في الخلفية خلال دقائق.", en: "Customers saved. Duplicate-account merging runs in the background within a few minutes." },
   rebuildHint: {
     ar: "يعيد تجميع الحسابات المكررة بعد رفع ملفات عملاء جديدة",
     en: "Re-groups duplicate accounts after new customer files are uploaded",

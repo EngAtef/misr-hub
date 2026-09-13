@@ -182,6 +182,8 @@ export default function DataCenterPage() {
   const [errorMsg, setErrorMsg] = useState("");
   // carts upload: the cross-match timed out even after retries; the rows are saved
   const [linkPending, setLinkPending] = useState(false);
+  // customers upload: the duplicate-account merge now runs on the database scheduler
+  const [identityQueued, setIdentityQueued] = useState(false);
   const [history, setHistory] = useState<UploadRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
@@ -449,7 +451,11 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.customers.length) * 100));
         }
         // new/changed accounts may be duplicates of existing people
-        await supabase.rpc("fn_rebuild_customer_identities");
+        {
+          // the rebuild takes minutes, so it is queued for pg_cron (migration 143)
+          const { error: reqErr } = await supabase.rpc("fn_request_identity_rebuild");
+          setIdentityQueued(!reqErr);
+        }
         await recordUpload(pending.fileName, pending.customers.length, ok, 0);
       } else if (pending.type === "customer_stats" && pending.customerStats) {
         let ok = 0;
@@ -462,7 +468,11 @@ export default function DataCenterPage() {
           setProgress(Math.round((ok / pending.customerStats.length) * 100));
         }
         // lifetime figures changed -> refresh the merged per-person totals
-        await supabase.rpc("fn_rebuild_customer_identities");
+        {
+          // the rebuild takes minutes, so it is queued for pg_cron (migration 143)
+          const { error: reqErr } = await supabase.rpc("fn_request_identity_rebuild");
+          setIdentityQueued(!reqErr);
+        }
         await recordUpload(pending.fileName, pending.customerStats.length, ok, 0);
       } else if (pending.type === "products" && pending.products) {
         // same pipeline as the Catalog page: full catalog rows -> products,
@@ -622,6 +632,7 @@ export default function DataCenterPage() {
   function reset() {
     setPhase("idle");
     setLinkPending(false);
+    setIdentityQueued(false);
     setPending(null);
     setProgress(0);
   }
@@ -804,6 +815,11 @@ export default function DataCenterPage() {
               <div className="mx-auto max-w-lg rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-start text-sm text-amber-800">
                 {t("abLinkPending")}{" "}
                 <Link href="/abandoned" className="font-semibold underline">{t("abRematch")}</Link>
+              </div>
+            )}
+            {identityQueued && (
+              <div className="mx-auto max-w-lg rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-start text-sm text-emerald-800">
+                {t("identityQueued")}
               </div>
             )}
             <button className="btn-primary" onClick={reset}>

@@ -8,7 +8,7 @@ import { Spinner, SortTh } from "@/components/ui";
 import { MultiSelect } from "@/components/multi-select";
 import { SearchBox } from "@/components/search-box";
 import { ContactActions } from "@/components/contact-actions";
-import { formatMoney, formatNumber, formatDate, toCsv, downloadCsv, cn } from "@/lib/utils";
+import { formatMoney, formatNumber, formatDate, formatDateTimeEg, toCsv, downloadCsv, cn } from "@/lib/utils";
 import { AttrBadge } from "@/components/attr-badge";
 import { attrLabel } from "@/lib/attribution";
 import { FILTER_MARKETS, marketLabel } from "@/lib/markets";
@@ -22,6 +22,8 @@ function acquiredCell(c: Identity, lang: "ar" | "en") {
 }
 import { useMyRole } from "@/lib/use-role";
 import type { Identity } from "@/components/customer-drawer";
+
+type RebuildStatus = { status?: string; requested_at?: string; started_at?: string; finished_at?: string; duration_s?: number; error?: string | null };
 import { confirmDialog, notifyDialog } from "@/components/dialog";
 
 const SEGMENTS = ["champions", "loyal", "new", "promising", "at_risk", "hibernating"];
@@ -215,16 +217,44 @@ export function CustomerBrowser({
     onChanged?.();
   }
 
+  // The rebuild takes minutes, so it runs on the database scheduler (migration
+  // 143): request it, then poll the status document until that run lands.
+  const [rebuildStatus, setRebuildStatus] = useState<RebuildStatus | null>(null);
+  const loadRebuildStatus = useCallback(async () => {
+    const { data } = await supabase.rpc("fn_identity_rebuild_status");
+    setRebuildStatus((data as RebuildStatus) ?? null);
+  }, [supabase]);
+  useEffect(() => { loadRebuildStatus(); }, [loadRebuildStatus]);
+
   async function rebuild() {
     setBusy(true);
-    const { error } = await supabase.rpc("fn_rebuild_customer_identities");
-    setBusy(false);
+    const { data: req, error } = await supabase.rpc("fn_request_identity_rebuild");
     if (error) {
+      setBusy(false);
       await notifyDialog(error.message);
       return;
     }
-    await reload();
-    onChanged?.();
+    setRebuildStatus((req as RebuildStatus) ?? null);
+    const since = Date.parse((req as RebuildStatus)?.requested_at ?? "") || Date.now();
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10000));
+      const { data } = await supabase.rpc("fn_identity_rebuild_status");
+      const s = (data as RebuildStatus) ?? null;
+      setRebuildStatus(s);
+      if (s?.finished_at && Date.parse(s.finished_at) >= since) {
+        setBusy(false);
+        if (s.status === "error") {
+          await notifyDialog(s.error ?? t("queryFailed"));
+          return;
+        }
+        await reload();
+        onChanged?.();
+        return;
+      }
+    }
+    setBusy(false);
+    await notifyDialog(t("rebuildStillRunning"));
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -251,6 +281,11 @@ export function CustomerBrowser({
               {t("rebuildIdentities")}
             </button>
           )}
+          {rebuildStatus && (rebuildStatus.status === "running" || rebuildStatus.status === "queued" ? (
+            <span className="text-xs text-amber-700">{t("rebuildRunning")}</span>
+          ) : rebuildStatus.finished_at ? (
+            <span className="text-xs text-slate-500">{t("rebuildLastRun")} {formatDateTimeEg(rebuildStatus.finished_at)}</span>
+          ) : null)}
           <button className="btn-secondary" onClick={exportAll} disabled={exporting || !total}>
             <Download size={16} />
             {t("exportList")}
