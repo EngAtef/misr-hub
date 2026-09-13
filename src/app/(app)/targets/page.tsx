@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Target, TrendingUp, Users, MousePointerClick, Wallet, Plus, X, UploadCloud, BookOpen, Globe, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang } from "@/lib/i18n";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, QueryFailed } from "@/components/ui";
 import { formatMoney, formatNumber, cn } from "@/lib/utils";
 import { parseTargetsFile } from "@/lib/import/parse-targets";
 import { marketLabel } from "@/lib/markets";
@@ -176,9 +176,12 @@ function EgyptTargets({ tabs }: { tabs: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<TargetRow | null>(null);
   const [editing, setEditing] = useState<TargetRow | null | "new">(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    supabase.rpc("fn_targets_overview").then(({ data }) => {
+    supabase.rpc("fn_targets_overview").then(({ data, error }) => {
+      // a timed-out or failed RPC must never render as "no data"
+      setLoadError(error?.message ?? null);
       const list = (data as TargetRow[]) ?? [];
       setRows(list);
       // default-select the current month if present, else the last one with actuals
@@ -246,7 +249,7 @@ function EgyptTargets({ tabs }: { tabs: React.ReactNode }) {
       <div>
         <PageHeader title={t("targets")} actions={addButton} />
         {tabs}
-        <EmptyState message={t("noData")} />
+        {loadError ? <QueryFailed error={loadError} onRetry={() => { setLoading(true); load(); }} /> : <EmptyState message={t("noData")} />}
         {editing && <TargetModal target={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       </div>
     );
