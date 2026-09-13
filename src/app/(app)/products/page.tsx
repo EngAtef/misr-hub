@@ -49,6 +49,8 @@ interface CatalogRow {
   sale_price?: number | null;
   // migration 146 — store sub-category (products.category); `category` is the section
   subcategory?: string | null;
+  // migration 147 — vendor without the publisher fallback (the true brand)
+  brand?: string | null;
 }
 
 interface Totals {
@@ -81,11 +83,12 @@ const SCOPES = [
 
 // Attribute filters (migration 146). Keys are the jsonb keys fn_catalog_products
 // understands; options come from fn_catalog_filter_options. Empty = all.
-// `category` is the store section, `vendor` is the brand, `subcategory` the
-// store's finer category (products.category).
+// `category` is the store section, `brand` is the vendor field WITHOUT the
+// publisher fallback the table's vendor column uses (migration 147), and
+// `subcategory` the store's finer category (products.category).
 const FILTER_FIELDS = [
   { key: "category", label: "allCategories" },
-  { key: "vendor", label: "allBrands" },
+  { key: "brand", label: "allBrands" },
   { key: "subcategory", label: "allSubCategories" },
   { key: "publisher", label: "allPublishers" },
   { key: "author", label: "allAuthors" },
@@ -309,7 +312,8 @@ export default function ProductsPage() {
       product_name: r.product_name,
       category: r.category,
       subcategory: r.subcategory ?? null,
-      brand: r.vendor,
+      brand: r.brand ?? null,
+      vendor: r.vendor,
       author: r.author,
       publisher: r.publisher,
       language: r.language,
@@ -541,9 +545,9 @@ export default function ProductsPage() {
                       <td className="!whitespace-normal max-w-[10rem] text-xs text-slate-600">{r.author ?? r.publisher ?? "—"}</td>
                       <td className="!whitespace-normal max-w-[11rem] text-xs text-slate-500">
                         <div>{r.category ?? "—"}</div>
-                        {(r.subcategory || r.vendor) && (
+                        {(r.subcategory || r.brand) && (
                           <div className="text-[10px] text-slate-400">
-                            {[r.subcategory, r.vendor].filter(Boolean).join(" · ")}
+                            {[r.subcategory, r.brand].filter(Boolean).join(" · ")}
                           </div>
                         )}
                       </td>
