@@ -1919,6 +1919,7 @@ const dict = {
 
   // Segments Center
   segments: { ar: "مركز الشرائح", en: "Segments" },
+  whatsapp: { ar: "حملات واتساب", en: "WhatsApp" },
   segmentsSubtitle: { ar: "ابنِ شرائح العملاء وصدّرها كقوائم اتصال جاهزة لحملات SMS", en: "Build customer segments and export them as SMS-ready contact lists" },
   segTotalPeople: { ar: "إجمالي العملاء", en: "Total people" },
   segReachable: { ar: "أرقام صالحة للإرسال", en: "Valid mobile numbers" },

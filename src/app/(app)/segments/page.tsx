@@ -13,7 +13,7 @@ import {
   Crown, Heart, Sparkles, Sprout, AlertTriangle, Moon, UserX, Trophy, Gem,
   Cake, ShoppingBag, CalendarClock, Save, Download, Copy, Ban, Calculator,
   RefreshCw, Trash2, FolderOpen, Search, X, Filter, Users2, Phone, CheckCircle2,
-  ShieldCheck, Send, History,
+  ShieldCheck, Send, History, MessageCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useLang, type DictKey } from "@/lib/i18n";
@@ -477,6 +477,14 @@ export default function SegmentsPage() {
                   <Download size={14} />
                   {t("segExportCsv")}
                 </button>
+                <a
+                  className="btn-secondary !py-1.5 text-xs !text-emerald-700"
+                  title="WhatsApp"
+                  href={`/whatsapp?def=${encodeURIComponent(JSON.stringify(activeDef))}&label=${encodeURIComponent(activeLabel)}${activeSavedId ? `&sid=${activeSavedId}` : ""}`}
+                >
+                  <MessageCircle size={14} />
+                  WhatsApp
+                </a>
               </div>
             </div>
 

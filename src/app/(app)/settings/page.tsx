@@ -285,18 +285,20 @@ export default function SettingsPage() {
         <IntegrationCard
           settingKey="whatsapp"
           title="WhatsApp Business API (official)"
-          description="Automated messages: order confirmation, 'shipped', delivery reminders, birthday vouchers, and abandoned-cart recovery. Needs a WhatsApp Cloud API phone-number ID + permanent token."
+          description="Marketing campaigns to segments (WhatsApp page) plus, later, order notifications. Needs the Cloud API Phone Number ID, WABA ID and a permanent token; the verify token + app secret secure the webhook that brings back delivery, reads and replies."
           fields={[
             { key: "phone_number_id", label: "Phone Number ID", placeholder: "1029384756" },
             { key: "business_account_id", label: "WABA ID", placeholder: "9988776655" },
             { key: "access_token", label: "Permanent Access Token", secret: true },
+            { key: "verify_token", label: "Webhook Verify Token (any secret phrase you choose)", placeholder: "nm-wa-2026" },
+            { key: "app_secret", label: "App Secret (Meta app → App settings → Basic)", secret: true },
           ]}
           steps={[
-            { text: "Meta for Developers → create/select an app → add 'WhatsApp':", url: "https://developers.facebook.com/apps" },
-            { text: "WhatsApp → API Setup → copy the Phone Number ID and WABA ID" },
-            { text: "Create a System User with a permanent token (whatsapp_business_messaging scope)" },
-            { text: "Register & verify your sender number; get message templates approved" },
-            { text: "Cloud API docs:", url: "https://developers.facebook.com/docs/whatsapp/cloud-api" },
+            { text: "Meta for Developers → your Business-type app → Add use cases → 'Connect with customers through WhatsApp':", url: "https://developers.facebook.com/apps" },
+            { text: "WhatsApp → API Setup → copy the Phone Number ID and WABA ID (the test number works for a first trial)" },
+            { text: "Business Settings → System users → add the (test) WhatsApp account as an asset → Generate token with whatsapp_business_messaging + whatsapp_business_management" },
+            { text: "Type any Verify Token here and Save. Then in Meta: WhatsApp → Configuration → Callback URL = <app URL>/api/whatsapp/webhook with that token; subscribe to 'messages'" },
+            { text: "Create Arabic marketing templates in WhatsApp Manager, wait for approval, then open the WhatsApp page:", url: "https://business.facebook.com/wa/manage/message-templates" },
           ]}
         />
         <IntegrationCard

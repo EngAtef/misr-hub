@@ -38,6 +38,7 @@ import {
   Crosshair,
   UsersRound,
   Radar,
+  MessageCircle,
 } from "lucide-react";
 
 export type NavGroup = "daily" | "sales" | "catalog" | "marketing" | "finance" | "tools" | "admin";
@@ -75,6 +76,7 @@ export const NAV: NavItem[] = [
   { href: "/orders", labelKey: "orders", icon: ShoppingCart, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/customers", labelKey: "customers", icon: HeartHandshake, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/segments", labelKey: "segments", icon: UsersRound, roles: ["admin", "manager", "viewer"], group: "sales" },
+  { href: "/whatsapp", labelKey: "whatsapp", icon: MessageCircle, roles: ["admin", "manager"], group: "sales" },
   { href: "/abandoned", labelKey: "abandoned", icon: ShoppingBasket, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/delivery", labelKey: "deliveryReports", icon: Truck, roles: ["admin", "manager", "viewer"], group: "sales" },
   { href: "/returns", labelKey: "returns", icon: Undo2, roles: ["admin", "manager", "viewer"], group: "sales" },
